@@ -1,5 +1,5 @@
 // TEMPORARY admin tool: copies Storage files to the new backend. Remove after migration.
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 
@@ -9,7 +9,7 @@ export default function TmpStorageMigration() {
   const [buckets, setBuckets] = useState<Bucket[]>([]);
   const [log, setLog] = useState<string[]>([]);
   const [running, setRunning] = useState<string | null>(null);
-  const [stop, setStop] = useState(false);
+  const stopRef = useRef(false);
   const add = (s: string) => setLog((l) => [`${new Date().toLocaleTimeString()} ${s}`, ...l].slice(0, 500));
 
   const call = async (body: Record<string, unknown>) => {
@@ -26,7 +26,7 @@ export default function TmpStorageMigration() {
   const run = async (bucket: string, action: 'copy' | 'verify', dryRun = false) => {
     const key = `cursor:${action}:${bucket}`;
     let cursor = localStorage.getItem(key) ?? '';
-    setRunning(bucket); setStop(false);
+    setRunning(bucket); stopRef.current = false;
     const tot = { copied: 0, skipped: 0, failed: 0, missing: 0, present: 0, wouldCopy: 0 };
     try {
       for (;;) {
@@ -36,7 +36,7 @@ export default function TmpStorageMigration() {
         add(`${bucket} ${action}${dryRun ? ' (dry)' : ''}: ${JSON.stringify(tot)} next=${d.nextCursor ?? 'DONE'}`);
         if (d.done || !d.nextCursor) { localStorage.removeItem(key); break; }
         cursor = d.nextCursor; if (!dryRun) localStorage.setItem(key, cursor);
-        if (stop) break;
+        if (stopRef.current) break;
       }
     } catch (e) { add(`ERROR ${bucket}: ${(e as Error).message} (resume continues from saved cursor)`); }
     setRunning(null);
@@ -63,7 +63,7 @@ export default function TmpStorageMigration() {
           ))}
         </tbody>
       </table>
-      {running && <Button variant="destructive" onClick={() => setStop(true)}>Stop after current batch ({running})</Button>}
+      {running && <Button variant="destructive" onClick={() => { stopRef.current = true; }}>Stop after current batch ({running})</Button>}
       <pre className="bg-muted p-3 text-xs max-h-[600px] overflow-auto whitespace-pre-wrap">{log.join('\n')}</pre>
     </div>
   );
