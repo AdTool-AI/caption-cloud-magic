@@ -117,6 +117,7 @@ const UsageReports = lazyWithRetry(() => import("./pages/Analytics/UsageReports"
 const PlatformAnalytics = lazyWithRetry(() => import("./pages/Analytics/PlatformAnalytics"));
 const Admin = lazyWithRetry(() => import("./pages/Admin"));
 const LambdaHealth = lazyWithRetry(() => import("./pages/admin/LambdaHealth"));
+const TmpStorageMigration = lazyWithRetry(() => import("./pages/admin/TmpStorageMigration"));
 const QACockpit = lazyWithRetry(() => import("./pages/admin/QACockpit"));
 
 
@@ -363,6 +364,7 @@ function AppLayout() {
               <AdminAnalytics />
             </ProtectedRoute>
           } />
+          <Route path="/admin/tmp-storage-migration" element={<ProtectedRoute requireRole="admin"><TmpStorageMigration /></ProtectedRoute>} />
           <Route path="/admin/lambda-health" element={
             <ProtectedRoute requireRole="admin">
               <LambdaHealth />

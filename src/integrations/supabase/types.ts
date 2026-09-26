@@ -21663,6 +21663,23 @@ export type Database = {
         Args: { _window_min?: number }
         Returns: number
       }
+      tmp_storage_migration_counts: {
+        Args: never
+        Returns: {
+          bucket_id: string
+          bytes: number
+          objects: number
+        }[]
+      }
+      tmp_storage_migration_list: {
+        Args: { _after: string; _bucket: string; _limit: number }
+        Returns: {
+          cache_control: string
+          mimetype: string
+          name: string
+          size: number
+        }[]
+      }
       try_acquire_dialog_lock: {
         Args: {
           _holder: string
