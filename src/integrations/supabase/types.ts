@@ -474,6 +474,8 @@ export type Database = {
           id: string
           last_response_id: string | null
           model: string
+          pending_response_id: string | null
+          pending_tool_outputs: Json
           previous_response_id: string | null
           status: string
           title: string | null
@@ -489,6 +491,8 @@ export type Database = {
           id?: string
           last_response_id?: string | null
           model: string
+          pending_response_id?: string | null
+          pending_tool_outputs?: Json
           previous_response_id?: string | null
           status?: string
           title?: string | null
@@ -504,6 +508,8 @@ export type Database = {
           id?: string
           last_response_id?: string | null
           model?: string
+          pending_response_id?: string | null
+          pending_tool_outputs?: Json
           previous_response_id?: string | null
           status?: string
           title?: string | null

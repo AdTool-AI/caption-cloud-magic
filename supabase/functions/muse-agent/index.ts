@@ -113,6 +113,15 @@ Deno.serve(async (req) => {
   }
 
   const admin = createClient(supabaseUrl, serviceKey);
+
+  // Admin-only fault injection for no-cost recovery tests: simulate a Meta
+  // failure right after the first tool batch has executed.
+  // deno-lint-ignore no-explicit-any
+  let faultInjectAfterTools = (body as any).faultInject === 'after_tools';
+  if (faultInjectAfterTools) {
+    const { data: isAdmin } = await admin.rpc('has_role', { _user_id: authData.user.id, _role: 'admin' });
+    faultInjectAfterTools = isAdmin === true;
+  }
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream({
@@ -136,6 +145,7 @@ Deno.serve(async (req) => {
           message,
           language,
           emit,
+          faultInjectAfterTools,
         });
       } catch (err) {
         console.error('[muse-agent] turn failed', err);

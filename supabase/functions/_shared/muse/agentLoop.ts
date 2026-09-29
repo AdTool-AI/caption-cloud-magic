@@ -33,6 +33,17 @@ export interface RunAgentParams {
   message: string;
   language?: string;
   emit: (event: AgentEvent) => void;
+  /** Test-only: simulate a Meta failure right after the first tool batch. */
+  faultInjectAfterTools?: boolean;
+}
+
+interface PendingOutput {
+  call_id: string;
+  output: string;
+}
+
+function log(stage: string, data: Record<string, unknown>) {
+  console.log(`[muse-recovery] ${stage}`, JSON.stringify(data));
 }
 
 export async function runAgentTurn(params: RunAgentParams): Promise<void> {
@@ -42,11 +53,12 @@ export async function runAgentTurn(params: RunAgentParams): Promise<void> {
   let conversationId = params.conversationId ?? null;
   let previousResponseId: string | null = null;
   let regenerationsUsed = 0;
+  let recoveredOutputs: PendingOutput[] = [];
 
   if (conversationId) {
     const { data } = await admin
       .from('agent_conversations')
-      .select('id, last_response_id')
+      .select('id, last_response_id, pending_tool_outputs, pending_response_id')
       .eq('id', conversationId)
       .eq('user_id', userId)
       .maybeSingle();
@@ -55,6 +67,16 @@ export async function runAgentTurn(params: RunAgentParams): Promise<void> {
       return;
     }
     previousResponseId = data.last_response_id ?? null;
+    const pending = Array.isArray(data.pending_tool_outputs) ? data.pending_tool_outputs as PendingOutput[] : [];
+    if (pending.length > 0 && data.pending_response_id) {
+      // Tools already ran; only their outputs were never acknowledged by Meta.
+      // Replay the stored outputs against the response that requested them —
+      // never re-execute the tools.
+      const seen = new Set<string>();
+      recoveredOutputs = pending.filter((p) => p?.call_id && !seen.has(p.call_id) && seen.add(p.call_id));
+      previousResponseId = data.pending_response_id;
+      log('resuming_pending_outputs', { conversationId, responseId: previousResponseId, callIds: recoveredOutputs.map((p) => p.call_id) });
+    }
     const { count } = await admin
       .from('agent_operations')
       .select('id', { count: 'exact', head: true })
@@ -103,16 +125,54 @@ export async function runAgentTurn(params: RunAgentParams): Promise<void> {
     spentThisTurn: 0,
   };
 
-  let input: MuseInputItem[] = [{ role: 'user', content: params.message }];
+  let input: MuseInputItem[] = [
+    ...recoveredOutputs.map((p) => ({ type: 'function_call_output' as const, call_id: p.call_id, output: p.output })),
+    { role: 'user', content: params.message },
+  ];
   let totalIn = 0;
   let totalOut = 0;
   const generationIds: string[] = [];
   let finalText = '';
   let pendingOutputs = false;
+  let hasUndelivered = recoveredOutputs.length > 0;
+  let faultPending = !!params.faultInjectAfterTools;
+  let toolBatches = 0;
+
+  const persistPending = async (items: MuseInputItem[], responseId: string | null) => {
+    const outputs: PendingOutput[] = [];
+    const seen = new Set<string>();
+    for (const it of items) {
+      // deno-lint-ignore no-explicit-any
+      const i = it as any;
+      if (i.type === 'function_call_output' && !seen.has(i.call_id)) {
+        seen.add(i.call_id);
+        outputs.push({ call_id: i.call_id, output: i.output });
+      }
+    }
+    // Full replacement (not append) keeps this idempotent across repeated failures.
+    await admin
+      .from('agent_conversations')
+      .update({ pending_tool_outputs: outputs, pending_response_id: responseId, last_response_id: responseId })
+      .eq('id', conversationId);
+    log('output_pending_delivery', { conversationId, responseId, callIds: outputs.map((o) => o.call_id) });
+  };
+
+  const clearPending = async (deliveredVia: string) => {
+    await admin
+      .from('agent_conversations')
+      .update({ pending_tool_outputs: [], pending_response_id: null })
+      .eq('id', conversationId);
+    log('output_delivered', { conversationId, acceptedBy: deliveredVia });
+    hasUndelivered = false;
+  };
 
   for (let iteration = 0; iteration < config.maxToolIterations; iteration++) {
     let response;
     try {
+      if (faultPending && (toolBatches > 0 || recoveredOutputs.length > 0)) {
+        faultPending = false;
+        throw new Error('Simulated Meta Model API error 503 (fault injection).');
+      }
       response = await createMuseResponse(config, {
         input,
         instructions: buildSystemPrompt({ language: params.language }),
@@ -120,6 +180,7 @@ export async function runAgentTurn(params: RunAgentParams): Promise<void> {
         previousResponseId,
       });
     } catch (err) {
+      if (hasUndelivered) log('meta_failed_will_resume', { conversationId, responseId: previousResponseId, error: err instanceof Error ? err.message : String(err) });
       emit({ type: 'error', message: err instanceof Error ? err.message : 'Muse request failed.' });
       break;
     }
@@ -127,6 +188,7 @@ export async function runAgentTurn(params: RunAgentParams): Promise<void> {
     totalIn += response.usage.input;
     totalOut += response.usage.output;
     previousResponseId = response.id;
+    if (hasUndelivered) await clearPending(response.id);
 
     if (response.outputText) {
       finalText = response.outputText;
@@ -199,6 +261,10 @@ export async function runAgentTurn(params: RunAgentParams): Promise<void> {
         output: JSON.stringify(result.output),
       });
     }
+    toolBatches += 1;
+    log('tools_executed', { conversationId, responseId: previousResponseId, count: input.length });
+    await persistPending(input, previousResponseId);
+    hasUndelivered = true;
     if (iteration === config.maxToolIterations - 1) pendingOutputs = true;
   }
 
@@ -217,11 +283,13 @@ export async function runAgentTurn(params: RunAgentParams): Promise<void> {
       totalIn += closing.usage.input;
       totalOut += closing.usage.output;
       previousResponseId = closing.id;
+      await clearPending(closing.id);
       if (closing.outputText) {
         finalText = closing.outputText;
         emit({ type: 'message', text: closing.outputText });
       }
     } catch (err) {
+      log('meta_failed_will_resume', { conversationId, responseId: previousResponseId, error: err instanceof Error ? err.message : String(err) });
       emit({ type: 'error', message: err instanceof Error ? err.message : 'Muse request failed.' });
     }
   }
