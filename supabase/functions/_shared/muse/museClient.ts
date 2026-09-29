@@ -14,8 +14,12 @@ export interface MuseFunctionTool {
   parameters: Record<string, unknown>;
 }
 
+export type MuseContentPart =
+  | { type: 'input_text'; text: string }
+  | { type: 'input_image'; image_url: string };
+
 export type MuseInputItem =
-  | { role: 'user' | 'assistant' | 'system'; content: string }
+  | { role: 'user' | 'assistant' | 'system'; content: string | MuseContentPart[] }
   | { type: 'function_call_output'; call_id: string; output: string };
 
 export interface MuseToolCall {
