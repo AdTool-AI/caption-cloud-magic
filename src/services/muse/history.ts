@@ -6,7 +6,7 @@ import { supabase } from '@/integrations/supabase/client';
 import type { AgentApprovalQuote, AgentChatMessage, AgentOperation } from './types';
 
 // New agent tables are not in the generated types yet.
-// deno-lint-ignore no-explicit-any
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = supabase as any;
 
 export type ApprovalState = 'pending' | 'approved' | 'rejected' | 'expired' | 'error';
