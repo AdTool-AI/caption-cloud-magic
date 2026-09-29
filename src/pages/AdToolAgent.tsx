@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { Bot, Loader2, Send, Wrench, AlertTriangle, CheckCircle2 } from "lucide-react";
-import { AppLayout } from "@/components/AppLayout";
+import { PageWrapper } from "@/components/layout/PageWrapper";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { tx } from "@/lib/i18nText";
-import { useLanguage } from "@/hooks/useLanguage";
+import { useTranslation } from "@/hooks/useTranslation";
 import { sendAgentMessage } from "@/services/muse";
 import type { AgentChatMessage, AgentOperation } from "@/services/muse";
 
@@ -23,7 +23,7 @@ const TOOL_LABELS: Record<string, { de: string; en: string; es: string }> = {
 };
 
 export default function AdToolAgent() {
-  const { language } = useLanguage();
+  const { language } = useTranslation();
   const [messages, setMessages] = useState<AgentChatMessage[]>([]);
   const [operations, setOperations] = useState<AgentOperation[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -106,7 +106,7 @@ export default function AdToolAgent() {
   };
 
   return (
-    <AppLayout>
+    <PageWrapper>
       <div className="mx-auto w-full max-w-7xl px-4 py-6">
         <div className="mb-6 flex items-center gap-3">
           <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/15 text-primary">
@@ -241,6 +241,6 @@ export default function AdToolAgent() {
           </Card>
         </div>
       </div>
-    </AppLayout>
+    </PageWrapper>
   );
 }
