@@ -169,7 +169,7 @@ export async function runAgentTurn(params: RunAgentParams): Promise<void> {
   for (let iteration = 0; iteration < config.maxToolIterations; iteration++) {
     let response;
     try {
-      if (faultPending && toolBatches > 0) {
+      if (faultPending && (toolBatches > 0 || recoveredOutputs.length > 0)) {
         faultPending = false;
         throw new Error('Simulated Meta Model API error 503 (fault injection).');
       }
