@@ -125,16 +125,54 @@ export async function runAgentTurn(params: RunAgentParams): Promise<void> {
     spentThisTurn: 0,
   };
 
-  let input: MuseInputItem[] = [{ role: 'user', content: params.message }];
+  let input: MuseInputItem[] = [
+    ...recoveredOutputs.map((p) => ({ type: 'function_call_output' as const, call_id: p.call_id, output: p.output })),
+    { role: 'user', content: params.message },
+  ];
   let totalIn = 0;
   let totalOut = 0;
   const generationIds: string[] = [];
   let finalText = '';
   let pendingOutputs = false;
+  let hasUndelivered = recoveredOutputs.length > 0;
+  let faultPending = !!params.faultInjectAfterTools;
+  let toolBatches = 0;
+
+  const persistPending = async (items: MuseInputItem[], responseId: string | null) => {
+    const outputs: PendingOutput[] = [];
+    const seen = new Set<string>();
+    for (const it of items) {
+      // deno-lint-ignore no-explicit-any
+      const i = it as any;
+      if (i.type === 'function_call_output' && !seen.has(i.call_id)) {
+        seen.add(i.call_id);
+        outputs.push({ call_id: i.call_id, output: i.output });
+      }
+    }
+    // Full replacement (not append) keeps this idempotent across repeated failures.
+    await admin
+      .from('agent_conversations')
+      .update({ pending_tool_outputs: outputs, pending_response_id: responseId, last_response_id: responseId })
+      .eq('id', conversationId);
+    log('output_pending_delivery', { conversationId, responseId, callIds: outputs.map((o) => o.call_id) });
+  };
+
+  const clearPending = async (deliveredVia: string) => {
+    await admin
+      .from('agent_conversations')
+      .update({ pending_tool_outputs: [], pending_response_id: null })
+      .eq('id', conversationId);
+    log('output_delivered', { conversationId, acceptedBy: deliveredVia });
+    hasUndelivered = false;
+  };
 
   for (let iteration = 0; iteration < config.maxToolIterations; iteration++) {
     let response;
     try {
+      if (faultPending && toolBatches > 0) {
+        faultPending = false;
+        throw new Error('Simulated Meta Model API error 503 (fault injection).');
+      }
       response = await createMuseResponse(config, {
         input,
         instructions: buildSystemPrompt({ language: params.language }),
@@ -142,6 +180,7 @@ export async function runAgentTurn(params: RunAgentParams): Promise<void> {
         previousResponseId,
       });
     } catch (err) {
+      if (hasUndelivered) log('meta_failed_will_resume', { conversationId, responseId: previousResponseId, error: err instanceof Error ? err.message : String(err) });
       emit({ type: 'error', message: err instanceof Error ? err.message : 'Muse request failed.' });
       break;
     }
@@ -149,6 +188,7 @@ export async function runAgentTurn(params: RunAgentParams): Promise<void> {
     totalIn += response.usage.input;
     totalOut += response.usage.output;
     previousResponseId = response.id;
+    if (hasUndelivered) await clearPending(response.id);
 
     if (response.outputText) {
       finalText = response.outputText;
