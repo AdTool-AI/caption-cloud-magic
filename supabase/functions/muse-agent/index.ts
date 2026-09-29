@@ -57,6 +57,42 @@ Deno.serve(async (req) => {
     });
   }
 
+  // ---- Approval action: user confirms a quoted generation cost -----------
+  // deno-lint-ignore no-explicit-any
+  const action = (body as any).action;
+  if (action === 'approve' || action === 'reject') {
+    // deno-lint-ignore no-explicit-any
+    const approvalId = String((body as any).approvalId ?? '');
+    if (!/^[0-9a-f-]{36}$/i.test(approvalId)) {
+      return new Response(JSON.stringify({ error: 'approvalId required' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+    const adminClient = createClient(supabaseUrl, serviceKey);
+    const now = new Date();
+    const update = action === 'approve'
+      ? { status: 'approved', approved_at: now.toISOString(), expires_at: new Date(now.getTime() + 15 * 60_000).toISOString() }
+      : { status: 'rejected' };
+    const { data } = await adminClient
+      .from('agent_generation_approvals')
+      .update(update)
+      .eq('id', approvalId)
+      .eq('user_id', authData.user.id)
+      .eq('status', 'pending')
+      .gt('expires_at', now.toISOString())
+      .select('id, status, model, duration_seconds, resolution, cost, currency, retry_budget, max_total_cost, expires_at');
+    if (!data || data.length !== 1) {
+      return new Response(JSON.stringify({ error: 'This quote is no longer valid. Ask the agent for a new one.', code: 'APPROVAL_INVALID' }), {
+        status: 409,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+    return new Response(JSON.stringify({ approval: data[0] }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
   const message = typeof body.message === 'string' ? body.message.trim() : '';
   if (!message || message.length > 8000) {
     return new Response(JSON.stringify({ error: 'message must be 1-8000 characters' }), {
