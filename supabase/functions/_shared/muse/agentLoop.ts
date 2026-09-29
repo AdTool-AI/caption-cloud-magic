@@ -108,6 +108,7 @@ export async function runAgentTurn(params: RunAgentParams): Promise<void> {
   let totalOut = 0;
   const generationIds: string[] = [];
   let finalText = '';
+  let pendingOutputs = false;
 
   for (let iteration = 0; iteration < config.maxToolIterations; iteration++) {
     let response;
@@ -197,6 +198,31 @@ export async function runAgentTurn(params: RunAgentParams): Promise<void> {
         call_id: call.call_id,
         output: JSON.stringify(result.output),
       });
+    }
+    if (iteration === config.maxToolIterations - 1) pendingOutputs = true;
+  }
+
+  // Iteration cap hit with tool outputs not yet delivered: close the pending
+  // function calls (no further tools) so the next turn can continue the chain.
+  if (pendingOutputs && input.length > 0) {
+    try {
+      const closing = await createMuseResponse(config, {
+        input: [
+          ...input,
+          { role: 'user', content: 'Tool step limit for this turn reached. Summarize the current state briefly; the user can continue in the next message.' },
+        ],
+        instructions: buildSystemPrompt({ language: params.language }),
+        previousResponseId,
+      });
+      totalIn += closing.usage.input;
+      totalOut += closing.usage.output;
+      previousResponseId = closing.id;
+      if (closing.outputText) {
+        finalText = closing.outputText;
+        emit({ type: 'message', text: closing.outputText });
+      }
+    } catch (err) {
+      emit({ type: 'error', message: err instanceof Error ? err.message : 'Muse request failed.' });
     }
   }
 
