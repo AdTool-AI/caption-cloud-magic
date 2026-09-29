@@ -113,3 +113,28 @@ so repeated 5xx cannot apply a result twice. Logs: `[muse-recovery]
 tools_executed | output_pending_delivery | output_delivered |
 meta_failed_will_resume | resuming_pending_outputs`. Admins can pass
 `"faultInject":"after_tools"` to simulate a Meta failure for no-cost tests.
+
+## Async generation resume (agent_tasks)
+
+When `generate_video`/`regenerate_video` returns a generation, the loop upserts
+an `agent_tasks` row (`waiting_for_generation`, UNIQUE `generation_id`).
+`agent-task-resume` (pg_cron every minute, only while waiting/analyzing tasks
+exist) reads `ai_video_generations` (kept current by `replicate-webhook` /
+`modelark-poll`) and:
+
+- `failed` → task `failed` + one assistant message (`resume_task_id` unique).
+- `completed` → `claim_agent_tasks()` atomically moves waiting → analyzing
+  (SKIP LOCKED, at most once) and runs one Muse turn in the same conversation
+  with an **internal** (hidden) instruction and a restricted tool set:
+  `get_user_context, get_available_video_models, get_video_status, analyze_asset,
+  estimate_video_cost`. Paid tools are refused server-side; a retry needs a new
+  foreground approval. QA calls `agent-video-qa` with service key +
+  `x-agent-user-id`.
+- A trigger forbids terminal → non-terminal and analyzing → waiting. Analyzing
+  tasks whose lease expired are failed, never re-run (QA at most once).
+- `MUSE_AGENT_TASK_TIMEOUT_MINUTES` (default 60) only flags a slow task
+  (`slow_since`); a still-processing generation is not failed before 24 h.
+
+`/agent?conversation=<id>` restores messages (non-internal), operations,
+approvals and tasks from the database; realtime on `agent_tasks` /
+`agent_messages` plus a 20 s fallback poll while a task runs.

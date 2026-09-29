@@ -600,7 +600,9 @@ export type Database = {
           conversation_id: string
           created_at: string
           id: string
+          internal: boolean
           response_id: string | null
+          resume_task_id: string | null
           role: string
           tool_calls: Json
           user_id: string
@@ -610,7 +612,9 @@ export type Database = {
           conversation_id: string
           created_at?: string
           id?: string
+          internal?: boolean
           response_id?: string | null
+          resume_task_id?: string | null
           role: string
           tool_calls?: Json
           user_id: string
@@ -620,7 +624,9 @@ export type Database = {
           conversation_id?: string
           created_at?: string
           id?: string
+          internal?: boolean
           response_id?: string | null
+          resume_task_id?: string | null
           role?: string
           tool_calls?: Json
           user_id?: string
@@ -690,6 +696,71 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "agent_operations_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "agent_conversations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      agent_tasks: {
+        Row: {
+          approval_id: string | null
+          claimed_at: string | null
+          conversation_id: string
+          created_at: string
+          error: string | null
+          finished_at: string | null
+          generation_id: string
+          id: string
+          intent: string | null
+          language: string | null
+          lease_until: string | null
+          result: Json | null
+          slow_since: string | null
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          approval_id?: string | null
+          claimed_at?: string | null
+          conversation_id: string
+          created_at?: string
+          error?: string | null
+          finished_at?: string | null
+          generation_id: string
+          id?: string
+          intent?: string | null
+          language?: string | null
+          lease_until?: string | null
+          result?: Json | null
+          slow_since?: string | null
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          approval_id?: string | null
+          claimed_at?: string | null
+          conversation_id?: string
+          created_at?: string
+          error?: string | null
+          finished_at?: string | null
+          generation_id?: string
+          id?: string
+          intent?: string | null
+          language?: string | null
+          lease_until?: string | null
+          result?: Json | null
+          slow_since?: string | null
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_tasks_conversation_id_fkey"
             columns: ["conversation_id"]
             isOneToOne: false
             referencedRelation: "agent_conversations"
@@ -20998,6 +21069,33 @@ export type Database = {
           current_count: number
           reset_at: string
         }[]
+      }
+      claim_agent_tasks: {
+        Args: { _limit?: number }
+        Returns: {
+          approval_id: string | null
+          claimed_at: string | null
+          conversation_id: string
+          created_at: string
+          error: string | null
+          finished_at: string | null
+          generation_id: string
+          id: string
+          intent: string | null
+          language: string | null
+          lease_until: string | null
+          result: Json | null
+          slow_since: string | null
+          status: string
+          updated_at: string
+          user_id: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "agent_tasks"
+          isOneToOne: false
+          isSetofReturn: true
+        }
       }
       claim_founders_slot: {
         Args: {

@@ -35,6 +35,14 @@ export interface RunAgentParams {
   emit: (event: AgentEvent) => void;
   /** Test-only: simulate a Meta failure right after the first tool batch. */
   faultInjectAfterTools?: boolean;
+  /** Background resume: the message is an internal instruction, hidden from the chat. */
+  internal?: boolean;
+  /** Hard server-side tool allow-list (definitions AND execution). */
+  allowedTools?: Set<string>;
+  /** Links the assistant reply to an agent_tasks row (unique → never duplicated). */
+  resumeTaskId?: string;
+  /** Background resume authenticates internal calls for this user with the service key. */
+  internalAuthUserId?: string;
 }
 
 interface PendingOutput {
@@ -108,6 +116,8 @@ export async function runAgentTurn(params: RunAgentParams): Promise<void> {
     user_id: userId,
     role: 'user',
     content: params.message,
+    internal: !!params.internal,
+    resume_task_id: params.resumeTaskId ?? null,
   });
 
   // ---- loop ----------------------------------------------------------------
@@ -123,7 +133,11 @@ export async function runAgentTurn(params: RunAgentParams): Promise<void> {
     maxRegenerations: config.maxRegenerations,
     maxTurnSpend: config.maxTurnSpend,
     spentThisTurn: 0,
+    internalAuthUserId: params.internalAuthUserId,
   };
+  const toolDefs = params.allowedTools
+    ? MUSE_TOOL_DEFINITIONS.filter((t) => params.allowedTools!.has(t.name))
+    : MUSE_TOOL_DEFINITIONS;
 
   let input: MuseInputItem[] = [
     ...recoveredOutputs.map((p) => ({ type: 'function_call_output' as const, call_id: p.call_id, output: p.output })),
@@ -176,7 +190,7 @@ export async function runAgentTurn(params: RunAgentParams): Promise<void> {
       response = await createMuseResponse(config, {
         input,
         instructions: buildSystemPrompt({ language: params.language }),
-        tools: MUSE_TOOL_DEFINITIONS,
+        tools: toolDefs,
         previousResponseId,
       });
     } catch (err) {
@@ -223,7 +237,11 @@ export async function runAgentTurn(params: RunAgentParams): Promise<void> {
 
       let result;
       try {
-        result = await executeMuseTool(ctx, call.name, args);
+        if (params.allowedTools && !params.allowedTools.has(call.name)) {
+          result = { output: { error: `Tool "${call.name}" is not available in a background turn. Paid generation needs a new user approval in the foreground.`, code: 'TOOL_NOT_ALLOWED' } };
+        } else {
+          result = await executeMuseTool(ctx, call.name, args);
+        }
       } catch (err) {
         result = { output: { error: err instanceof Error ? err.message : 'Tool failed.', code: 'TOOL_ERROR' } };
       }
@@ -235,6 +253,23 @@ export async function runAgentTurn(params: RunAgentParams): Promise<void> {
         if (call.name === 'regenerate_video') ctx.regenerationsUsed += 1;
       }
       if (result.generationId) generationIds.push(result.generationId);
+
+      // Durable async task: the agent resumes this conversation once the render finishes.
+      if (!failed && MUSE_PAID_TOOLS.has(call.name) && result.generationId) {
+        const { error: taskErr } = await admin.from('agent_tasks').upsert(
+          {
+            conversation_id: conversationId,
+            user_id: userId,
+            generation_id: result.generationId,
+            approval_id: (result.output as Record<string, unknown>)?.approval_id ?? null,
+            status: 'waiting_for_generation',
+            language: params.language ?? null,
+            intent: String(args?.prompt ?? params.message).slice(0, 2000),
+          },
+          { onConflict: 'generation_id', ignoreDuplicates: true },
+        );
+        if (taskErr) console.error('[muse-task] could not persist task', taskErr.message);
+      }
 
       if (opRow?.id) {
         await admin
@@ -304,6 +339,7 @@ export async function runAgentTurn(params: RunAgentParams): Promise<void> {
       role: 'assistant',
       content: finalText,
       response_id: previousResponseId,
+      resume_task_id: params.resumeTaskId ?? null,
     });
   }
 

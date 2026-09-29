@@ -1,5 +1,6 @@
-import { useRef, useState } from "react";
-import { Bot, Loader2, Send, Wrench, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
+import { Bot, Loader2, Send, Wrench, AlertTriangle, CheckCircle2, Plus, MessageSquare, Clapperboard } from "lucide-react";
 import { PageWrapper } from "@/components/layout/PageWrapper";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -9,8 +10,21 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { tx } from "@/lib/i18nText";
 import { useTranslation } from "@/hooks/useTranslation";
-import { sendAgentMessage, decideAgentApproval } from "@/services/muse";
-import type { AgentApprovalQuote, AgentChatMessage, AgentOperation } from "@/services/muse";
+import {
+  sendAgentMessage,
+  decideAgentApproval,
+  listAgentConversations,
+  loadAgentConversation,
+  subscribeAgentConversation,
+} from "@/services/muse";
+import type {
+  AgentApprovalQuote,
+  AgentChatMessage,
+  AgentOperation,
+  AgentTask,
+  ConversationSummary,
+  StoredApproval,
+} from "@/services/muse";
 
 const TOOL_LABELS: Record<string, { de: string; en: string; es: string }> = {
   get_user_context: { de: "Kontext gelesen", en: "Reading context", es: "Leyendo contexto" },
@@ -26,14 +40,72 @@ export default function AdToolAgent() {
   const { language } = useTranslation();
   const [messages, setMessages] = useState<AgentChatMessage[]>([]);
   const [operations, setOperations] = useState<AgentOperation[]>([]);
-  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const conversationId = searchParams.get("conversation");
+  const [tasks, setTasks] = useState<AgentTask[]>([]);
+  const [history, setHistory] = useState<ConversationSummary[]>([]);
+  const [loading, setLoading] = useState(false);
+  const busyRef = useRef(false);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [usage, setUsage] = useState<{ costUsd: number } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
-  const [approvals, setApprovals] = useState<
-    Array<AgentApprovalQuote & { state: "pending" | "approved" | "rejected" | "error"; error?: string }>
-  >([]);
+  const [approvals, setApprovals] = useState<StoredApproval[]>([]);
+
+  const setConversationId = useCallback(
+    (id: string | null) => {
+      setSearchParams(id ? { conversation: id } : {}, { replace: false });
+    },
+    [setSearchParams]
+  );
+
+  const refreshHistory = useCallback(async () => {
+    setHistory(await listAgentConversations());
+  }, []);
+
+  // Backend is the source of truth: (re)load the conversation from the database.
+  const reload = useCallback(async (id: string | null) => {
+    if (!id) {
+      setMessages([]);
+      setOperations([]);
+      setApprovals([]);
+      setTasks([]);
+      setUsage(null);
+      return;
+    }
+    const snap = await loadAgentConversation(id);
+    if (!snap || busyRef.current) return;
+    setMessages(snap.messages);
+    setOperations(snap.operations);
+    setApprovals(snap.approvals);
+    setTasks(snap.tasks);
+    setUsage({ costUsd: snap.costUsd });
+  }, []);
+
+  useEffect(() => {
+    void refreshHistory();
+  }, [refreshHistory]);
+
+  useEffect(() => {
+    if (busyRef.current) return; // the streaming turn owns the state until it ends
+    setLoading(true);
+    void reload(conversationId).finally(() => setLoading(false));
+  }, [conversationId, reload]);
+
+  const waiting = tasks.some((t) => t.status === "waiting_for_generation" || t.status === "analyzing");
+
+  // Live updates while the page is open + light polling fallback while a task is running.
+  useEffect(() => {
+    if (!conversationId) return;
+    const unsub = subscribeAgentConversation(conversationId, () => {
+      if (!busyRef.current) void reload(conversationId);
+    });
+    const timer = waiting ? window.setInterval(() => !busyRef.current && void reload(conversationId), 20000) : undefined;
+    return () => {
+      unsub();
+      if (timer) window.clearInterval(timer);
+    };
+  }, [conversationId, waiting, reload]);
 
   const label = (name: string) => {
     const entry = TOOL_LABELS[name];
@@ -75,6 +147,8 @@ export default function AdToolAgent() {
 
   const sendText = async (text: string) => {
     setBusy(true);
+    busyRef.current = true;
+    let activeId = conversationId;
     setMessages((prev) => [...prev, { id: crypto.randomUUID(), role: "user", text }]);
 
     const controller = new AbortController();
@@ -89,7 +163,8 @@ export default function AdToolAgent() {
         onEvent: (event) => {
           switch (event.type) {
             case "conversation":
-              setConversationId(event.conversationId);
+              activeId = event.conversationId;
+              if (event.conversationId !== conversationId) setConversationId(event.conversationId);
               break;
             case "tool_started":
               setOperations((prev) => [
@@ -135,8 +210,11 @@ export default function AdToolAgent() {
         },
       });
     } finally {
+      busyRef.current = false;
       setBusy(false);
       abortRef.current = null;
+      await reload(activeId);
+      void refreshHistory();
     }
   };
 
@@ -159,11 +237,95 @@ export default function AdToolAgent() {
           </div>
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
+        <div className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)_340px]">
+          {/* Conversation history */}
+          <Card className="flex h-[70vh] flex-col overflow-hidden border-border/60 bg-card/70 backdrop-blur">
+            <div className="border-b border-border/60 p-3">
+              <Button size="sm" variant="outline" className="w-full" onClick={() => setConversationId(null)} disabled={busy}>
+                <Plus className="mr-1 h-4 w-4" />
+                {tx({ de: "Neuer Chat", en: "New chat", es: "Nuevo chat" })}
+              </Button>
+            </div>
+            <ScrollArea className="flex-1 p-2">
+              {history.length === 0 ? (
+                <p className="p-3 text-center text-xs text-muted-foreground">
+                  {tx({ de: "Noch keine Chats.", en: "No chats yet.", es: "Aún no hay chats." })}
+                </p>
+              ) : (
+                <div className="space-y-1">
+                  {history.map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      disabled={busy}
+                      onClick={() => setConversationId(c.id)}
+                      className={cn(
+                        "flex w-full items-start gap-2 rounded-md px-2 py-2 text-left text-xs transition-colors hover:bg-muted/50",
+                        c.id === conversationId && "bg-primary/10 text-foreground"
+                      )}
+                    >
+                      <MessageSquare className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      <span className="line-clamp-2">{c.title || tx({ de: "Unbenannt", en: "Untitled", es: "Sin título" })}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </ScrollArea>
+          </Card>
+
           {/* Conversation */}
           <Card className="flex h-[70vh] flex-col overflow-hidden border-border/60 bg-card/70 backdrop-blur">
+            {tasks.length > 0 && (
+              <div className="space-y-2 border-b border-border/60 p-3">
+                {tasks.map((t) => (
+                  <div key={t.id} className="flex items-start gap-3 rounded-lg border border-primary/30 bg-primary/5 p-3 text-sm">
+                    {t.status === "waiting_for_generation" || t.status === "analyzing" ? (
+                      <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-primary" />
+                    ) : t.status === "failed" ? (
+                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+                    ) : (
+                      <Clapperboard className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="text-foreground">
+                        {t.status === "waiting_for_generation" &&
+                          tx({
+                            de: "Video wird erstellt — du kannst diese Seite verlassen.",
+                            en: "Video is being generated — you can leave this page.",
+                            es: "El vídeo se está generando: puedes salir de esta página.",
+                          })}
+                        {t.status === "analyzing" &&
+                          tx({
+                            de: "Video fertig — der Agent prüft das Ergebnis…",
+                            en: "Video finished — the agent is reviewing the result…",
+                            es: "Vídeo listo: el agente está revisando el resultado…",
+                          })}
+                        {t.status === "completed" && tx({ de: "Video fertig und geprüft.", en: "Video finished and reviewed.", es: "Vídeo listo y revisado." })}
+                        {t.status === "failed" && tx({ de: "Video fehlgeschlagen", en: "Video failed", es: "El vídeo ha fallado" })}
+                      </p>
+                      {t.status === "waiting_for_generation" && t.slow_since && (
+                        <p className="text-xs text-muted-foreground">
+                          {tx({
+                            de: "Dauert länger als üblich — läuft aber noch.",
+                            en: "Taking longer than usual — still running.",
+                            es: "Tarda más de lo habitual, pero sigue en marcha.",
+                          })}
+                        </p>
+                      )}
+                      {t.status === "failed" && t.error && <p className="text-xs text-destructive">{t.error}</p>}
+                      {t.result?.video_url && <video src={t.result.video_url} controls className="mt-2 max-h-64 rounded-md" />}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
             <ScrollArea className="flex-1 p-4">
-              {messages.length === 0 && (
+              {loading && messages.length === 0 && (
+                <div className="flex justify-center p-6">
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                </div>
+              )}
+              {!loading && messages.length === 0 && (
                 <p className="p-6 text-center text-sm text-muted-foreground">
                   {tx({
                     de: "Zum Beispiel: „Erstelle mir ein 8-Sekunden-Reel für meine neue Kaffeemarke, hochkant.“",
@@ -221,6 +383,9 @@ export default function AdToolAgent() {
                     )}
                     {a.state === "rejected" && (
                       <Badge variant="outline" className="mt-3">{tx({ de: "Abgelehnt", en: "Declined", es: "Rechazado" })}</Badge>
+                    )}
+                    {a.state === "expired" && (
+                      <Badge variant="outline" className="mt-3">{tx({ de: "Abgelaufen", en: "Expired", es: "Caducado" })}</Badge>
                     )}
                     {a.state === "error" && <p className="mt-2 text-xs text-destructive">{a.error}</p>}
                   </div>
