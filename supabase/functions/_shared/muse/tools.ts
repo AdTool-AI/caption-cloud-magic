@@ -33,13 +33,17 @@ export const MUSE_TOOL_DEFINITIONS: MuseFunctionTool[] = [
     type: 'function',
     name: 'estimate_video_cost',
     description:
-      'Calculates the exact amount that would be charged for a given model, duration and resolution, without starting anything. Use this before asking the user to confirm a generation.',
+      'Calculates the exact amount that would be charged for a given model, duration and resolution, without starting anything. Creates a pending approval request (approval_id) that the user must confirm in the AdTool UI. generate_video is refused by the server until the user has confirmed.',
     parameters: {
       type: 'object',
       properties: {
         model: { type: 'string' },
         duration: { type: 'number' },
-        resolution: { type: 'string', description: 'e.g. "720p", "1080p". Optional — defaults to the model default.' },
+        resolution: { type: 'string', description: 'e.g. "720p", "1080p". Optional — defaults to 720p.' },
+        retry_budget: {
+          type: 'integer',
+          description: 'How many automatic quality retries (0-2) the user is asked to pre-approve at the same price each. Default 0.',
+        },
       },
       required: ['model', 'duration'],
       additionalProperties: false,
@@ -49,7 +53,7 @@ export const MUSE_TOOL_DEFINITIONS: MuseFunctionTool[] = [
     type: 'function',
     name: 'generate_video',
     description:
-      'Starts a real, paid video generation through the existing AdTool generation pipeline (credits, entitlements and pricing validation all apply). Only call this after the user has agreed to the cost.',
+      'Starts a real, paid video generation through the existing AdTool generation pipeline (credits, entitlements and pricing validation all apply). Requires approval_id from estimate_video_cost AFTER the user confirmed it; model, duration and resolution must match the quote exactly. Each approval can be used once.',
     parameters: {
       type: 'object',
       properties: {
@@ -61,8 +65,9 @@ export const MUSE_TOOL_DEFINITIONS: MuseFunctionTool[] = [
         generate_audio: { type: 'boolean', description: 'Request native audio when the model supports it.' },
         start_image_url: { type: 'string', description: 'Optional reference/first-frame image URL owned by the user.' },
         negative_prompt: { type: 'string' },
+        approval_id: { type: 'string', description: 'The confirmed approval_id from estimate_video_cost.' },
       },
-      required: ['model', 'prompt', 'duration', 'aspect_ratio'],
+      required: ['model', 'prompt', 'duration', 'aspect_ratio', 'approval_id'],
       additionalProperties: false,
     },
   },
@@ -82,15 +87,15 @@ export const MUSE_TOOL_DEFINITIONS: MuseFunctionTool[] = [
     type: 'function',
     name: 'analyze_asset',
     description:
-      'Critically analyses a finished image or video against the original intent: prompt adherence, visual quality, realism, consistency, AI artefacts, text errors and suitability for social advertising. Returns a verdict and concrete improvement notes.',
+      'Quality control. For videos pass generation_id: the WHOLE video is reviewed (scene segmentation + temporal review of character/product consistency, hands/faces in motion, disappearing objects, motion artefacts, text stability, continuity, audio/lip-sync). Returns a structured verdict, timestamped issues and regeneration hints (prompt_fixes, negative_prompt_additions, suggested_prompt). For images pass asset_url.',
     parameters: {
       type: 'object',
       properties: {
-        asset_url: { type: 'string' },
+        asset_url: { type: 'string', description: 'Image URL (images only).' },
         intent: { type: 'string', description: 'What the asset was supposed to show / achieve.' },
-        generation_id: { type: 'string', description: 'Optional generation this asset came from.' },
+        generation_id: { type: 'string', description: 'Required for videos: the AdTool generation id.' },
       },
-      required: ['asset_url', 'intent'],
+      required: ['intent'],
       additionalProperties: false,
     },
   },
@@ -98,19 +103,21 @@ export const MUSE_TOOL_DEFINITIONS: MuseFunctionTool[] = [
     type: 'function',
     name: 'regenerate_video',
     description:
-      'Starts one improved retry of a previous generation with a revised prompt or settings. Strictly capped per task; the tool refuses further attempts once the cap is reached.',
+      'Starts one improved retry of a previous generation with a revised prompt or settings. Needs approval_id: either the original approval (only if the user pre-approved a retry budget; same model/duration/resolution) or a new confirmed approval. Strictly capped per task.',
     parameters: {
       type: 'object',
       properties: {
         previous_generation_id: { type: 'string' },
         prompt: { type: 'string', description: 'The improved prompt.' },
-        reason: { type: 'string', description: 'Why the previous result was unacceptable.' },
+        reason: { type: 'string', description: 'Why the previous result was unacceptable (from analyze_asset).' },
+        approval_id: { type: 'string' },
+        negative_prompt: { type: 'string', description: 'e.g. negative_prompt_additions from the QA.' },
         model: { type: 'string', description: 'Optional different model id.' },
         duration: { type: 'number' },
         aspect_ratio: { type: 'string' },
         resolution: { type: 'string' },
       },
-      required: ['previous_generation_id', 'prompt', 'reason'],
+      required: ['previous_generation_id', 'prompt', 'reason', 'approval_id'],
       additionalProperties: false,
     },
   },
