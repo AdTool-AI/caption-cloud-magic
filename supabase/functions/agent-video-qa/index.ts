@@ -102,7 +102,15 @@ Deno.serve(async (req) => {
   if (!lovableKey) return json(503, { error: 'Video QA is not configured.', code: 'NOT_CONFIGURED' });
 
   const jwt = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '');
-  const { data: auth } = await createClient(supabaseUrl, anonKey).auth.getUser(jwt);
+  // Background agent resume: service key + explicit user id (never reachable with a user token).
+  const internalUser = req.headers.get('x-agent-user-id') ?? '';
+  let auth: { user: { id: string } } | null = null;
+  if (jwt && jwt === serviceKey && /^[0-9a-f-]{36}$/i.test(internalUser)) {
+    auth = { user: { id: internalUser } };
+  } else {
+    const { data } = await createClient(supabaseUrl, anonKey).auth.getUser(jwt);
+    auth = data?.user ? { user: { id: data.user.id } } : null;
+  }
   if (!auth?.user) return json(401, { error: 'Unauthorized' });
 
   // deno-lint-ignore no-explicit-any

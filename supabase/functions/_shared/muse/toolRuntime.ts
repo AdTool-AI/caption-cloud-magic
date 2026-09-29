@@ -30,6 +30,8 @@ export interface ToolContext {
   maxRegenerations: number;
   maxTurnSpend: number;
   spentThisTurn: number;
+  /** Set only by the background resume worker (service key + user id header). */
+  internalAuthUserId?: string;
 }
 
 export interface ToolResult {
@@ -497,7 +499,12 @@ async function getVideoStatus(ctx: ToolContext, args: { generation_id: string })
 async function analyzeVideo(ctx: ToolContext, generationId: string, intent: string): Promise<ToolResult> {
   const res = await fetch(`${ctx.supabaseUrl}/functions/v1/agent-video-qa`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${ctx.userJwt}`, apikey: ctx.anonKey, 'Content-Type': 'application/json' },
+    headers: {
+      Authorization: `Bearer ${ctx.userJwt}`,
+      apikey: ctx.anonKey,
+      'Content-Type': 'application/json',
+      ...(ctx.internalAuthUserId ? { 'x-agent-user-id': ctx.internalAuthUserId } : {}),
+    },
     body: JSON.stringify({ generation_id: generationId, intent }),
   });
   // deno-lint-ignore no-explicit-any
