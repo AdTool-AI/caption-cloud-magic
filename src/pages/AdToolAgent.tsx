@@ -9,8 +9,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { tx } from "@/lib/i18nText";
 import { useTranslation } from "@/hooks/useTranslation";
-import { sendAgentMessage } from "@/services/muse";
-import type { AgentChatMessage, AgentOperation } from "@/services/muse";
+import { sendAgentMessage, decideAgentApproval } from "@/services/muse";
+import type { AgentApprovalQuote, AgentChatMessage, AgentOperation } from "@/services/muse";
 
 const TOOL_LABELS: Record<string, { de: string; en: string; es: string }> = {
   get_user_context: { de: "Kontext gelesen", en: "Reading context", es: "Leyendo contexto" },
@@ -31,6 +31,9 @@ export default function AdToolAgent() {
   const [busy, setBusy] = useState(false);
   const [usage, setUsage] = useState<{ costUsd: number } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const [approvals, setApprovals] = useState<
+    Array<AgentApprovalQuote & { state: "pending" | "approved" | "rejected" | "error"; error?: string }>
+  >([]);
 
   const label = (name: string) => {
     const entry = TOOL_LABELS[name];
@@ -40,8 +43,36 @@ export default function AdToolAgent() {
   const handleSend = async () => {
     const text = input.trim();
     if (!text || busy) return;
-
     setInput("");
+    await sendText(text);
+  };
+
+  const decide = async (quote: AgentApprovalQuote, decision: "approve" | "reject") => {
+    if (busy) return;
+    const res = await decideAgentApproval(quote.approval_id, decision);
+    if (!res.ok) {
+      setApprovals((prev) => prev.map((a) => (a.approval_id === quote.approval_id ? { ...a, state: "error", error: res.error } : a)));
+      return;
+    }
+    setApprovals((prev) =>
+      prev.map((a) => (a.approval_id === quote.approval_id ? { ...a, state: decision === "approve" ? "approved" : "rejected" } : a))
+    );
+    await sendText(
+      decision === "approve"
+        ? tx({
+            de: `Freigegeben: ${quote.total_cost} ${quote.currency} (approval_id ${quote.approval_id}). Bitte starte die Produktion.`,
+            en: `Approved: ${quote.total_cost} ${quote.currency} (approval_id ${quote.approval_id}). Please start the production.`,
+            es: `Aprobado: ${quote.total_cost} ${quote.currency} (approval_id ${quote.approval_id}). Inicia la producción.`,
+          })
+        : tx({
+            de: "Ich habe dieses Angebot abgelehnt. Bitte nichts erzeugen.",
+            en: "I declined this quote. Please do not generate anything.",
+            es: "He rechazado esta oferta. No generes nada.",
+          })
+    );
+  };
+
+  const sendText = async (text: string) => {
     setBusy(true);
     setMessages((prev) => [...prev, { id: crypto.randomUUID(), role: "user", text }]);
 
@@ -84,6 +115,9 @@ export default function AdToolAgent() {
               });
               break;
             }
+            case "approval_required":
+              setApprovals((prev) => [...prev, { ...event.approval, state: "pending" }]);
+              break;
             case "message":
               setMessages((prev) => [...prev, { id: crypto.randomUUID(), role: "assistant", text: event.text }]);
               break;
@@ -149,6 +183,45 @@ export default function AdToolAgent() {
                     )}
                   >
                     {m.text}
+                  </div>
+                ))}
+                {approvals.map((a) => (
+                  <div key={a.approval_id} className="max-w-[85%] rounded-2xl border border-primary/40 bg-primary/5 p-4 text-sm">
+                    <p className="font-medium text-foreground">
+                      {tx({ de: "Kostenfreigabe", en: "Cost approval", es: "Aprobación de coste" })}
+                    </p>
+                    <p className="mt-1 text-muted-foreground">
+                      {a.model_name ?? a.model} · {a.duration}s · {a.resolution}
+                    </p>
+                    <p className="mt-2 text-lg text-foreground">
+                      {a.total_cost} {a.currency}
+                    </p>
+                    {a.retry_budget > 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        {tx({
+                          de: `inkl. bis zu ${a.retry_budget} automatische Wiederholung(en) — maximal ${a.max_total_cost} ${a.currency}`,
+                          en: `incl. up to ${a.retry_budget} automatic retr${a.retry_budget === 1 ? "y" : "ies"} — at most ${a.max_total_cost} ${a.currency}`,
+                          es: `incl. hasta ${a.retry_budget} reintento(s) automático(s) — máximo ${a.max_total_cost} ${a.currency}`,
+                        })}
+                      </p>
+                    )}
+                    {a.state === "pending" && (
+                      <div className="mt-3 flex gap-2">
+                        <Button size="sm" onClick={() => void decide(a, "approve")} disabled={busy}>
+                          {tx({ de: "Bestätigen", en: "Confirm", es: "Confirmar" })}
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={() => void decide(a, "reject")} disabled={busy}>
+                          {tx({ de: "Ablehnen", en: "Decline", es: "Rechazar" })}
+                        </Button>
+                      </div>
+                    )}
+                    {a.state === "approved" && (
+                      <Badge className="mt-3">{tx({ de: "Freigegeben", en: "Approved", es: "Aprobado" })}</Badge>
+                    )}
+                    {a.state === "rejected" && (
+                      <Badge variant="outline" className="mt-3">{tx({ de: "Abgelehnt", en: "Declined", es: "Rechazado" })}</Badge>
+                    )}
+                    {a.state === "error" && <p className="mt-2 text-xs text-destructive">{a.error}</p>}
                   </div>
                 ))}
                 {busy && (
