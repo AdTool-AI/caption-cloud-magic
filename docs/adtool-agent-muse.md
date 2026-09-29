@@ -100,3 +100,16 @@ retry from the original approval's pre-approved `retry_budget` (2 h window).
 `analyze-video-scenes` for segmentation and reviews the actual MP4 with the
 verified gateway payloads (`input_video`, base64 fallback). Returns verdict,
 per-category scores, timestamped issues and regeneration hints.
+
+## Recovery from interrupted tool loops
+
+After every tool batch the loop stores the outputs in
+`agent_conversations.pending_tool_outputs` (+ `pending_response_id`) before
+calling Meta again. If Meta fails, the outputs stay stored; the next user
+message replays them as `function_call_output` against `pending_response_id`
+first — tools are never re-executed. Pending state is cleared only after Meta
+returns a successful response. Storage is full replacement keyed by `call_id`,
+so repeated 5xx cannot apply a result twice. Logs: `[muse-recovery]
+tools_executed | output_pending_delivery | output_delivered |
+meta_failed_will_resume | resuming_pending_outputs`. Admins can pass
+`"faultInject":"after_tools"` to simulate a Meta failure for no-cost tests.
