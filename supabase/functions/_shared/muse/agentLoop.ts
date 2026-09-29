@@ -289,6 +289,7 @@ export async function runAgentTurn(params: RunAgentParams): Promise<void> {
         emit({ type: 'message', text: closing.outputText });
       }
     } catch (err) {
+      log('meta_failed_will_resume', { conversationId, responseId: previousResponseId, error: err instanceof Error ? err.message : String(err) });
       emit({ type: 'error', message: err instanceof Error ? err.message : 'Muse request failed.' });
     }
   }
