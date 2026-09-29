@@ -33,6 +33,17 @@ export interface RunAgentParams {
   message: string;
   language?: string;
   emit: (event: AgentEvent) => void;
+  /** Test-only: simulate a Meta failure right after the first tool batch. */
+  faultInjectAfterTools?: boolean;
+}
+
+interface PendingOutput {
+  call_id: string;
+  output: string;
+}
+
+function log(stage: string, data: Record<string, unknown>) {
+  console.log(`[muse-recovery] ${stage}`, JSON.stringify(data));
 }
 
 export async function runAgentTurn(params: RunAgentParams): Promise<void> {
@@ -42,11 +53,12 @@ export async function runAgentTurn(params: RunAgentParams): Promise<void> {
   let conversationId = params.conversationId ?? null;
   let previousResponseId: string | null = null;
   let regenerationsUsed = 0;
+  let recoveredOutputs: PendingOutput[] = [];
 
   if (conversationId) {
     const { data } = await admin
       .from('agent_conversations')
-      .select('id, last_response_id')
+      .select('id, last_response_id, pending_tool_outputs, pending_response_id')
       .eq('id', conversationId)
       .eq('user_id', userId)
       .maybeSingle();
@@ -55,6 +67,16 @@ export async function runAgentTurn(params: RunAgentParams): Promise<void> {
       return;
     }
     previousResponseId = data.last_response_id ?? null;
+    const pending = Array.isArray(data.pending_tool_outputs) ? data.pending_tool_outputs as PendingOutput[] : [];
+    if (pending.length > 0 && data.pending_response_id) {
+      // Tools already ran; only their outputs were never acknowledged by Meta.
+      // Replay the stored outputs against the response that requested them —
+      // never re-execute the tools.
+      const seen = new Set<string>();
+      recoveredOutputs = pending.filter((p) => p?.call_id && !seen.has(p.call_id) && seen.add(p.call_id));
+      previousResponseId = data.pending_response_id;
+      log('resuming_pending_outputs', { conversationId, responseId: previousResponseId, callIds: recoveredOutputs.map((p) => p.call_id) });
+    }
     const { count } = await admin
       .from('agent_operations')
       .select('id', { count: 'exact', head: true })
