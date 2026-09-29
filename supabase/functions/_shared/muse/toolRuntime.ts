@@ -344,23 +344,6 @@ async function dispatchGeneration(
   const priced = await priceGeneration(ctx, args.model, args.duration, args.resolution);
   if (!priced.ok) return { output: { error: priced.error, code: priced.code } };
 
-  const wallet = await walletBalance(ctx);
-  if (!wallet) {
-    return { output: { error: 'No AI video wallet found for this account.', code: 'NO_WALLET' } };
-  }
-  if (wallet.balance < priced.total) {
-    return {
-      output: {
-        error: 'Insufficient credits — nothing was started and nothing was charged.',
-        code: 'INSUFFICIENT_CREDITS',
-        required: priced.total,
-        available: wallet.balance,
-        currency: priced.currency,
-      },
-      estimatedCost: priced.total,
-      estimatedCostCurrency: priced.currency,
-    };
-  }
   // --- Hard approval gate ------------------------------------------------
   const approval = await loadApproval(ctx, args.approval_id);
   if (!approval) return approvalRequired('No valid approval_id for this generation.');
@@ -390,6 +373,23 @@ async function dispatchGeneration(
     if (Date.now() > windowEnd) return approvalRequired('The approved retry window has expired.');
   }
 
+  const wallet = await walletBalance(ctx);
+  if (!wallet) {
+    return { output: { error: 'No AI video wallet found for this account.', code: 'NO_WALLET' } };
+  }
+  if (wallet.balance < priced.total) {
+    return {
+      output: {
+        error: 'Insufficient credits — nothing was started and nothing was charged.',
+        code: 'INSUFFICIENT_CREDITS',
+        required: priced.total,
+        available: wallet.balance,
+        currency: priced.currency,
+      },
+      estimatedCost: priced.total,
+      estimatedCostCurrency: priced.currency,
+    };
+  }
   if (ctx.spentThisTurn + priced.total > ctx.maxTurnSpend) {
     return {
       output: {
