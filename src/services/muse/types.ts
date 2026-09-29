@@ -7,6 +7,7 @@ export type AgentEvent =
   | { type: 'conversation'; conversationId: string }
   | { type: 'tool_started'; name: string; arguments: unknown }
   | { type: 'tool_result'; name: string; result: unknown; generationId?: string }
+  | { type: 'approval_required'; approval: AgentApprovalQuote }
   | { type: 'message'; text: string }
   | { type: 'usage'; inputTokens: number; outputTokens: number; costUsd: number }
   | { type: 'error'; message: string; code?: string }
@@ -25,4 +26,18 @@ export interface AgentOperation {
   arguments?: unknown;
   result?: unknown;
   generationId?: string;
+}
+
+export interface AgentApprovalQuote {
+  approval_id: string;
+  model: string;
+  model_name?: string;
+  duration: number;
+  resolution: string;
+  total_cost: number;
+  max_total_cost: number;
+  retry_budget: number;
+  currency: string;
+  sufficient_credits?: boolean;
+  approval_expires_at?: string;
 }

@@ -174,27 +174,146 @@ async function getAvailableVideoModels(ctx: ToolContext, args: { family?: string
   return { output: { currency, discount_factor: discount, models } };
 }
 
+const APPROVAL_PENDING_MINUTES = 30;
+const APPROVAL_VALID_MINUTES = 15;
+const RETRY_WINDOW_MINUTES = 120;
+
+function normRes(r?: string | null): string {
+  return String(r ?? RESOLUTION_DEFAULT).trim().toLowerCase();
+}
+
 async function estimateVideoCost(
   ctx: ToolContext,
-  args: { model: string; duration: number; resolution?: string },
+  args: { model: string; duration: number; resolution?: string; retry_budget?: number },
 ): Promise<ToolResult> {
-  const priced = await priceGeneration(ctx, args.model, args.duration, args.resolution);
+  const spec = getMuseModel(args.model);
+  if (!spec) return { output: { error: `Unknown model "${args.model}".`, code: 'UNKNOWN_MODEL' } };
+  const duration = Number(args.duration);
+  if (!Number.isFinite(duration) || duration <= 0 || duration > 60) {
+    return { output: { error: 'Invalid duration.', code: 'INVALID_DURATION' } };
+  }
+  const priced = await priceGeneration(ctx, args.model, duration, args.resolution);
   if (!priced.ok) return { output: { error: priced.error, code: priced.code } };
   const wallet = await walletBalance(ctx);
+  const retryBudget = Math.max(0, Math.min(ctx.maxRegenerations, Math.floor(Number(args.retry_budget ?? 0)) || 0));
+  const maxTotal = Math.round(priced.total * (1 + retryBudget) * 100) / 100;
+  const resolution = normRes(args.resolution);
+
+  const { data: approval, error } = await ctx.admin
+    .from('agent_generation_approvals')
+    .insert({
+      user_id: ctx.userId,
+      conversation_id: ctx.conversationId,
+      model: args.model,
+      duration_seconds: duration,
+      resolution,
+      pricing_id: priced.pricingId,
+      cost: priced.total,
+      currency: priced.currency,
+      retry_budget: retryBudget,
+      max_total_cost: maxTotal,
+      status: 'pending',
+      expires_at: new Date(Date.now() + APPROVAL_PENDING_MINUTES * 60_000).toISOString(),
+    })
+    .select('id, expires_at')
+    .single();
+  if (error || !approval) {
+    return { output: { error: 'Could not create the approval request. Nothing was charged.', code: 'APPROVAL_ERROR' } };
+  }
+
   return {
     output: {
+      approval_required: true,
+      approval_id: approval.id,
+      approval_status: 'pending',
+      approval_expires_at: approval.expires_at,
       model: args.model,
-      duration: args.duration,
-      resolution: args.resolution ?? RESOLUTION_DEFAULT,
+      model_name: spec.displayName,
+      duration,
+      resolution,
       price_per_second: priced.perSecond,
       total_cost: priced.total,
+      retry_budget: retryBudget,
+      max_total_cost: maxTotal,
       currency: priced.currency,
       wallet_balance: wallet?.balance ?? null,
       sufficient_credits: wallet ? wallet.balance >= priced.total : false,
+      next_step:
+        'STOP. Show this quote to the user. The user must press Confirm in the AdTool UI. generate_video will be refused until then.',
     },
-    estimatedCost: priced.total,
-    estimatedCostCurrency: priced.currency,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Approval gate — server-side, independent of the system prompt.
+// ---------------------------------------------------------------------------
+
+// deno-lint-ignore no-explicit-any
+type ApprovalRow = any;
+
+async function loadApproval(ctx: ToolContext, approvalId: unknown): Promise<ApprovalRow | null> {
+  if (typeof approvalId !== 'string' || !/^[0-9a-f-]{36}$/i.test(approvalId)) return null;
+  const { data } = await ctx.admin
+    .from('agent_generation_approvals')
+    .select('*')
+    .eq('id', approvalId)
+    .eq('user_id', ctx.userId)
+    .eq('conversation_id', ctx.conversationId)
+    .maybeSingle();
+  return data ?? null;
+}
+
+function approvalRequired(reason: string, extra: Record<string, unknown> = {}) {
+  return {
+    output: {
+      error: `${reason} Nothing was started and nothing was charged. Call estimate_video_cost and wait for the user to press Confirm.`,
+      code: 'APPROVAL_REQUIRED',
+      ...extra,
+    },
+  };
+}
+
+function paramsMatch(a: ApprovalRow, model: string, duration: number, resolution: string): boolean {
+  return a.model === model && Number(a.duration_seconds) === Number(duration) && a.resolution === normRes(resolution);
+}
+
+/** Atomically consumes a fresh (approved, unexpired) approval. */
+async function consumeFreshApproval(ctx: ToolContext, a: ApprovalRow): Promise<boolean> {
+  const { data } = await ctx.admin
+    .from('agent_generation_approvals')
+    .update({ status: 'consumed', consumed_at: new Date().toISOString() })
+    .eq('id', a.id)
+    .eq('user_id', ctx.userId)
+    .eq('status', 'approved')
+    .gt('expires_at', new Date().toISOString())
+    .select('id');
+  return Array.isArray(data) && data.length === 1;
+}
+
+/** Atomically claims one retry from the approved retry budget. */
+async function claimRetry(ctx: ToolContext, a: ApprovalRow): Promise<boolean> {
+  const { data } = await ctx.admin
+    .from('agent_generation_approvals')
+    .update({ retries_used: Number(a.retries_used) + 1 })
+    .eq('id', a.id)
+    .eq('user_id', ctx.userId)
+    .eq('status', 'consumed')
+    .eq('retries_used', a.retries_used)
+    .lt('retries_used', a.retry_budget)
+    .select('id');
+  return Array.isArray(data) && data.length === 1;
+}
+
+async function attachGeneration(ctx: ToolContext, approvalId: string, generationId: string) {
+  const { data } = await ctx.admin
+    .from('agent_generation_approvals')
+    .select('generation_ids')
+    .eq('id', approvalId)
+    .maybeSingle();
+  await ctx.admin
+    .from('agent_generation_approvals')
+    .update({ generation_ids: Array.from(new Set([...(data?.generation_ids ?? []), generationId])) })
+    .eq('id', approvalId);
 }
 
 interface GenerateArgs {
@@ -206,9 +325,16 @@ interface GenerateArgs {
   generate_audio?: boolean;
   start_image_url?: string;
   negative_prompt?: string;
+  approval_id?: string;
 }
 
-async function dispatchGeneration(ctx: ToolContext, args: GenerateArgs): Promise<ToolResult> {
+type GateMode = { kind: 'fresh' } | { kind: 'retry' };
+
+async function dispatchGeneration(
+  ctx: ToolContext,
+  args: GenerateArgs,
+  gate: GateMode = { kind: 'fresh' },
+): Promise<ToolResult> {
   const spec = getMuseModel(args.model);
   if (!spec) {
     return { output: { error: `Unknown model "${args.model}". Call get_available_video_models first.`, code: 'UNKNOWN_MODEL' } };
@@ -217,6 +343,35 @@ async function dispatchGeneration(ctx: ToolContext, args: GenerateArgs): Promise
   // --- Budget safeguards, BEFORE anything is dispatched -------------------
   const priced = await priceGeneration(ctx, args.model, args.duration, args.resolution);
   if (!priced.ok) return { output: { error: priced.error, code: priced.code } };
+
+  // --- Hard approval gate ------------------------------------------------
+  const approval = await loadApproval(ctx, args.approval_id);
+  if (!approval) return approvalRequired('No valid approval_id for this generation.');
+  if (!paramsMatch(approval, args.model, args.duration, args.resolution ?? RESOLUTION_DEFAULT)) {
+    return approvalRequired('The approved model/duration/resolution do not match this request.', {
+      approved: { model: approval.model, duration: Number(approval.duration_seconds), resolution: approval.resolution },
+    });
+  }
+  if (Number(approval.cost) !== priced.total || approval.currency !== priced.currency) {
+    return approvalRequired('The price changed since the user approved it.', {
+      approved_cost: Number(approval.cost),
+      current_cost: priced.total,
+    });
+  }
+  if (gate.kind === 'fresh') {
+    if (approval.status !== 'approved') {
+      return approvalRequired(
+        approval.status === 'pending' ? 'The user has not confirmed this cost yet.' : `Approval is ${approval.status} and cannot be reused.`,
+      );
+    }
+    if (new Date(approval.expires_at).getTime() <= Date.now()) return approvalRequired('The approval has expired.');
+  } else {
+    if (approval.status !== 'consumed' || Number(approval.retries_used) >= Number(approval.retry_budget)) {
+      return approvalRequired('No approved retry budget is left for this task.');
+    }
+    const windowEnd = new Date(approval.consumed_at ?? approval.approved_at).getTime() + RETRY_WINDOW_MINUTES * 60_000;
+    if (Date.now() > windowEnd) return approvalRequired('The approved retry window has expired.');
+  }
 
   const wallet = await walletBalance(ctx);
   if (!wallet) {
@@ -247,6 +402,10 @@ async function dispatchGeneration(ctx: ToolContext, args: GenerateArgs): Promise
       estimatedCostCurrency: priced.currency,
     };
   }
+
+  // Claim the approval atomically right before dispatch (single use).
+  const claimed = gate.kind === 'fresh' ? await consumeFreshApproval(ctx, approval) : await claimRetry(ctx, approval);
+  if (!claimed) return approvalRequired('The approval was already used or expired.');
 
   // --- Dispatch through the existing generation Edge Function -------------
   const body: Record<string, unknown> = {
@@ -292,6 +451,7 @@ async function dispatchGeneration(ctx: ToolContext, args: GenerateArgs): Promise
   }
 
   const generationId = parsed.generationId ?? parsed.generation_id ?? parsed.id ?? null;
+  if (generationId) await attachGeneration(ctx, approval.id, generationId);
   return {
     output: {
       started: true,
@@ -300,6 +460,8 @@ async function dispatchGeneration(ctx: ToolContext, args: GenerateArgs): Promise
       duration: args.duration,
       charged_estimate: priced.total,
       currency: priced.currency,
+      approval_id: approval.id,
+      retries_remaining: Number(approval.retry_budget) - Number(approval.retries_used) - (gate.kind === 'retry' ? 1 : 0),
       status: parsed.status ?? 'processing',
     },
     generationId: generationId ?? undefined,
@@ -332,44 +494,61 @@ async function getVideoStatus(ctx: ToolContext, args: { generation_id: string })
   };
 }
 
+async function analyzeVideo(ctx: ToolContext, generationId: string, intent: string): Promise<ToolResult> {
+  const res = await fetch(`${ctx.supabaseUrl}/functions/v1/agent-video-qa`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${ctx.userJwt}`, apikey: ctx.anonKey, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ generation_id: generationId, intent }),
+  });
+  // deno-lint-ignore no-explicit-any
+  let body: any = {};
+  try {
+    body = await res.json();
+  } catch {
+    body = {};
+  }
+  if (!res.ok) {
+    return {
+      output: {
+        analysis_available: false,
+        error: body.error ?? `Video QA failed (HTTP ${res.status}).`,
+        code: body.code ?? 'QA_UNAVAILABLE',
+      },
+    };
+  }
+  return { output: body };
+}
+
 async function analyzeAsset(
   ctx: ToolContext,
-  args: { asset_url: string; intent: string; generation_id?: string },
+  args: { asset_url?: string; intent: string; generation_id?: string },
 ): Promise<ToolResult> {
-  let imageUrl = args.asset_url;
+  const isVideo = !!args.generation_id || /\.(mp4|mov|webm|m4v)(\?|$)/i.test(args.asset_url ?? '');
 
-  // Videos cannot be sent as an image frame — use the stored thumbnail.
-  if (/\.(mp4|mov|webm|m4v)(\?|$)/i.test(args.asset_url)) {
-    let thumb: string | null = null;
-    if (args.generation_id) {
-      const { data } = await ctx.admin
-        .from('ai_video_generations')
-        .select('thumbnail_url')
-        .eq('id', args.generation_id)
-        .eq('user_id', ctx.userId)
-        .maybeSingle();
-      thumb = data?.thumbnail_url ?? null;
-    }
-    if (!thumb) {
+  if (isVideo) {
+    if (!args.generation_id) {
       return {
         output: {
           analysis_available: false,
-          reason: 'No still frame is available for this video yet, so it cannot be judged automatically. Ask the user to review it.',
+          error: 'Full video QA needs the generation_id of an AdTool generation.',
+          code: 'GENERATION_ID_REQUIRED',
         },
       };
     }
-    imageUrl = thumb;
+    return await analyzeVideo(ctx, args.generation_id, args.intent);
   }
+
+  if (!args.asset_url) return { output: { error: 'asset_url or generation_id is required.', code: 'INVALID_ARGS' } };
 
   const response = await createMuseResponse(ctx.museConfig, {
     instructions:
-      'You are a meticulous creative director reviewing an AI-generated asset for paid social advertising. Be strict and concrete. Answer ONLY with JSON matching: {"verdict":"acceptable"|"needs_work"|"unusable","scores":{"prompt_adherence":0-10,"visual_quality":0-10,"realism":0-10,"consistency":0-10},"artifacts":[string],"text_errors":[string],"social_ad_suitability":string,"improvements":[string]}',
+      'You are a meticulous creative director reviewing an AI-generated image for paid social advertising. Be strict and concrete. Answer ONLY with JSON matching: {"verdict":"acceptable"|"needs_work"|"unusable","scores":{"prompt_adherence":0-10,"visual_quality":0-10,"realism":0-10,"consistency":0-10},"artifacts":[string],"text_errors":[string],"social_ad_suitability":string,"improvements":[string]}',
     input: [
       {
         role: 'user',
         content: [
           { type: 'input_text', text: `Intended result: ${args.intent}` },
-          { type: 'input_image', image_url: imageUrl },
+          { type: 'input_image', image_url: args.asset_url },
         ],
       },
     ],
@@ -387,8 +566,8 @@ async function analyzeAsset(
   return {
     output: {
       analysis_available: true,
+      analysis_scope: 'image',
       analysis: analysis ?? { raw: response.outputText },
-      reviewed_frame: imageUrl,
     },
   };
 }
@@ -399,6 +578,8 @@ async function regenerateVideo(
     previous_generation_id: string;
     prompt: string;
     reason: string;
+    approval_id: string;
+    negative_prompt?: string;
     model?: string;
     duration?: number;
     aspect_ratio?: string;
@@ -425,13 +606,28 @@ async function regenerateVideo(
     return { output: { error: 'No previous generation with that id belongs to this account.', code: 'NOT_FOUND' } };
   }
 
-  const result = await dispatchGeneration(ctx, {
-    model: args.model ?? previous.model,
-    prompt: args.prompt,
-    duration: args.duration ?? previous.duration_seconds,
-    aspect_ratio: args.aspect_ratio ?? previous.aspect_ratio,
-    resolution: args.resolution ?? previous.resolution,
-  });
+  const approval = await loadApproval(ctx, args.approval_id);
+  if (!approval) return approvalRequired('No valid approval_id for this regeneration.');
+
+  // A retry must belong to the approved task, unless the user approved a new quote.
+  const gate: GateMode = approval.status === 'approved' ? { kind: 'fresh' } : { kind: 'retry' };
+  if (gate.kind === 'retry' && !(approval.generation_ids ?? []).includes(previous.id)) {
+    return approvalRequired('The previous generation is not covered by this approval.');
+  }
+
+  const result = await dispatchGeneration(
+    ctx,
+    {
+      model: args.model ?? approval.model,
+      prompt: args.prompt,
+      duration: args.duration ?? Number(approval.duration_seconds),
+      aspect_ratio: args.aspect_ratio ?? previous.aspect_ratio,
+      resolution: args.resolution ?? approval.resolution,
+      negative_prompt: args.negative_prompt,
+      approval_id: approval.id,
+    },
+    gate,
+  );
 
   return {
     ...result,

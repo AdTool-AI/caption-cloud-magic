@@ -514,6 +514,80 @@ export type Database = {
         }
         Relationships: []
       }
+      agent_generation_approvals: {
+        Row: {
+          approved_at: string | null
+          consumed_at: string | null
+          conversation_id: string
+          cost: number
+          created_at: string
+          currency: string
+          duration_seconds: number
+          expires_at: string
+          generation_ids: string[]
+          id: string
+          max_total_cost: number
+          model: string
+          pricing_id: string
+          resolution: string
+          retries_used: number
+          retry_budget: number
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          approved_at?: string | null
+          consumed_at?: string | null
+          conversation_id: string
+          cost: number
+          created_at?: string
+          currency: string
+          duration_seconds: number
+          expires_at: string
+          generation_ids?: string[]
+          id?: string
+          max_total_cost: number
+          model: string
+          pricing_id: string
+          resolution: string
+          retries_used?: number
+          retry_budget?: number
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          approved_at?: string | null
+          consumed_at?: string | null
+          conversation_id?: string
+          cost?: number
+          created_at?: string
+          currency?: string
+          duration_seconds?: number
+          expires_at?: string
+          generation_ids?: string[]
+          id?: string
+          max_total_cost?: number
+          model?: string
+          pricing_id?: string
+          resolution?: string
+          retries_used?: number
+          retry_budget?: number
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_generation_approvals_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "agent_conversations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       agent_messages: {
         Row: {
           content: string | null

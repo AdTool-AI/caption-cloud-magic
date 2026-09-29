@@ -82,3 +82,21 @@ Responds with `text/event-stream`; each frame is
 To run the agent elsewhere, reuse `_shared/muse/*` unchanged and replace only
 `muse-agent/index.ts` (HTTP + auth) and `src/services/muse/agentClient.ts`
 (endpoint + token resolution).
+
+## Approval gate (server-side)
+
+`estimate_video_cost` creates a `pending` row in `agent_generation_approvals`
+(exact model, duration, resolution, pricing id, cost, currency, optional
+`retry_budget` 0–2). Only the signed-in user can confirm it via
+`POST muse-agent {action:"approve"|"reject", approvalId}` (Confirm button in
+`/agent`); approval is valid 15 min. `generate_video` requires the approved
+`approval_id`, exact parameter + price match, and consumes it atomically
+(single use). `regenerate_video` either uses a fresh approval or claims one
+retry from the original approval's pre-approved `retry_budget` (2 h window).
+
+## Video QA
+
+`analyze_asset` with `generation_id` calls `agent-video-qa`, which reuses
+`analyze-video-scenes` for segmentation and reviews the actual MP4 with the
+verified gateway payloads (`input_video`, base64 fallback). Returns verdict,
+per-category scores, timestamped issues and regeneration hints.

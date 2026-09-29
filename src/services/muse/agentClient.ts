@@ -87,3 +87,24 @@ export async function sendAgentMessage(params: SendAgentMessageParams): Promise<
     }
   }
 }
+
+/** Records the user's decision on a quoted generation (server-side, single use). */
+export async function decideAgentApproval(
+  approvalId: string,
+  decision: 'approve' | 'reject',
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const token = await resolveToken();
+  if (!token) return { ok: false, error: 'You need to be signed in.' };
+  const res = await fetch(resolveEndpoint(), {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ action: decision, approvalId }),
+  });
+  if (res.ok) return { ok: true };
+  const body = await res.json().catch(() => ({}));
+  return { ok: false, error: body?.error ?? `Request failed (${res.status}).` };
+}

@@ -15,6 +15,7 @@ export type AgentEvent =
   | { type: 'conversation'; conversationId: string }
   | { type: 'tool_started'; name: string; arguments: unknown }
   | { type: 'tool_result'; name: string; result: unknown; generationId?: string }
+  | { type: 'approval_required'; approval: Record<string, unknown> }
   | { type: 'message'; text: string }
   | { type: 'usage'; inputTokens: number; outputTokens: number; costUsd: number }
   | { type: 'error'; message: string; code?: string }
@@ -187,6 +188,9 @@ export async function runAgentTurn(params: RunAgentParams): Promise<void> {
       }
 
       emit({ type: 'tool_result', name: call.name, result: result.output, generationId: result.generationId });
+      if (call.name === 'estimate_video_cost' && result.output?.approval_required) {
+        emit({ type: 'approval_required', approval: result.output });
+      }
 
       input.push({
         type: 'function_call_output',
