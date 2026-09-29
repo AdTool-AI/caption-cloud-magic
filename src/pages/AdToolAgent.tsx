@@ -50,8 +50,9 @@ export default function AdToolAgent() {
   const decide = async (quote: AgentApprovalQuote, decision: "approve" | "reject") => {
     if (busy) return;
     const res = await decideAgentApproval(quote.approval_id, decision);
-    if (!res.ok) {
-      setApprovals((prev) => prev.map((a) => (a.approval_id === quote.approval_id ? { ...a, state: "error", error: res.error } : a)));
+    if (res.ok === false) {
+      const err = res.error;
+      setApprovals((prev) => prev.map((a) => (a.approval_id === quote.approval_id ? { ...a, state: "error", error: err } : a)));
       return;
     }
     setApprovals((prev) =>
