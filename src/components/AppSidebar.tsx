@@ -1,6 +1,6 @@
 import { tx } from "@/lib/i18nText";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Home, Lock } from "lucide-react";
+import { Bot, Home, Lock } from "lucide-react";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
 import { useTranslation } from "@/hooks/useTranslation";
@@ -73,6 +73,33 @@ export function AppSidebar() {
                     <p className="font-medium">{t("home")}</p>
                   </TooltipContent>
                 </Tooltip>
+            </SidebarMenuItem>
+          </SidebarMenu>
+
+          {/* AdTool Agent */}
+          <SidebarMenu className="w-full px-2">
+            <SidebarMenuItem>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={location.pathname === "/agent"}
+                    className={cn(
+                      "h-11 w-11 mx-auto flex items-center justify-center rounded-xl transition-all duration-200",
+                      location.pathname === "/agent"
+                        ? "bg-primary/15 text-primary shadow-[0_0_12px_rgba(124,58,237,0.25)]"
+                        : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                    )}
+                  >
+                    <Link to="/agent">
+                      <Bot className="h-5 w-5" />
+                    </Link>
+                  </SidebarMenuButton>
+                </TooltipTrigger>
+                <TooltipContent side="right" sideOffset={8} className="z-[90] bg-popover text-popover-foreground border-border shadow-xl">
+                  <p className="font-medium">AdTool Agent</p>
+                </TooltipContent>
+              </Tooltip>
             </SidebarMenuItem>
           </SidebarMenu>
 

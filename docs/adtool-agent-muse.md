@@ -1,0 +1,84 @@
+# AdTool Agent (Meta Muse Spark 1.3)
+
+Agentic layer that plans and executes video production on top of the existing
+AdTool pipeline. Designed to be portable: nothing in the service depends on
+Lovable-specific APIs, so it can be lifted to Railway or any Node/Deno host that
+can reach the same Postgres schema and the existing generation endpoints.
+
+## Components
+
+| Path | Purpose |
+| --- | --- |
+| `supabase/functions/_shared/muse/config.ts` | Env-driven configuration + token cost estimate |
+| `supabase/functions/_shared/muse/museClient.ts` | Meta **Responses API** client (`POST /v1/responses`) |
+| `supabase/functions/_shared/muse/systemPrompt.ts` | Agent persona and hard behavioural limits |
+| `supabase/functions/_shared/muse/tools.ts` | Tool JSON schemas (no execution logic) |
+| `supabase/functions/_shared/muse/toolRuntime.ts` | Ownership-scoped tool execution |
+| `supabase/functions/_shared/muse/videoModelCatalog.ts` | Generated snapshot of `src/config/videoModelSpecs.ts` |
+| `supabase/functions/_shared/muse/agentLoop.ts` | Bounded reason → tool → observe loop + persistence |
+| `supabase/functions/muse-agent/index.ts` | Authenticated HTTP endpoint, SSE stream |
+| `src/services/muse/*` | Transport-agnostic browser client |
+| `src/pages/AdToolAgent.tsx` | Operator console at `/agent` |
+
+Regenerate the model catalog after changing `videoModelSpecs.ts`:
+
+```
+bun scripts/generate-muse-model-catalog.mjs
+```
+
+## Configuration (server-side only)
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `META_MODEL_API_KEY` | – | Required. Never exposed to the browser. |
+| `META_MUSE_MODEL` | `muse-spark-1.3` | Switch models without touching the architecture. |
+| `META_MODEL_BASE_URL` | `https://api.meta.ai/v1` | |
+| `META_MUSE_MAX_TOOL_ITERATIONS` | `8` | Hard stop for the reasoning loop. |
+| `META_MUSE_MAX_REGENERATIONS` | `2` | Automated retries per conversation. |
+| `META_MUSE_MAX_TURN_SPEND` | `25` | Max committed generation spend per turn (wallet currency). |
+
+## State
+
+Backend-owned tables, no UI coupling:
+
+- `agent_conversations` — user, model, `last_response_id` / `previous_response_id`,
+  token totals, estimated AI cost, generation ids.
+- `agent_messages` — user/assistant turns, tool calls, Meta response id.
+- `agent_operations` — one row per tool call: arguments, result, status,
+  generation id, attempt, estimated cost + currency.
+
+Continuity across turns uses the Responses API `previous_response_id`.
+
+## Budget safeguards
+
+Before any paid tool runs:
+
+1. Exact charge is computed from the canonical catalog
+   (`_shared/videoPricingCatalog.ts` + account discount factor). Unknown price or
+   unknown wallet currency → fail closed, nothing dispatched.
+2. Wallet balance must cover the charge.
+3. Per-turn spend cap (`META_MUSE_MAX_TURN_SPEND`).
+4. `regenerate_video` is capped at `META_MUSE_MAX_REGENERATIONS` per conversation.
+5. Generation always goes through the existing `generate-*-video` Edge Functions
+   with the caller's JWT, so wallet RPCs, entitlements and capability gating are
+   never bypassed.
+
+The agent may not publish to social networks, send email, purchase anything,
+change billing/subscriptions/permissions or delete assets.
+
+## Endpoint
+
+```
+POST /functions/v1/muse-agent
+Authorization: Bearer <user access token>
+{ "message": "...", "conversationId": "<uuid|null>", "language": "en|de|es" }
+```
+
+Responds with `text/event-stream`; each frame is
+`data: {"type": "conversation"|"tool_started"|"tool_result"|"message"|"usage"|"error"|"done", ...}`.
+
+## Portability
+
+To run the agent elsewhere, reuse `_shared/muse/*` unchanged and replace only
+`muse-agent/index.ts` (HTTP + auth) and `src/services/muse/agentClient.ts`
+(endpoint + token resolution).

@@ -466,6 +466,157 @@ export type Database = {
         }
         Relationships: []
       }
+      agent_conversations: {
+        Row: {
+          created_at: string
+          estimated_ai_cost_usd: number
+          generation_ids: string[]
+          id: string
+          last_response_id: string | null
+          model: string
+          previous_response_id: string | null
+          status: string
+          title: string | null
+          total_input_tokens: number
+          total_output_tokens: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          estimated_ai_cost_usd?: number
+          generation_ids?: string[]
+          id?: string
+          last_response_id?: string | null
+          model: string
+          previous_response_id?: string | null
+          status?: string
+          title?: string | null
+          total_input_tokens?: number
+          total_output_tokens?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          estimated_ai_cost_usd?: number
+          generation_ids?: string[]
+          id?: string
+          last_response_id?: string | null
+          model?: string
+          previous_response_id?: string | null
+          status?: string
+          title?: string | null
+          total_input_tokens?: number
+          total_output_tokens?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      agent_messages: {
+        Row: {
+          content: string | null
+          conversation_id: string
+          created_at: string
+          id: string
+          response_id: string | null
+          role: string
+          tool_calls: Json
+          user_id: string
+        }
+        Insert: {
+          content?: string | null
+          conversation_id: string
+          created_at?: string
+          id?: string
+          response_id?: string | null
+          role: string
+          tool_calls?: Json
+          user_id: string
+        }
+        Update: {
+          content?: string | null
+          conversation_id?: string
+          created_at?: string
+          id?: string
+          response_id?: string | null
+          role?: string
+          tool_calls?: Json
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_messages_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "agent_conversations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      agent_operations: {
+        Row: {
+          arguments: Json
+          attempt: number
+          conversation_id: string
+          created_at: string
+          error_message: string | null
+          estimated_cost: number | null
+          estimated_cost_currency: string | null
+          generation_id: string | null
+          id: string
+          parent_generation_id: string | null
+          result: Json | null
+          status: string
+          tool_name: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          arguments?: Json
+          attempt?: number
+          conversation_id: string
+          created_at?: string
+          error_message?: string | null
+          estimated_cost?: number | null
+          estimated_cost_currency?: string | null
+          generation_id?: string | null
+          id?: string
+          parent_generation_id?: string | null
+          result?: Json | null
+          status?: string
+          tool_name: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          arguments?: Json
+          attempt?: number
+          conversation_id?: string
+          created_at?: string
+          error_message?: string | null
+          estimated_cost?: number | null
+          estimated_cost_currency?: string | null
+          generation_id?: string | null
+          id?: string
+          parent_generation_id?: string | null
+          result?: Json | null
+          status?: string
+          tool_name?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_operations_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "agent_conversations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ai_jobs: {
         Row: {
           completed_at: string | null
