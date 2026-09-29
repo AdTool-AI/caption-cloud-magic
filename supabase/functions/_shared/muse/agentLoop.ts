@@ -43,6 +43,8 @@ export interface RunAgentParams {
   resumeTaskId?: string;
   /** Background resume authenticates internal calls for this user with the service key. */
   internalAuthUserId?: string;
+  /** Test-only (admin-gated by caller): rename the first tool call Muse makes, to exercise the allow-list. */
+  testRewriteFirstToolCallTo?: string;
 }
 
 interface PendingOutput {
@@ -210,6 +212,10 @@ export async function runAgentTurn(params: RunAgentParams): Promise<void> {
     }
 
     if (response.toolCalls.length === 0) break;
+    if (params.testRewriteFirstToolCallTo && toolBatches === 0) {
+      response.toolCalls[0] = { ...response.toolCalls[0], name: params.testRewriteFirstToolCallTo };
+      log('test_rewrite_tool_call', { conversationId, to: params.testRewriteFirstToolCallTo });
+    }
 
     input = [];
     for (const call of response.toolCalls) {

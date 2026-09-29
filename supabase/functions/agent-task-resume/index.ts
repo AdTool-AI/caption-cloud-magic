@@ -61,6 +61,17 @@ Deno.serve(async (req) => {
   if (!bearer || (bearer !== anonKey && bearer !== serviceKey)) return json(401, { error: 'Unauthorized' });
 
   const admin = createClient(supabaseUrl, serviceKey);
+
+  // Test-only hooks: honored only for a verified admin JWT and one named task.
+  let test: { taskId?: string; rewriteToolTo?: string; throwAfterQa?: boolean } | null = null;
+  const testJwt = req.headers.get('x-agent-test-jwt');
+  if (testJwt) {
+    const body = await req.json().catch(() => ({}));
+    const { data: u } = await admin.auth.getUser(testJwt);
+    const { data: isAdmin } = u?.user ? await admin.rpc('has_role', { _user_id: u.user.id, _role: 'admin' }) : { data: false };
+    if (isAdmin === true && body?.test?.taskId) test = body.test;
+    else return json(403, { error: 'Test hooks require admin' });
+  }
   const timeoutMin = Math.max(5, Number(Deno.env.get('MUSE_AGENT_TASK_TIMEOUT_MINUTES') ?? 60) || 60);
   const summary = { waiting: 0, failed: 0, resumed: 0, slow: 0, stale_analyzing: 0 };
 
@@ -147,6 +158,7 @@ Deno.serve(async (req) => {
       await admin.from('agent_tasks').update({ status: 'failed', error: 'Agent not configured', finished_at: new Date().toISOString() }).eq('id', t.id);
       continue;
     }
+    const hooks = test && test.taskId === t.id ? test : null;
     const events: Array<Record<string, unknown>> = [];
     let lastMessage = '';
     try {
@@ -162,7 +174,11 @@ Deno.serve(async (req) => {
         internal: true,
         allowedTools: RESUME_TOOLS,
         resumeTaskId: t.id,
+        testRewriteFirstToolCallTo: hooks?.rewriteToolTo,
         emit: (e) => {
+          if (hooks?.throwAfterQa && e.type === 'tool_result' && e.name === 'analyze_asset') {
+            throw new Error('Simulated worker interruption after QA (test hook).');
+          }
           if (e.type === 'message') lastMessage = e.text;
           if (e.type === 'tool_result' || e.type === 'error') events.push(e as Record<string, unknown>);
         },
