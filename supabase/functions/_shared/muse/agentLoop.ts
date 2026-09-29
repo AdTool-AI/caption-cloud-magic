@@ -261,6 +261,10 @@ export async function runAgentTurn(params: RunAgentParams): Promise<void> {
         output: JSON.stringify(result.output),
       });
     }
+    toolBatches += 1;
+    log('tools_executed', { conversationId, responseId: previousResponseId, count: input.length });
+    await persistPending(input, previousResponseId);
+    hasUndelivered = true;
     if (iteration === config.maxToolIterations - 1) pendingOutputs = true;
   }
 
@@ -279,6 +283,7 @@ export async function runAgentTurn(params: RunAgentParams): Promise<void> {
       totalIn += closing.usage.input;
       totalOut += closing.usage.output;
       previousResponseId = closing.id;
+      await clearPending(closing.id);
       if (closing.outputText) {
         finalText = closing.outputText;
         emit({ type: 'message', text: closing.outputText });
