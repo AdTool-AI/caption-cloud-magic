@@ -112,10 +112,14 @@ function normalizeResponse(parsed: any): MuseResponse {
   }
 
   const usage = parsed.usage ?? {};
+  const outputText =
+    textParts.length > 0
+      ? textParts.join('\n').trim()
+      : (typeof parsed.output_text === 'string' ? parsed.output_text.trim() : '');
   return {
     id: String(parsed.id ?? ''),
     status: String(parsed.status ?? 'completed'),
-    outputText: outputText.trim(),
+    outputText,
     toolCalls,
     usage: {
       input: Number(usage.input_tokens ?? 0),
