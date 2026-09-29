@@ -211,7 +211,7 @@ export async function runAgentTurn(params: RunAgentParams): Promise<void> {
 
   const { data: convo } = await admin
     .from('agent_conversations')
-    .select('total_input_tokens, total_output_tokens, estimated_ai_cost_usd, generation_ids')
+    .select('last_response_id, total_input_tokens, total_output_tokens, estimated_ai_cost_usd, generation_ids')
     .eq('id', conversationId)
     .maybeSingle();
 

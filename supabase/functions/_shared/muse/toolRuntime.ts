@@ -106,7 +106,7 @@ async function walletBalance(ctx: ToolContext): Promise<{ balance: number; curre
 
 async function getUserContext(ctx: ToolContext): Promise<ToolResult> {
   const [{ data: profile }, { data: brandKit }, { data: media }, wallet] = await Promise.all([
-    ctx.admin.from('profiles').select('plan, brand_name, preferred_language').eq('id', ctx.userId).maybeSingle(),
+    ctx.admin.from('profiles').select('plan, brand_name, language').eq('id', ctx.userId).maybeSingle(),
     ctx.admin
       .from('brand_kits')
       .select('brand_name, industry, primary_color, secondary_color, accent_color, color_palette, mood, brand_tone, brand_values, target_audience, style_direction, keywords, website_url')
@@ -128,7 +128,7 @@ async function getUserContext(ctx: ToolContext): Promise<ToolResult> {
   return {
     output: {
       plan: profile?.plan ?? 'free',
-      language: profile?.preferred_language ?? null,
+      language: profile?.language ?? null,
       brand_kit: brandKit ?? null,
       wallet: wallet ? { balance: wallet.balance, currency: wallet.currency } : null,
       recent_media: (media ?? []).map((m: Record<string, unknown>) => ({
