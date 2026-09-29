@@ -89,17 +89,18 @@ export async function createMuseResponse(
 // deno-lint-ignore no-explicit-any
 function normalizeResponse(parsed: any): MuseResponse {
   const output: any[] = Array.isArray(parsed.output) ? parsed.output : [];
-  let outputText = typeof parsed.output_text === 'string' ? parsed.output_text : '';
+  const textParts: string[] = [];
   const toolCalls: MuseToolCall[] = [];
 
   for (const item of output) {
     if (item?.type === 'message' && Array.isArray(item.content)) {
       for (const part of item.content) {
         if (part?.type === 'output_text' && typeof part.text === 'string') {
-          outputText += (outputText && !outputText.endsWith(part.text) ? '' : '') + (parsed.output_text ? '' : part.text);
+          textParts.push(part.text);
         }
       }
     }
+  
     if (item?.type === 'function_call') {
       toolCalls.push({
         id: item.id,
