@@ -13,6 +13,7 @@ import { resolveCostPerSecond } from '../videoPricingCatalog.ts';
 import { resolveAccountDiscountFactor, resolveWalletCurrency } from '../accountVideoPricing.ts';
 import { createMuseResponse } from './museClient.ts';
 import type { MuseConfig } from './config.ts';
+import { executeCampaignTool } from './campaign/runtime.ts';
 
 export interface ToolContext {
   userId: string;
@@ -665,7 +666,10 @@ export async function executeMuseTool(
       return await analyzeAsset(ctx, args);
     case 'regenerate_video':
       return await regenerateVideo(ctx, args);
-    default:
+    default: {
+      const campaign = await executeCampaignTool(ctx, name, args);
+      if (campaign) return campaign;
       return { output: { error: `Unknown tool "${name}".`, code: 'UNKNOWN_TOOL' } };
+    }
   }
 }
