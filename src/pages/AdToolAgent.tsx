@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
+import { CampaignPanel } from "@/components/agent/CampaignPanel";
 import { tx } from "@/lib/i18nText";
 import { useTranslation } from "@/hooks/useTranslation";
 import {
@@ -34,6 +35,15 @@ const TOOL_LABELS: Record<string, { de: string; en: string; es: string }> = {
   get_video_status: { de: "Status geprüft", en: "Checking status", es: "Comprobando estado" },
   analyze_asset: { de: "Ergebnis geprüft", en: "Reviewing result", es: "Revisando resultado" },
   regenerate_video: { de: "Neuer Versuch", en: "Retrying", es: "Reintentando" },
+  create_campaign: { de: "Kampagne angelegt", en: "Creating campaign", es: "Creando campaña" },
+  research_business: { de: "Unternehmen recherchiert", en: "Researching business", es: "Investigando negocio" },
+  record_research_findings: { de: "Erkenntnisse gespeichert", en: "Saving findings", es: "Guardando hallazgos" },
+  collect_campaign_assets: { de: "Material gesammelt", en: "Collecting assets", es: "Reuniendo recursos" },
+  identify_content_pillars: { de: "Content-Säulen", en: "Content pillars", es: "Pilares de contenido" },
+  identify_business_areas: { de: "Geschäftsbereiche", en: "Business areas", es: "Áreas de negocio" },
+  plan_campaign_videos: { de: "Videos geplant", en: "Planning videos", es: "Planificando vídeos" },
+  write_video_scripts: { de: "Skripte & Shots", en: "Scripts & shots", es: "Guiones y tomas" },
+  get_campaign: { de: "Kampagne gelesen", en: "Reading campaign", es: "Leyendo campaña" },
 };
 
 export default function AdToolAgent() {
@@ -479,6 +489,10 @@ export default function AdToolAgent() {
             )}
           </Card>
         </div>
+        <CampaignPanel
+          conversationId={conversationId}
+          refreshKey={operations.length * 1000 + operations.filter((o) => o.status !== "running").length + messages.length}
+        />
       </div>
     </PageWrapper>
   );
