@@ -128,30 +128,49 @@ async function perplexityResearch(prompt: string, errors: string[]): Promise<{ t
   const key = env('PERPLEXITY_API_KEY');
   if (!key) { errors.push('PERPLEXITY_API_KEY not configured'); return null; }
   try {
-    const res = await fetch('https://api.perplexity.ai/chat/completions', {
+    // Perplexity Agent API (web-grounded). Plain fetch keeps _shared/muse SDK-free/portable.
+    const res = await fetch('https://api.perplexity.ai/v1/agent', {
       method: 'POST',
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'sonar',
-        temperature: 0.2,
-        max_tokens: 2500,
-        messages: [
-          {
-            role: 'system',
-            content:
-              'You are a business researcher. Use only publicly accessible sources. Never guess: if something is unknown, say "unknown". Mark every factual statement with a citation index like [1]. Do not use content behind logins.',
-          },
-          { role: 'user', content: prompt },
-        ],
+        preset: 'low',
+        tools: [{ type: 'web_search' }, { type: 'fetch_url' }],
+        instructions:
+          'You are a business researcher. Use only publicly accessible sources. Never guess: if something is unknown, say "unknown". Mark every factual statement with a citation index like [1]. Do not use content behind logins.',
+        input: prompt,
       }),
-      signal: AbortSignal.timeout(60_000),
+      signal: AbortSignal.timeout(90_000),
     });
-    if (!res.ok) { errors.push(`Perplexity HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`); return null; }
+    if (!res.ok) {
+      const body = (await res.text()).slice(0, 300);
+      if (res.status === 401 && body.includes('insufficient_quota')) {
+        errors.push('Perplexity credits exhausted — top up at https://console.perplexity.ai');
+      } else if (res.status === 429) {
+        errors.push(`Perplexity rate limited (Retry-After: ${res.headers.get('retry-after') ?? 'n/a'})`);
+      } else {
+        errors.push(`Perplexity HTTP ${res.status}: ${body}`);
+      }
+      return null;
+    }
     const data = await res.json();
-    const text = data?.choices?.[0]?.message?.content ?? '';
-    const citations: string[] = Array.isArray(data?.citations)
-      ? data.citations
-      : Array.isArray(data?.search_results) ? data.search_results.map((r: { url: string }) => r.url) : [];
+    const output: any[] = Array.isArray(data?.output) ? data.output : [];
+    const urls = new Set<string>();
+    const parts: string[] = [];
+    for (const item of output) {
+      if (item?.type === 'search_results' && Array.isArray(item.results)) {
+        for (const r of item.results) if (r?.url) urls.add(r.url);
+      }
+      if (item?.type === 'message' && Array.isArray(item.content)) {
+        for (const c of item.content) {
+          if (c?.type === 'output_text') {
+            if (c.text) parts.push(c.text);
+            for (const a of c.annotations ?? []) if (a?.url) urls.add(a.url);
+          }
+        }
+      }
+    }
+    const text: string = typeof data?.output_text === 'string' && data.output_text ? data.output_text : parts.join('\n');
+    const citations = [...urls];
     return { text, citations };
   } catch (e) {
     errors.push(`Perplexity failed: ${(e as Error).message}`);
