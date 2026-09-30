@@ -20,7 +20,7 @@ const DOMAIN: Record<SocialPlatform, string> = {
 const RESERVED: Record<SocialPlatform, RegExp> = {
   instagram: /^(p|reel|reels|explore|stories|accounts|about|legal|developer|tv|direct)$/i,
   tiktok: /^(tag|music|discover|video|search|login|about|legal)$/i,
-  facebook: /^(sharer|share|dialog|login|help|policies|privacy|groups|events|watch|marketplace|photo\.php|story\.php|permalink\.php|tr|plugins|hashtag)$/i,
+  facebook: /^(sharer(\.php)?|share|dialog|login|help|policies|privacy|groups|events|watch|marketplace|photo\.php|story\.php|permalink\.php|tr|plugins|hashtag)$/i,
   youtube: /^(watch|results|feed|shorts|embed|playlist|redirect|t|about|howyoutubeworks)$/i,
 };
 
