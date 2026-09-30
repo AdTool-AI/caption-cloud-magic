@@ -27,6 +27,7 @@ const RESUME_TOOLS = new Set([
   'get_video_status',
   'analyze_asset',
   'estimate_video_cost', // prepares a NEW quote only; generation still needs a foreground Confirm
+  'get_campaign', // read-only campaign context (campaign planning tools stay foreground-only)
 ]);
 const HARD_CEILING_MS = 24 * 60 * 60 * 1000;
 
