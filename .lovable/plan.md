@@ -18,11 +18,14 @@ From one request like "Café Buur, 30-second German demo ad" (or "6 videos for C
 - Brand / media: `brand_kits`, `media_library` (existing asset references only; nothing is copied or re-hosted in Phase A).
 - Existing wallet, pricing, approval and generation code stays untouched and is not called.
 
-## Content pillars and diversity (applies to 1..N videos)
+## Content pillars, business areas and diversity (applies to 1..N videos)
 - `identify_content_pillars`: finds pillars from the research (e.g. signature brunch, coffee/drinks, atmosphere/interior, friends/social, team/behind the scenes, reservation/conversion), each ranked by relevance to the goal, with its sources.
-- `plan_campaign_videos`: spreads the N videos across different pillars. Each video stores content_pillar, target_audience, funnel_stage (awareness/consideration/conversion), primary_goal, hook_type, CTA, visual_style, key_asset/product, and a "why this video exists" rationale.
-- Diversity rules, checked on the server: no repeated hook_type, no identical shot sequence (compared by shot-type signature), no identical CTA, no repeated key product unless the video is marked as part of a series, a varied mix of people, product and atmosphere, and awareness and conversion goals both covered when N ≥ 3. If a rule fails, the plan is rejected with the reason and Muse has to revise it.
-- `coverage_score` (0–100): combines pillar coverage weighted by rank, funnel-stage spread, emphasis variety, and duplicate penalties. It's stored with a short explanation of how the videos work together as one campaign.
+- `identify_business_areas`: marks which of these areas matter commercially, with evidence and relevance: products/menu, drinks, atmosphere, people/team, location, service, reviews/social proof, offers/seasonal, conversion/reservations.
+- `plan_campaign_videos`: spreads the N videos across different pillars AND business areas.
+- **Content matrix** (stored for each video and shown as a table in `/agent`): pillar, business area, funnel stage, target audience, emotional angle, commercial objective, hook type, CTA, visual style, hero subject, plus "why this video exists".
+- Exact-match rules (server-side): no repeated hook_type, no identical shot sequence, no identical CTA, no repeated hero subject unless the video is marked as a series, varied people/product/atmosphere emphasis, awareness and conversion both present when N ≥ 3.
+- **Semantic duplicate check** (server-side): every pair of videos is compared on concept, hook, CTA, shot structure, hero subject and main commercial message, using embeddings (`google/gemini-embedding-2` via the AI Gateway) plus a short structured AI judgment for borderline pairs. Example: "Best brunch in town" and "Your new favorite brunch spot" count as the same concept. Any pair above the threshold is rejected with the reason and Muse must revise one of the two videos (max 3 revision rounds, then the plan is flagged for you instead of looping).
+- `coverage_score` (0–100): pillar coverage weighted by rank, relevant business areas covered, funnel-stage spread, emphasis variety, minus penalties for duplicates and near-duplicates. It's stored with a short explanation of how the videos work together as one campaign.
 
 ## New agent tools (all free)
 `create_campaign`, `research_business`, `collect_campaign_assets`, `identify_content_pillars`, `plan_campaign_videos`, `write_video_script`, `plan_shots`, `get_campaign`.
@@ -40,7 +43,8 @@ All of these are also allowed in the background resume step. No paid tool is inv
 - Relevant public assets with provenance, all web assets marked reference_only.
 - German 30-second script (hook, message, CTA, voiceover text, on-screen text, timing, music and sound direction).
 - 5–7 shots for the single video.
-- Additional check: a "6 videos" request yields 6 distinct pillar/hook/CTA combinations, diversity checks pass, coverage_score and rationale shown.
+- 6-video test: 6 materially different concepts (food-led, drink-led, atmosphere-led, people/social-led, team/behind-the-scenes-led, conversion/reservation-led), each with a different primary goal and different hook logic. The content matrix is shown in full, no pair is above the semantic similarity threshold (pair scores shown), and coverage_score is shown with its explanation.
+- Negative test: a deliberately near-duplicate plan ("Best brunch in town" / "Your new favorite brunch spot") is rejected and revised.
 - Video wallet balance and `ai_video_generations` count unchanged; no generate function called.
 - The campaign survives a refresh and reopens from `/agent?conversation=`.
 
