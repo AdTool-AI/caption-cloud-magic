@@ -141,3 +141,6 @@ approvals and tasks from the database; realtime on `agent_tasks` /
 
 ## Campaigns — Phase A (research + planning, no spending)
 Tools: create_campaign, research_business (Perplexity + Firecrawl connector + safe-fetch website, robots.txt respected), record_research_findings (facts without a stored source = hypothesis), collect_campaign_assets (web = reference_only, own brand kit/Media Library = reuse_ok), identify_content_pillars, identify_business_areas, plan_campaign_videos (exact diversity rules + embeddings per dimension + Muse judgment for borderline pairs; max 3 revision rounds then flagged; fails closed), write_video_scripts (5–7 contiguous 2–8 s shots), get_campaign. Pure rules in `campaign/diversity.ts` (tested). Embeddings configurable via EMBEDDINGS_BASE_URL/EMBEDDINGS_API_KEY/EMBEDDINGS_MODEL. UI: campaign panel under the chat in /agent.
+
+## Social profile research
+`discover_social_profiles` finds Instagram, TikTok, Facebook and YouTube via website links, Firecrawl `site:` search and cited Perplexity research (handles must match the company name), then reads each profile publicly. Blocked/login-walled profiles become `not_accessible`. `record_social_analysis` stores posts, themes, visual style, formats/signals and gaps; `social_research_complete` gates any claim of full social analysis.
