@@ -38,6 +38,8 @@ const TOOL_LABELS: Record<string, { de: string; en: string; es: string }> = {
   create_campaign: { de: "Kampagne angelegt", en: "Creating campaign", es: "Creando campaña" },
   research_business: { de: "Unternehmen recherchiert", en: "Researching business", es: "Investigando negocio" },
   record_research_findings: { de: "Erkenntnisse gespeichert", en: "Saving findings", es: "Guardando hallazgos" },
+  discover_social_profiles: { de: "Social-Profile gesucht", en: "Finding social profiles", es: "Buscando perfiles sociales" },
+  record_social_analysis: { de: "Social-Analyse gespeichert", en: "Saving social analysis", es: "Guardando análisis social" },
   collect_campaign_assets: { de: "Material gesammelt", en: "Collecting assets", es: "Reuniendo recursos" },
   identify_content_pillars: { de: "Content-Säulen", en: "Content pillars", es: "Pilares de contenido" },
   identify_business_areas: { de: "Geschäftsbereiche", en: "Business areas", es: "Áreas de negocio" },
