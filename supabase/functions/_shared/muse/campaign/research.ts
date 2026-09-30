@@ -161,19 +161,27 @@ async function perplexityResearch(prompt: string, errors: string[]): Promise<{ t
 
 async function firecrawlSearch(query: string, errors: string[]): Promise<ResearchSource[]> {
   const key = env('FIRECRAWL_API_KEY');
-  if (!key || !key.startsWith('fc-')) return []; // optional; only direct keys are supported here
+  if (!key) return []; // optional
+  // Direct keys (fc-) call Firecrawl; connection keys (lovc_) go through the connector gateway.
+  const gateway = !key.startsWith('fc-');
+  const lovableKey = env('LOVABLE_API_KEY');
+  if (gateway && !lovableKey) { errors.push('Firecrawl gateway key present but LOVABLE_API_KEY missing'); return []; }
+  const url = gateway ? 'https://connector-gateway.lovable.dev/firecrawl/v2/search' : 'https://api.firecrawl.dev/v2/search';
+  const headers: Record<string, string> = gateway
+    ? { Authorization: `Bearer ${lovableKey}`, 'X-Connection-Api-Key': key, 'Content-Type': 'application/json' }
+    : { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' };
   try {
-    const res = await fetch('https://api.firecrawl.dev/v2/search', {
+    const res = await fetch(url, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query, limit: 6 }),
-      signal: AbortSignal.timeout(30_000),
+      headers,
+      body: JSON.stringify({ query, limit: 8, scrapeOptions: { formats: ['markdown'], onlyMainContent: true } }),
+      signal: AbortSignal.timeout(60_000),
     });
-    if (!res.ok) { errors.push(`Firecrawl HTTP ${res.status}`); return []; }
+    if (!res.ok) { errors.push(`Firecrawl HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`); return []; }
     const data = await res.json();
     const list = data?.data?.web ?? data?.data ?? [];
-    return (Array.isArray(list) ? list : []).map((r: { url: string; title?: string; description?: string }) => ({
-      url: r.url, title: r.title, excerpt: r.description, via: 'firecrawl' as const,
+    return (Array.isArray(list) ? list : []).map((r: { url: string; title?: string; description?: string; markdown?: string }) => ({
+      url: r.url, title: r.title, excerpt: (r.markdown ?? r.description ?? '').replace(/\s+/g, ' ').slice(0, 1500), via: 'firecrawl' as const,
     }));
   } catch (e) {
     errors.push(`Firecrawl failed: ${(e as Error).message}`);
@@ -210,6 +218,8 @@ Answer in English, compact bullet points.`;
     input.website ? fetchWebsite(input.website, errors) : Promise.resolve(null),
     firecrawlSearch(`${input.company}${where}`, errors),
   ]);
+  // Second targeted search for reviews / social when Firecrawl is available.
+  const fc2 = fc.length ? await firecrawlSearch(`${input.company}${where} Bewertungen reviews instagram`, errors) : [];
 
   const sources: ResearchSource[] = [];
   const addSource = (s: ResearchSource) => {
@@ -218,14 +228,17 @@ Answer in English, compact bullet points.`;
   };
   if (website) addSource({ url: website.finalUrl, title: website.title, excerpt: website.description ?? website.text.slice(0, 300), via: 'safe_fetch' });
   (pplx?.citations ?? []).forEach((u) => addSource({ url: u, via: 'perplexity' }));
-  fc.forEach(addSource);
+  [...fc, ...fc2].forEach(addSource);
 
   const images: ResearchImage[] = [...(website?.images ?? [])];
   for (const s of website?.socials ?? []) addSource({ url: s, title: 'Social profile (linked from website)', via: 'safe_fetch' });
 
   // Citation indexes [n] in the Perplexity report refer to its citations array (1-based).
   const citationMap = (pplx?.citations ?? []).map((u, i) => `[${i + 1}] ${normalizeUrl(u)}`).join('\n');
+  const fcBlock = sources.filter((x) => x.via === 'firecrawl' && x.excerpt)
+    .map((x) => `SOURCE ${x.url}\n${x.title ?? ''}\n${x.excerpt}`).join('\n\n');
   const report = [
+    fcBlock ? `SEARCH RESULTS (cite these URLs)\n${fcBlock.slice(0, 9000)}\n` : '',
     pplx?.text ? `WEB RESEARCH\n${pplx.text}\n\nCITATIONS\n${citationMap}` : 'WEB RESEARCH unavailable.',
     website ? `\nOFFICIAL WEBSITE ${website.finalUrl}\nTitle: ${website.title ?? ''}\nDescription: ${website.description ?? ''}\nText: ${website.text.slice(0, 2500)}` : '',
   ].join('\n');
