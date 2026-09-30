@@ -164,13 +164,17 @@ Deno.serve(async (req) => {
   const sceneText = scenes.map((s) => `${s.start_s}-${s.end_s}s: ${s.description}`).join('; ');
   const prompt = QA_PROMPT(intent, duration, sceneText);
 
-  // 2) Whole-video review: input_video primary, base64 fallback.
+  // 2) Whole-video review. The gateway rejects `input_video` parts (HTTP 400
+  //    "content part type"), so: public MP4 link via `image_url` (no size
+  //    limit, no download) primary, base64 data URL (≤18 MB) fallback.
   let result = await askModel(lovableKey, [
     { type: 'text', text: prompt },
-    { type: 'input_video', input_video: { url: gen.video_url } },
+    { type: 'image_url', image_url: { url: gen.video_url } },
   ]);
-  let method = 'input_video';
+  let method = 'video_url';
   let qa = result.ok ? parseJson(result.text) : null;
+  let reason: string | null = qa ? null : result.ok ? 'parse_failed' : 'gateway_rejected_content';
+  const firstStatus = result.status;
   if (!qa) {
     const dataUrl = await toBase64DataUrl(gen.video_url);
     if (dataUrl) {
@@ -180,14 +184,24 @@ Deno.serve(async (req) => {
       ]);
       method = 'base64_video';
       qa = result.ok ? parseJson(result.text) : null;
+      if (!qa) reason = result.ok ? 'parse_failed' : 'gateway_rejected_content';
+    } else if (reason === 'gateway_rejected_content' || reason === 'parse_failed') {
+      reason = `${reason}+fallback_skipped_input_too_large_or_unreachable`;
     }
   }
 
   if (!qa) {
+    if (result.status === 429) reason = 'rate_limited';
+    if (result.status === 402) reason = 'credits_exhausted';
+    console.warn('[agent-video-qa] QA unavailable', JSON.stringify({
+      generation_id: gen.id, method, first_status: firstStatus, last_status: result.status, reason,
+      detail: result.ok ? undefined : result.text.slice(0, 200),
+    }));
     const status = [402, 429].includes(result.status) ? result.status : 502;
     return json(status, {
       error: 'The full video review could not be completed. Ask the user to review the video.',
       code: 'QA_UNAVAILABLE',
+      reason,
       scenes,
     });
   }
