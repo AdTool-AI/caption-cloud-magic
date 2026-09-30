@@ -4,3 +4,4 @@
 - Async agent continuation runs via `agent_tasks` + `agent-task-resume` (cron, restricted tools, atomic claim) — never by keeping a browser request open; `/agent?conversation=` loads from the DB.
 - Agent conversation/operation state lives in `agent_conversations` / `agent_messages` / `agent_operations`, never in UI state — the backend owns continuity and cost accounting.
 - Paid agent tools price from the canonical `_shared/videoPricingCatalog.ts` and dispatch through the existing `generate-*-video` Edge Functions with the caller's JWT — never re-implement pricing, wallet deduction or provider calls.
+- Agent campaigns (Phase A) live in `agent_campaigns` + `campaign_*` tables, written only server-side by the free tools in `_shared/muse/campaign/` — planning never touches pricing, wallet or generation; web assets default `reference_only`; plans fail closed if the semantic duplicate check can't run.
