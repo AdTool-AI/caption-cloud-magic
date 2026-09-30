@@ -7,6 +7,7 @@ import type { ToolContext, ToolResult } from '../toolRuntime.ts';
 import { createMuseResponse } from '../museClient.ts';
 import { researchBusiness } from './research.ts';
 import { embedTexts } from './embeddings.ts';
+import { computeSocialCompleteness, discoverSocialProfiles } from './social.ts';
 import {
   assessPairs, coverageScore, dimensionText, exactDiversityRules, norm, SIMILARITY_DIMENSIONS,
   validateShape, validateShots, type PlannedVideo,
@@ -353,7 +354,96 @@ async function writeScripts(ctx: ToolContext, a: Args): Promise<ToolResult> {
     output: {
       results,
       campaign_plan_complete: complete,
+      social_research_complete: !!(await loadCampaign(ctx, c.id))?.social_research_complete,
       note: complete ? 'Phase A plan is complete. Nothing has been generated or charged. Paid production is not available yet.' : 'Some videos still need a valid script + shot plan.',
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Social profiles (Instagram, TikTok, Facebook, YouTube)
+
+async function socialState(ctx: ToolContext, campaignId: string) {
+  const { data } = await ctx.admin.from('campaign_social_profiles').select('*').eq('campaign_id', campaignId);
+  const rows = (data ?? []) as Record<string, any>[];
+  const { complete, missing } = computeSocialCompleteness(rows as { platform: string; status: string }[]);
+  await ctx.admin.from('agent_campaigns').update({ social_research_complete: complete }).eq('id', campaignId).eq('user_id', ctx.userId);
+  return { rows, complete, missing };
+}
+
+async function discoverSocial(ctx: ToolContext, a: Args): Promise<ToolResult> {
+  const c = await loadCampaign(ctx, a.campaign_id);
+  if (!c) return err('NOT_FOUND', 'Campaign not found.');
+  const found = await discoverSocialProfiles({ company: c.company_name, website: c.website, location: c.location });
+  const { data: existing } = await ctx.admin.from('campaign_social_profiles').select('platform, status').eq('campaign_id', c.id);
+  const analyzed = new Set((existing ?? []).filter((r: { status: string }) => r.status === 'analyzed').map((r: { platform: string }) => r.platform));
+  const rows = found.platforms
+    .filter((p) => !analyzed.has(p.platform)) // never overwrite a finished analysis
+    .map((p) => ({
+      campaign_id: c.id, user_id: ctx.userId, platform: p.platform, status: p.status, found: p.found, profile_url: p.profile_url,
+      discovery_source: p.discovery_source, discovery_via: p.discovery_via, discovery_evidence: p.discovery_evidence, access_note: p.access_note,
+    }));
+  if (rows.length) await ctx.admin.from('campaign_social_profiles').upsert(rows, { onConflict: 'campaign_id,platform' });
+  const srcs = found.platforms.flatMap((p) => p.discovery_evidence.map((e) => e.url));
+  const extra = [...new Set([...srcs, ...(found.research?.citations ?? [])])].map((url) => ({
+    campaign_id: c.id, user_id: ctx.userId, url, title: 'Social research', excerpt: null,
+    via: srcs.includes(url) && !found.research?.citations.includes(url) ? 'firecrawl' : 'perplexity',
+  }));
+  if (extra.length) await ctx.admin.from('campaign_sources').upsert(extra, { onConflict: 'campaign_id,url', ignoreDuplicates: true });
+  const state = await socialState(ctx, c.id);
+  return {
+    output: {
+      campaign_id: c.id,
+      platforms: found.platforms.map((p) => ({
+        platform: p.platform, status: analyzed.has(p.platform) ? 'analyzed' : p.status, profile_url: p.profile_url,
+        found_via: p.discovery_via, found_at: p.discovery_source, access_note: p.access_note,
+        public_profile_excerpt: p.public_excerpt?.slice(0, 2500) ?? null,
+      })),
+      social_research: found.research ? { text: found.research.text.slice(0, 8000), citations: found.research.citations } : null,
+      warnings: found.errors,
+      social_research_complete: state.complete,
+      rule: 'Only analyse what is publicly visible in the excerpts/citations above. not_accessible means the profile exists but is not public — never treat it as absent.',
+      next: 'record_social_analysis for every platform with status found_not_analyzed (and optionally public signals for not_accessible).',
+    },
+  };
+}
+
+async function recordSocial(ctx: ToolContext, a: Args): Promise<ToolResult> {
+  const c = await loadCampaign(ctx, a.campaign_id);
+  if (!c) return err('NOT_FOUND', 'Campaign not found.');
+  const { data: existing } = await ctx.admin.from('campaign_social_profiles').select('*').eq('campaign_id', c.id);
+  const byPlatform = new Map((existing ?? []).map((r: Record<string, any>) => [r.platform, r]));
+  const results: Record<string, unknown>[] = [];
+  for (const p of Array.isArray(a.platforms) ? a.platforms : []) {
+    const row = byPlatform.get(p.platform);
+    if (!row) { results.push({ platform: p.platform, stored: false, reason: 'Run discover_social_profiles first.' }); continue; }
+    const posts = (Array.isArray(p.recent_posts) ? p.recent_posts : []).slice(0, 10);
+    const themes = (Array.isArray(p.content_themes) ? p.content_themes : []).map(String).slice(0, 12);
+    let status = row.status as string;
+    if (p.status === 'not_accessible' && row.found) status = 'not_accessible';
+    else if (p.status === 'analyzed') {
+      if (!row.found || !row.profile_url) { results.push({ platform: p.platform, stored: false, reason: 'No discovered profile — cannot be analysed.' }); continue; }
+      if (row.status === 'not_accessible') { results.push({ platform: p.platform, stored: false, reason: 'Profile is not publicly accessible — keep it not_accessible.' }); continue; }
+      if (!posts.length && !themes.length) { results.push({ platform: p.platform, stored: false, reason: 'An analysis needs at least one public post example or content theme.' }); continue; }
+      status = 'analyzed';
+    }
+    await ctx.admin.from('campaign_social_profiles').update({
+      status, recent_posts: posts, content_themes: themes, visual_style: p.visual_style ?? null,
+      strongest_formats: p.strongest_formats ?? null, performance_signals: p.performance_signals ?? null,
+      content_gaps: (Array.isArray(p.content_gaps) ? p.content_gaps : []).map(String).slice(0, 12),
+      access_note: p.access_note ?? row.access_note, analyzed_at: status === 'analyzed' ? new Date().toISOString() : row.analyzed_at,
+    }).eq('id', row.id);
+    results.push({ platform: p.platform, stored: true, status });
+  }
+  const state = await socialState(ctx, c.id);
+  return {
+    output: {
+      results,
+      social_research_complete: state.complete,
+      missing_platforms: state.missing,
+      note: state.complete
+        ? 'Social research complete: every major platform is analysed or explicitly marked not_found / not_accessible.'
+        : `Social research NOT complete — do not claim full social analysis. Missing: ${state.missing.join(', ')}.`,
     },
   };
 }
@@ -361,7 +451,7 @@ async function writeScripts(ctx: ToolContext, a: Args): Promise<ToolResult> {
 async function getCampaign(ctx: ToolContext, a: Args): Promise<ToolResult> {
   const c = await loadCampaign(ctx, a?.campaign_id);
   if (!c) return err('NOT_FOUND', 'No campaign in this chat yet.');
-  const [sources, facts, assets, pillars, areas, videos, shots] = await Promise.all([
+  const [sources, facts, assets, pillars, areas, videos, shots, social] = await Promise.all([
     ctx.admin.from('campaign_sources').select('url, title, via').eq('campaign_id', c.id),
     ctx.admin.from('campaign_facts').select('category, fact, source_url, is_hypothesis').eq('campaign_id', c.id),
     ctx.admin.from('campaign_assets').select('id, url, kind, reuse_status').eq('campaign_id', c.id),
@@ -369,6 +459,7 @@ async function getCampaign(ctx: ToolContext, a: Args): Promise<ToolResult> {
     ctx.admin.from('campaign_business_areas').select('area, relevance').eq('campaign_id', c.id),
     ctx.admin.from('campaign_videos').select('*').eq('campaign_id', c.id).order('video_index'),
     ctx.admin.from('campaign_shots').select('video_id, shot_index, start_s, end_s, purpose, shot_type, description, on_screen_text').eq('campaign_id', c.id).order('shot_index'),
+    ctx.admin.from('campaign_social_profiles').select('platform, status, profile_url, discovery_via, access_note, content_themes, visual_style, strongest_formats, content_gaps').eq('campaign_id', c.id),
   ]);
   return {
     output: {
@@ -376,8 +467,9 @@ async function getCampaign(ctx: ToolContext, a: Args): Promise<ToolResult> {
         id: c.id, company: c.company_name, website: c.website, goal: c.goal, stage: c.stage, language: c.language,
         video_count: c.requested_video_count, duration_s: c.video_duration_s, audience: c.audience, commercial_angle: c.commercial_angle,
         coverage_score: c.coverage_score, needs_user_review: c.needs_user_review,
+        social_research_complete: c.social_research_complete,
       },
-      sources: sources.data, facts: facts.data, assets: (assets.data ?? []).slice(0, 30), pillars: pillars.data, business_areas: areas.data,
+      sources: sources.data, facts: facts.data, assets: (assets.data ?? []).slice(0, 30), pillars: pillars.data, business_areas: areas.data, social_profiles: social.data,
       videos: (videos.data ?? []).map((v: Record<string, any>) => ({
         ...v, shots: (shots.data ?? []).filter((s: { video_id: string }) => s.video_id === v.id),
       })),
@@ -395,6 +487,8 @@ export async function executeCampaignTool(ctx: ToolContext, name: string, args: 
     case 'identify_business_areas': return await storeAreas(ctx, args ?? {});
     case 'plan_campaign_videos': return await planVideos(ctx, args ?? {});
     case 'write_video_scripts': return await writeScripts(ctx, args ?? {});
+    case 'discover_social_profiles': return await discoverSocial(ctx, args ?? {});
+    case 'record_social_analysis': return await recordSocial(ctx, args ?? {});
     case 'get_campaign': return await getCampaign(ctx, args ?? {});
     default: return null;
   }

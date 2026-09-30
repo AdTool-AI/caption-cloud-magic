@@ -217,6 +217,52 @@ export const CAMPAIGN_TOOL_DEFINITIONS: MuseFunctionTool[] = [
   },
   {
     type: 'function',
+    name: 'discover_social_profiles',
+    description: 'Dedicated social discovery for Instagram, TikTok, Facebook and YouTube — not only website links: also web search and cited research. Reads each found profile publicly (no login/CAPTCHA bypass). Marks each platform found_not_analyzed, not_found or not_accessible (profile exists but content not public). Returns public excerpts/citations to analyse. Free.',
+    parameters: { type: 'object', properties: { campaign_id: str }, required: ['campaign_id'], additionalProperties: false },
+  },
+  {
+    type: 'function',
+    name: 'record_social_analysis',
+    description: 'Stores the per-platform social analysis from publicly visible evidence only. status analyzed needs a discovered public profile plus post examples or themes; use not_accessible when content is not public. Returns social_research_complete (true only when all 4 platforms are analyzed, not_found or not_accessible).',
+    parameters: {
+      type: 'object',
+      properties: {
+        campaign_id: str,
+        platforms: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              platform: { type: 'string', enum: ['instagram', 'tiktok', 'facebook', 'youtube'] },
+              status: { type: 'string', enum: ['analyzed', 'not_accessible'] },
+              recent_posts: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: { url: str, format: { type: 'string', description: 'reel, carousel, photo, short, video, story…' }, summary: str, visible_signal: { type: 'string', description: 'Public views/likes/comments if visible.' } },
+                  required: ['summary'],
+                  additionalProperties: false,
+                },
+              },
+              content_themes: strArr,
+              visual_style: str,
+              strongest_formats: str,
+              performance_signals: str,
+              content_gaps: strArr,
+              access_note: str,
+            },
+            required: ['platform', 'status'],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ['campaign_id', 'platforms'],
+      additionalProperties: false,
+    },
+  },
+  {
+    type: 'function',
     name: 'get_campaign',
     description: 'Returns the full stored campaign (stage, research, sources, pillars, areas, assets, videos, scripts, shots, coverage). Without campaign_id returns the latest campaign of this chat.',
     parameters: { type: 'object', properties: { campaign_id: str }, additionalProperties: false },
