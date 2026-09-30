@@ -47,7 +47,7 @@ Not touched: Lip-Sync, Composer scene state machine, pricing values, wallet logi
 
 **`model_qa_stats`** (incremental stats table, updated per QA event — no full materialized-view refresh)
 - model, content_category, generation_mode, n_runs, n_client_ready, score_sum, issue_class_counts jsonb, last_updated
-- Updated with a single upsert per `review_shot` (`n_runs + 1`, running sums) — concurrency-safe via `ON CONFLICT`
+- Updated atomically per `review_shot` via a SQL function (`increment_model_qa_stats`) using `INSERT ... ON CONFLICT DO UPDATE SET n_runs = model_qa_stats.n_runs + 1, ...` — increments happen directly in PostgreSQL, never a read-modify-write sequence, so concurrent QA completions cannot lose updates
 - Historic QA results backfilled once where a category can be inferred; uncategorised results ignored rather than guessed
 
 All tables: GRANT, owner RLS read, service_role writes, updated_at triggers.
@@ -124,7 +124,7 @@ No-cost first:
 7. Background Muse turn attempting `start_campaign_production` / `retry_shot` is rejected server-side in both retry modes.
 8. `auto_retry_within_budget`: worker executes one prepared retry after failed QA with no UI interaction; `manual_retry`: worker only asks.
 
-Paid (only after your explicit approval, smallest scope — one video, cheapest valid settings, exact price shown first):
+Paid (only after your explicit approval, smallest scope — one video, exact price shown first). The router is NOT overridden to force a cheap model: all six Café Buur videos are routed normally, then the lowest-cost of the six routed videos is picked for the first paid test, with routed model, risk logic and quality thresholds intact:
 9. Generate all shots of one video; each gets full-video QA and a `client_ready` decision.
 10. One failed shot retries once within budget with a changed prompt/model; no duplicate generation, QA or message; ledger shows exactly one reserve + one charge per attempt.
 11. Wallet spend equals sum of ledger `charge` rows minus `refund` rows; total ≤ `max_total`.
