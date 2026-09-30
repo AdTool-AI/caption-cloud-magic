@@ -488,6 +488,7 @@ export type Database = {
           requested_video_count: number
           research_summary: string | null
           review_reason: string | null
+          social_research_complete: boolean
           stage: string
           updated_at: string
           user_id: string
@@ -515,6 +516,7 @@ export type Database = {
           requested_video_count?: number
           research_summary?: string | null
           review_reason?: string | null
+          social_research_complete?: boolean
           stage?: string
           updated_at?: string
           user_id: string
@@ -542,6 +544,7 @@ export type Database = {
           requested_video_count?: number
           research_summary?: string | null
           review_reason?: string | null
+          social_research_complete?: boolean
           stage?: string
           updated_at?: string
           user_id?: string
@@ -5362,6 +5365,83 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "campaign_similarity_checks_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "agent_campaigns"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      campaign_social_profiles: {
+        Row: {
+          access_note: string | null
+          analyzed_at: string | null
+          campaign_id: string
+          content_gaps: string[]
+          content_themes: string[]
+          created_at: string
+          discovery_evidence: Json
+          discovery_source: string | null
+          discovery_via: string | null
+          found: boolean
+          id: string
+          performance_signals: string | null
+          platform: string
+          profile_url: string | null
+          recent_posts: Json
+          status: string
+          strongest_formats: string | null
+          updated_at: string
+          user_id: string
+          visual_style: string | null
+        }
+        Insert: {
+          access_note?: string | null
+          analyzed_at?: string | null
+          campaign_id: string
+          content_gaps?: string[]
+          content_themes?: string[]
+          created_at?: string
+          discovery_evidence?: Json
+          discovery_source?: string | null
+          discovery_via?: string | null
+          found?: boolean
+          id?: string
+          performance_signals?: string | null
+          platform: string
+          profile_url?: string | null
+          recent_posts?: Json
+          status?: string
+          strongest_formats?: string | null
+          updated_at?: string
+          user_id: string
+          visual_style?: string | null
+        }
+        Update: {
+          access_note?: string | null
+          analyzed_at?: string | null
+          campaign_id?: string
+          content_gaps?: string[]
+          content_themes?: string[]
+          created_at?: string
+          discovery_evidence?: Json
+          discovery_source?: string | null
+          discovery_via?: string | null
+          found?: boolean
+          id?: string
+          performance_signals?: string | null
+          platform?: string
+          profile_url?: string | null
+          recent_posts?: Json
+          status?: string
+          strongest_formats?: string | null
+          updated_at?: string
+          user_id?: string
+          visual_style?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaign_social_profiles_campaign_id_fkey"
             columns: ["campaign_id"]
             isOneToOne: false
             referencedRelation: "agent_campaigns"

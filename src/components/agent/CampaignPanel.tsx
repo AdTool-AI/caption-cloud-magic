@@ -17,6 +17,7 @@ interface Snapshot {
   areas: Row[];
   videos: Row[];
   shots: Row[];
+  social: Row[];
 }
 
 const db = supabase as any;
@@ -31,7 +32,7 @@ async function loadCampaign(conversationId: string): Promise<Snapshot | null> {
     .maybeSingle();
   if (!campaign) return null;
   const id = campaign.id;
-  const [sources, facts, assets, pillars, areas, videos, shots] = await Promise.all([
+  const [sources, facts, assets, pillars, areas, videos, shots, social] = await Promise.all([
     db.from("campaign_sources").select("url, title, via").eq("campaign_id", id),
     db.from("campaign_facts").select("category, fact, source_url, is_hypothesis").eq("campaign_id", id),
     db.from("campaign_assets").select("id, url, kind, reuse_status, source_url").eq("campaign_id", id),
@@ -39,6 +40,7 @@ async function loadCampaign(conversationId: string): Promise<Snapshot | null> {
     db.from("campaign_business_areas").select("area, relevance").eq("campaign_id", id).order("relevance", { ascending: false }),
     db.from("campaign_videos").select("*").eq("campaign_id", id).order("video_index"),
     db.from("campaign_shots").select("*").eq("campaign_id", id).order("shot_index"),
+    db.from("campaign_social_profiles").select("*").eq("campaign_id", id),
   ]);
   return {
     campaign,
@@ -49,6 +51,7 @@ async function loadCampaign(conversationId: string): Promise<Snapshot | null> {
     areas: areas.data ?? [],
     videos: videos.data ?? [],
     shots: shots.data ?? [],
+    social: social.data ?? [],
   };
 }
 
@@ -72,6 +75,15 @@ const AREA_LABEL: Record<string, { de: string; en: string; es: string }> = {
   offers_seasonal: { de: "Angebote/Saison", en: "Offers/seasonal", es: "Ofertas/temporada" },
   conversion_reservations: { de: "Reservierung", en: "Reservations", es: "Reservas" },
 };
+
+const SOCIAL_STATUS: Record<string, { de: string; en: string; es: string }> = {
+  analyzed: { de: "analysiert", en: "analyzed", es: "analizado" },
+  found_not_analyzed: { de: "gefunden, noch nicht analysiert", en: "found, not yet analyzed", es: "encontrado, sin analizar" },
+  not_found: { de: "nicht gefunden", en: "not found", es: "no encontrado" },
+  not_accessible: { de: "nicht öffentlich zugänglich", en: "not publicly accessible", es: "no accesible públicamente" },
+  pending: { de: "nicht geprüft", en: "not checked", es: "sin comprobar" },
+};
+const PLATFORM_NAME: Record<string, string> = { instagram: "Instagram", tiktok: "TikTok", facebook: "Facebook", youtube: "YouTube" };
 
 const lbl = (m: Record<string, { de: string; en: string; es: string }>, k: string) => (m[k] ? tx(m[k]) : k);
 
@@ -208,6 +220,62 @@ export function CampaignPanel({ conversationId, refreshKey }: { conversationId: 
           </div>
         </div>
       </div>
+
+      {snap.social.length > 0 && (
+        <div className="mt-4">
+          <h3 className="mb-2 flex flex-wrap items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            {tx({ de: "Social-Profile", en: "Social profiles", es: "Perfiles sociales" })}
+            <Badge variant={c.social_research_complete ? "secondary" : "outline"} className="normal-case">
+              {c.social_research_complete
+                ? tx({ de: "Social-Recherche vollständig", en: "Social research complete", es: "Investigación social completa" })
+                : tx({ de: "Social-Recherche unvollständig", en: "Social research incomplete", es: "Investigación social incompleta" })}
+            </Badge>
+          </h3>
+          <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-4">
+            {["instagram", "tiktok", "facebook", "youtube"].map((pl) => {
+              const r = snap.social.find((x) => x.platform === pl);
+              return (
+                <div key={pl} className="rounded-md border border-border/60 bg-background/40 p-2 text-xs">
+                  <div className="flex items-center justify-between gap-1">
+                    <span className="font-medium text-foreground">{PLATFORM_NAME[pl]}</span>
+                    <Badge variant="outline" className="text-[10px]">{lbl(SOCIAL_STATUS, r?.status ?? "pending")}</Badge>
+                  </div>
+                  {r?.profile_url && (
+                    <a href={r.profile_url} target="_blank" rel="noreferrer" className="mt-1 block truncate text-primary hover:underline">
+                      {r.profile_url}
+                    </a>
+                  )}
+                  {r?.discovery_via && (
+                    <p className="text-muted-foreground">
+                      {tx({ de: "Gefunden über", en: "Found via", es: "Encontrado vía" })}: {r.discovery_via}
+                    </p>
+                  )}
+                  {r?.content_themes?.length > 0 && <p className="mt-1">{r.content_themes.join(" · ")}</p>}
+                  {r?.visual_style && <p className="text-muted-foreground">{r.visual_style}</p>}
+                  {r?.strongest_formats && (
+                    <p>
+                      <span className="text-muted-foreground">{tx({ de: "Stärkste Formate", en: "Strongest formats", es: "Mejores formatos" })}: </span>
+                      {r.strongest_formats}
+                    </p>
+                  )}
+                  {r?.content_gaps?.length > 0 && (
+                    <p>
+                      <span className="text-muted-foreground">{tx({ de: "Lücken", en: "Gaps", es: "Carencias" })}: </span>
+                      {r.content_gaps.join(" · ")}
+                    </p>
+                  )}
+                  {r?.recent_posts?.length > 0 && (
+                    <p className="text-muted-foreground">
+                      {r.recent_posts.length} {tx({ de: "öffentliche Beispiele", en: "public examples", es: "ejemplos públicos" })}
+                    </p>
+                  )}
+                  {r?.status === "not_accessible" && r.access_note && <p className="mt-1 text-muted-foreground">{r.access_note}</p>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {snap.videos.length > 0 && (
         <div className="mt-4">

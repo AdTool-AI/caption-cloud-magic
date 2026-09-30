@@ -109,7 +109,7 @@ function extractFromHtml(html: string, base: string) {
   return { title, description: description ? decode(description) : undefined, images, socials, text: decode(text).slice(0, 6000) };
 }
 
-async function fetchWebsite(url: string, errors: string[]) {
+export async function fetchWebsite(url: string, errors: string[]) {
   const target = normalizeUrl(url);
   if (!(await robotsAllows(target))) {
     errors.push(`robots.txt disallows fetching ${target}`);
@@ -124,7 +124,7 @@ async function fetchWebsite(url: string, errors: string[]) {
   }
 }
 
-async function perplexityResearch(prompt: string, errors: string[]): Promise<{ text: string; citations: string[] } | null> {
+export async function perplexityResearch(prompt: string, errors: string[]): Promise<{ text: string; citations: string[] } | null> {
   const key = env('PERPLEXITY_API_KEY');
   if (!key) { errors.push('PERPLEXITY_API_KEY not configured'); return null; }
   try {
@@ -178,7 +178,7 @@ async function perplexityResearch(prompt: string, errors: string[]): Promise<{ t
   }
 }
 
-async function firecrawlSearch(query: string, errors: string[]): Promise<ResearchSource[]> {
+export async function firecrawlSearch(query: string, errors: string[], limit = 8): Promise<ResearchSource[]> {
   const key = env('FIRECRAWL_API_KEY');
   if (!key) return []; // optional
   // Direct keys (fc-) call Firecrawl; connection keys (lovc_) go through the connector gateway.
@@ -193,7 +193,7 @@ async function firecrawlSearch(query: string, errors: string[]): Promise<Researc
     const res = await fetch(url, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ query, limit: 8, scrapeOptions: { formats: ['markdown'], onlyMainContent: true } }),
+      body: JSON.stringify({ query, limit, scrapeOptions: { formats: ['markdown'], onlyMainContent: true } }),
       signal: AbortSignal.timeout(60_000),
     });
     if (!res.ok) { errors.push(`Firecrawl HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`); return []; }
@@ -206,6 +206,17 @@ async function firecrawlSearch(query: string, errors: string[]): Promise<Researc
     errors.push(`Firecrawl failed: ${(e as Error).message}`);
     return [];
   }
+}
+
+export function firecrawlConfig(): { url: (path: string) => string; headers: Record<string, string> } | null {
+  const key = env('FIRECRAWL_API_KEY');
+  if (!key) return null;
+  const gateway = !key.startsWith('fc-');
+  const lovableKey = env('LOVABLE_API_KEY');
+  if (gateway && !lovableKey) return null;
+  return gateway
+    ? { url: (p) => `https://connector-gateway.lovable.dev/firecrawl/v2${p}`, headers: { Authorization: `Bearer ${lovableKey}`, 'X-Connection-Api-Key': key, 'Content-Type': 'application/json' } }
+    : { url: (p) => `https://api.firecrawl.dev/v2${p}`, headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' } };
 }
 
 export async function researchBusiness(input: {
