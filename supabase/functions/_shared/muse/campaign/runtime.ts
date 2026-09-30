@@ -219,7 +219,7 @@ function toVideo(v: Args): PlannedVideo {
 async function planVideos(ctx: ToolContext, a: Args): Promise<ToolResult> {
   const c = await loadCampaign(ctx, a.campaign_id);
   if (!c) return err('NOT_FOUND', 'Campaign not found.');
-  const videos = (Array.isArray(a.videos) ? a.videos : []).map(toVideo);
+  const videos: PlannedVideo[] = (Array.isArray(a.videos) ? a.videos : []).map(toVideo);
   const [{ data: pillars }, { data: areas }] = await Promise.all([
     ctx.admin.from('campaign_pillars').select('name, rank').eq('campaign_id', c.id),
     ctx.admin.from('campaign_business_areas').select('area, relevance').eq('campaign_id', c.id),
