@@ -466,6 +466,98 @@ export type Database = {
         }
         Relationships: []
       }
+      agent_campaigns: {
+        Row: {
+          angle_rationale: string | null
+          audience: string | null
+          commercial_angle: string | null
+          company_name: string
+          conversation_id: string | null
+          coverage_breakdown: Json | null
+          coverage_explanation: string | null
+          coverage_score: number | null
+          created_at: string
+          error: string | null
+          goal: string
+          id: string
+          language: string
+          lease_until: string | null
+          location: string | null
+          needs_user_review: boolean
+          plan_revision_round: number
+          requested_video_count: number
+          research_summary: string | null
+          review_reason: string | null
+          stage: string
+          updated_at: string
+          user_id: string
+          video_duration_s: number
+          website: string | null
+        }
+        Insert: {
+          angle_rationale?: string | null
+          audience?: string | null
+          commercial_angle?: string | null
+          company_name: string
+          conversation_id?: string | null
+          coverage_breakdown?: Json | null
+          coverage_explanation?: string | null
+          coverage_score?: number | null
+          created_at?: string
+          error?: string | null
+          goal: string
+          id?: string
+          language?: string
+          lease_until?: string | null
+          location?: string | null
+          needs_user_review?: boolean
+          plan_revision_round?: number
+          requested_video_count?: number
+          research_summary?: string | null
+          review_reason?: string | null
+          stage?: string
+          updated_at?: string
+          user_id: string
+          video_duration_s?: number
+          website?: string | null
+        }
+        Update: {
+          angle_rationale?: string | null
+          audience?: string | null
+          commercial_angle?: string | null
+          company_name?: string
+          conversation_id?: string | null
+          coverage_breakdown?: Json | null
+          coverage_explanation?: string | null
+          coverage_score?: number | null
+          created_at?: string
+          error?: string | null
+          goal?: string
+          id?: string
+          language?: string
+          lease_until?: string | null
+          location?: string | null
+          needs_user_review?: boolean
+          plan_revision_round?: number
+          requested_video_count?: number
+          research_summary?: string | null
+          review_reason?: string | null
+          stage?: string
+          updated_at?: string
+          user_id?: string
+          video_duration_s?: number
+          website?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_campaigns_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "agent_conversations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       agent_conversations: {
         Row: {
           created_at: string
@@ -4804,6 +4896,145 @@ export type Database = {
           },
         ]
       }
+      campaign_assets: {
+        Row: {
+          campaign_id: string
+          created_at: string
+          id: string
+          kind: string
+          media_library_id: string | null
+          owner_note: string | null
+          reuse_status: string
+          source_url: string | null
+          url: string
+          user_id: string
+        }
+        Insert: {
+          campaign_id: string
+          created_at?: string
+          id?: string
+          kind: string
+          media_library_id?: string | null
+          owner_note?: string | null
+          reuse_status?: string
+          source_url?: string | null
+          url: string
+          user_id: string
+        }
+        Update: {
+          campaign_id?: string
+          created_at?: string
+          id?: string
+          kind?: string
+          media_library_id?: string | null
+          owner_note?: string | null
+          reuse_status?: string
+          source_url?: string | null
+          url?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaign_assets_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "agent_campaigns"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      campaign_business_areas: {
+        Row: {
+          area: string
+          campaign_id: string
+          created_at: string
+          evidence_urls: string[]
+          id: string
+          rationale: string | null
+          relevance: number
+          user_id: string
+        }
+        Insert: {
+          area: string
+          campaign_id: string
+          created_at?: string
+          evidence_urls?: string[]
+          id?: string
+          rationale?: string | null
+          relevance: number
+          user_id: string
+        }
+        Update: {
+          area?: string
+          campaign_id?: string
+          created_at?: string
+          evidence_urls?: string[]
+          id?: string
+          rationale?: string | null
+          relevance?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaign_business_areas_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "agent_campaigns"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      campaign_facts: {
+        Row: {
+          campaign_id: string
+          category: string
+          created_at: string
+          fact: string
+          id: string
+          is_hypothesis: boolean
+          source_id: string | null
+          source_url: string | null
+          user_id: string
+        }
+        Insert: {
+          campaign_id: string
+          category: string
+          created_at?: string
+          fact: string
+          id?: string
+          is_hypothesis?: boolean
+          source_id?: string | null
+          source_url?: string | null
+          user_id: string
+        }
+        Update: {
+          campaign_id?: string
+          category?: string
+          created_at?: string
+          fact?: string
+          id?: string
+          is_hypothesis?: boolean
+          source_id?: string | null
+          source_url?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaign_facts_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "agent_campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campaign_facts_source_id_fkey"
+            columns: ["source_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_sources"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       campaign_media: {
         Row: {
           assigned_to_post_id: string | null
@@ -4851,6 +5082,47 @@ export type Database = {
             columns: ["campaign_id"]
             isOneToOne: false
             referencedRelation: "campaigns"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      campaign_pillars: {
+        Row: {
+          campaign_id: string
+          created_at: string
+          evidence_urls: string[]
+          id: string
+          name: string
+          rank: number
+          relevance: string | null
+          user_id: string
+        }
+        Insert: {
+          campaign_id: string
+          created_at?: string
+          evidence_urls?: string[]
+          id?: string
+          name: string
+          rank: number
+          relevance?: string | null
+          user_id: string
+        }
+        Update: {
+          campaign_id?: string
+          created_at?: string
+          evidence_urls?: string[]
+          id?: string
+          name?: string
+          rank?: number
+          relevance?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaign_pillars_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "agent_campaigns"
             referencedColumns: ["id"]
           },
         ]
@@ -4970,6 +5242,268 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      campaign_shots: {
+        Row: {
+          asset_id: string | null
+          campaign_id: string
+          created_at: string
+          description: string
+          end_s: number
+          id: string
+          on_screen_text: string | null
+          purpose: string
+          shot_index: number
+          shot_type: string
+          start_s: number
+          subject_emphasis: string
+          user_id: string
+          video_id: string
+          voiceover: string | null
+        }
+        Insert: {
+          asset_id?: string | null
+          campaign_id: string
+          created_at?: string
+          description: string
+          end_s: number
+          id?: string
+          on_screen_text?: string | null
+          purpose: string
+          shot_index: number
+          shot_type: string
+          start_s: number
+          subject_emphasis: string
+          user_id: string
+          video_id: string
+          voiceover?: string | null
+        }
+        Update: {
+          asset_id?: string | null
+          campaign_id?: string
+          created_at?: string
+          description?: string
+          end_s?: number
+          id?: string
+          on_screen_text?: string | null
+          purpose?: string
+          shot_index?: number
+          shot_type?: string
+          start_s?: number
+          subject_emphasis?: string
+          user_id?: string
+          video_id?: string
+          voiceover?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaign_shots_asset_id_fkey"
+            columns: ["asset_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_assets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campaign_shots_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "agent_campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campaign_shots_video_id_fkey"
+            columns: ["video_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_videos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      campaign_similarity_checks: {
+        Row: {
+          campaign_id: string
+          created_at: string
+          id: string
+          judge: Json | null
+          reason: string | null
+          revision_round: number
+          scores: Json
+          user_id: string
+          verdict: string
+          video_a: number
+          video_b: number
+        }
+        Insert: {
+          campaign_id: string
+          created_at?: string
+          id?: string
+          judge?: Json | null
+          reason?: string | null
+          revision_round: number
+          scores: Json
+          user_id: string
+          verdict: string
+          video_a: number
+          video_b: number
+        }
+        Update: {
+          campaign_id?: string
+          created_at?: string
+          id?: string
+          judge?: Json | null
+          reason?: string | null
+          revision_round?: number
+          scores?: Json
+          user_id?: string
+          verdict?: string
+          video_a?: number
+          video_b?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaign_similarity_checks_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "agent_campaigns"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      campaign_sources: {
+        Row: {
+          campaign_id: string
+          created_at: string
+          excerpt: string | null
+          fetched_at: string
+          id: string
+          title: string | null
+          url: string
+          user_id: string
+          via: string
+        }
+        Insert: {
+          campaign_id: string
+          created_at?: string
+          excerpt?: string | null
+          fetched_at?: string
+          id?: string
+          title?: string | null
+          url: string
+          user_id: string
+          via: string
+        }
+        Update: {
+          campaign_id?: string
+          created_at?: string
+          excerpt?: string | null
+          fetched_at?: string
+          id?: string
+          title?: string | null
+          url?: string
+          user_id?: string
+          via?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaign_sources_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "agent_campaigns"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      campaign_videos: {
+        Row: {
+          business_area: string
+          campaign_id: string
+          commercial_objective: string
+          concept: string
+          created_at: string
+          cta: string
+          emotional_angle: string
+          funnel_stage: string
+          hero_subject: string
+          hook_text: string
+          hook_type: string
+          id: string
+          main_message: string
+          pillar: string
+          primary_goal: string
+          rationale: string
+          script: Json | null
+          series_key: string | null
+          shot_structure: string[]
+          target_audience: string
+          title: string
+          updated_at: string
+          user_id: string
+          video_index: number
+          visual_style: string
+        }
+        Insert: {
+          business_area: string
+          campaign_id: string
+          commercial_objective: string
+          concept: string
+          created_at?: string
+          cta: string
+          emotional_angle: string
+          funnel_stage: string
+          hero_subject: string
+          hook_text: string
+          hook_type: string
+          id?: string
+          main_message: string
+          pillar: string
+          primary_goal: string
+          rationale: string
+          script?: Json | null
+          series_key?: string | null
+          shot_structure?: string[]
+          target_audience: string
+          title: string
+          updated_at?: string
+          user_id: string
+          video_index: number
+          visual_style: string
+        }
+        Update: {
+          business_area?: string
+          campaign_id?: string
+          commercial_objective?: string
+          concept?: string
+          created_at?: string
+          cta?: string
+          emotional_angle?: string
+          funnel_stage?: string
+          hero_subject?: string
+          hook_text?: string
+          hook_type?: string
+          id?: string
+          main_message?: string
+          pillar?: string
+          primary_goal?: string
+          rationale?: string
+          script?: Json | null
+          series_key?: string | null
+          shot_structure?: string[]
+          target_audience?: string
+          title?: string
+          updated_at?: string
+          user_id?: string
+          video_index?: number
+          visual_style?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaign_videos_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "agent_campaigns"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       campaigns: {
         Row: {
