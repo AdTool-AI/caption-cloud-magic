@@ -1,87 +1,59 @@
-# AdTool Agent: Campaign Production and Outreach System (architecture plan)
+# AdTool Agent Campaigns: Phase A (research, strategy, campaign plan, shot plan)
 
-This is the architecture plan only. Nothing gets built until you approve it, and after that we build one phase at a time. Each phase gets its own approval and tests.
+This phase builds research and planning only. No paid generation, no video-wallet spend. Phase B starts only after you review and approve Phase A.
 
-## 1. What exists today and will be reused
+## What Phase A delivers
+From one request like "Café Buur, 30-second German demo ad" (or "6 videos for Café Buur"), the agent:
+1. Creates a durable campaign that survives refresh, closing the browser and Meta outages.
+2. Researches the business from public sources, with a source link on every fact.
+3. Finds the target audience and the strongest commercial angle.
+4. Collects useful assets with their source recorded. Anything from the public web is "reference only" unless reuse rights are explicitly known.
+5. Identifies the business's content pillars, ranks them, and spreads the requested videos across them, then checks diversity and coverage.
+6. Writes a German 30-second script and a 5–7 shot plan for each video.
+7. Shows everything in `/agent` in a campaign panel. Cost: $0 in video credits.
 
-| Area | Existing piece (reused, not duplicated) |
-|---|---|
-| Agent | `_shared/muse/*` (loop, tools, recovery), `muse-agent`, `agent_tasks` + `agent-task-resume` cron, approvals table |
-| Agent tools today | get_user_context, get_available_video_models, estimate_video_cost, generate_video, regenerate_video, get_video_status, analyze_asset |
-| Brand | `brand_kits`, `extract-brand-dna`, `generate-brand-kit` (SSRF-safe website fetch), `analyze-brand-voice` |
-| Web research | `safe-fetch.ts`, `browserlessClient.ts`, Firecrawl/Perplexity keys already used by `fetch-news-hub` / `fetch-trends`, `search-trend-articles` |
-| Media | `media_library`, `video_creations`, `content_items`, `media-import`, `search-stock-images/videos/music/sfx` |
-| Video models + price | `videoModelSpecs.ts` → muse catalog, `_shared/videoPricingCatalog.ts`, `accountVideoPricing.ts`, all `generate-*-video` functions, `replicate-webhook`, `modelark-poll` |
-| QA | `agent-video-qa` (full MP4 plus `analyze-video-scenes`) |
-| Voice / music / SFX | `generate-voiceover` + `tts-language.ts` (German pinned), `list-voices`, `generate-music-track`, `generate-scene-sfx`, `search-stock-sfx`, `director-cut-audio-mixing` |
-| Editing | Director's Cut `render-directors-cut` (snake_case payload, overlays v407, subtitles), Remotion Lambda (`invoke-remotion-render`, `render-queue-*`) |
-| Enhance | `video-enhance` + poll/webhook/persist/cost-closure (Topaz, ByteDance), with the price cap and idempotent refunds |
-| Email | `email-send.ts`, Resend (transactional), `resend-webhook`, suppression list |
-| OAuth pattern | calendar-google-oauth, cloud-storage-oauth (template for Gmail/Outlook later) |
-| Leads / CRM | none today. New table needed. |
+## Reused infrastructure (nothing duplicated)
+- Agent: `_shared/muse/*` loop, recovery, `agent_tasks` + `agent-task-resume` lease pattern, `/agent?conversation=` restore.
+- Research: existing Firecrawl / Perplexity keys (as used in `fetch-news-hub`, `fetch-trends`), `safe-fetch.ts` (SSRF-safe), `extract-brand-dna` / `generate-brand-kit` website logic. Muse orchestrates and summarizes; there is no dependency on Meta web search.
+- Brand / media: `brand_kits`, `media_library` (existing asset references only; nothing is copied or re-hosted in Phase A).
+- Existing wallet, pricing, approval and generation code stays untouched and is not called.
 
-Deliberately left out: Lip-Sync (frozen) and the Composer scene state machine (too heavy for simple ad shots). Assembly goes through Director's Cut / Remotion instead.
+## Content pillars and diversity (applies to 1..N videos)
+- `identify_content_pillars`: finds pillars from the research (e.g. signature brunch, coffee/drinks, atmosphere/interior, friends/social, team/behind the scenes, reservation/conversion), each ranked by relevance to the goal, with its sources.
+- `plan_campaign_videos`: spreads the N videos across different pillars. Each video stores content_pillar, target_audience, funnel_stage (awareness/consideration/conversion), primary_goal, hook_type, CTA, visual_style, key_asset/product, and a "why this video exists" rationale.
+- Diversity rules, checked on the server: no repeated hook_type, no identical shot sequence (compared by shot-type signature), no identical CTA, no repeated key product unless the video is marked as part of a series, a varied mix of people, product and atmosphere, and awareness and conversion goals both covered when N ≥ 3. If a rule fails, the plan is rejected with the reason and Muse has to revise it.
+- `coverage_score` (0–100): combines pillar coverage weighted by rank, funnel-stage spread, emphasis variety, and duplicate penalties. It's stored with a short explanation of how the videos work together as one campaign.
 
-## 2. Core concept
+## New agent tools (all free)
+`create_campaign`, `research_business`, `collect_campaign_assets`, `identify_content_pillars`, `plan_campaign_videos`, `write_video_script`, `plan_shots`, `get_campaign`.
+All of these are also allowed in the background resume step. No paid tool is involved.
 
-```text
-agent_campaigns (one commercial project)
-  ├─ campaign_sources   (research facts + citation URLs)
-  ├─ campaign_assets    (media_library refs + provenance/licence)
-  ├─ campaign_shots     (plan, model, prompt, generation_id, QA, client_ready)
-  ├─ campaign_budget_approval (one approval, max cap, retry allowance)
-  ├─ campaign_deliverables (master, demo preview, watermark)
-  └─ agent_leads        (CRM + outreach drafts)
-```
-The campaign moves through stages: research → strategy → asset_collection → script → shot_planning → awaiting_budget_approval → generating → qa → audio → editing → upscale → final_qa → ready_for_delivery → outreach_ready → completed / failed. `agent-task-resume` gets a campaign step: each cron tick moves a campaign at most one step, holds a lease, skips anything already done, and pauses on 402/403. That's the same pattern already proven with `agent_tasks`.
+## Safeguards
+- Research: only public pages, respects robots.txt, no logins, no private profiles, no CAPTCHA bypass. Social platforms only through public pages or connected official accounts.
+- Every fact is saved with its source URL. A claim without a source is marked as a hypothesis.
+- Assets: `reuse_status` is one of `reuse_ok` (the user's own uploads or AdTool media) / `reference_only` (default for the web) / `unknown`. Phase B may use only `reuse_ok` assets in final output.
+- Cost: Firecrawl/Perplexity usage and Muse tokens are logged in `agent_operations`. The video wallet is never touched.
 
-## 3. Phases
+## Acceptance test (Café Buur)
+- Research with at least 5 cited source URLs.
+- Target audience plus the strongest commercial angle, with rationale.
+- Relevant public assets with provenance, all web assets marked reference_only.
+- German 30-second script (hook, message, CTA, voiceover text, on-screen text, timing, music and sound direction).
+- 5–7 shots for the single video.
+- Additional check: a "6 videos" request yields 6 distinct pillar/hook/CTA combinations, diversity checks pass, coverage_score and rationale shown.
+- Video wallet balance and `ai_video_generations` count unchanged; no generate function called.
+- The campaign survives a refresh and reopens from `/agent?conversation=`.
 
-### Phase A: research, campaign object, strategy, shot planner (no spending)
-- New tables: `agent_campaigns`, `campaign_sources`, `campaign_assets`, `campaign_shots`, all with owner RLS and grants.
-- New tools: `create_campaign`, `research_business` (website via safe-fetch/Firecrawl, public search via the existing search key, stores a citation for every fact, never logs in, never scrapes private profiles, social media only through official or public pages), `collect_campaign_assets` (logo, website images, uploads, earlier AdTool media; each asset is marked `reuse_ok` / `reference_only` / `unknown`, and web images default to `reference_only`), `write_campaign_script` (objective, hook, German voiceover text, on-screen text, timing, music and sound direction), `plan_shots` (3–8 s shots, 30 s default layout).
-- UI: a campaign panel in `/agent` showing the stage, research with sources, the script and the shot list.
-- Risk: the scraping rules differ by site. Mitigation: the SSRF-safe fetch, robots.txt, and never treating an asset as reusable without a source.
-- Tests: running "Café Buur" produces cited research, at least 1 logo or reference asset with provenance, a 30 s script split into 5–7 shots, and $0 spent.
-
-### Phase B: model per shot, one campaign budget approval, generation, QA
-- `select_model_for_shot` scores models from the catalog on shot type (people/food/product), i2v/reference support, duration, resolution, price and past QA results (from `agent_operations`). Quality comes first within the budget.
-- `estimate_campaign_budget` adds up the per-shot prices from the canonical catalog, a retry allowance, and the voice, music and upscale estimates. The result is one approval row with `max_total_cost`, shown as a single Confirm card.
-- Paid shots keep using the existing `generate_video` gate. Each shot draws on the campaign approval and the server refuses anything above the cap. The single-use, exact-match rules stay intact.
-- QA adds `client_ready` plus a hard "physical logic" fail rule, so impossible actions (coffee poured onto a croissant) fail automatically. Failed shots are regenerated only while the budget has room left.
-- Tests: the planned total matches the catalog to the cent; a shot over the cap is refused; the whole campaign runs on one approval; nothing is generated twice when the cron runs twice; an absurd-action shot fails.
-
-### Phase C: German voice, music, assembly
-- A decision rule picks native model audio or a separate German voiceover. The default is a separate voiceover, because native German speech isn't verified on any model yet.
-- Uses the existing `generate-voiceover` (German pinned), `generate-music-track` or stock music, `generate-scene-sfx`, and the Director's Cut audio mixing with voice ducking.
-- `assemble_campaign` builds a Director's Cut / Remotion render from the approved shots with transitions, voice, music, a brand title card and a CTA overlay. Brand text like "Café Buur" and "Jetzt Tisch reservieren" comes from overlays, never from the video model.
-- Tests: the render contains every approved shot in order, the voice stays readable over the music (loudness check), and the overlay text is spelled exactly right.
-
-### Phase D: upscale, final QA, demo and master versions
-- `enhance_video` goes through the existing `video-enhance` (URL-based, no base64). It runs on QA-passed shots or the final master, whichever the enhancer handles better, and the original files are never changed.
-- Final QA runs on the whole ad (German grammar, pronunciation, sync, CTA, music level) and returns `CLIENT_READY` or `NEEDS_WORK`. Only CLIENT_READY or your explicit OK marks the ad finished.
-- Two outputs: a Demo Preview (720p, subtle "Sample · AdTool" watermark, share link) and a Master (full quality, private).
-- Tests: the enhancer price stays within the existing cap, the original is unchanged, the watermark appears only on the demo, and the master link is private.
-
-### Phase E: leads and outreach drafts (no sending)
-- `agent_leads` (fields and statuses as in your spec, owner RLS), `prepare_outreach` (email, Instagram DM, WhatsApp, phone script, follow-up, all with the demo link), and a configurable package table (6 videos for €299, 12 for €499) editable in settings.
-- The copy sells business results, not AI. The texts are only stored, never sent.
-- Tests: the drafts contain the correct demo link and package; no send function is reachable from the agent.
-
-### Phase F (optional, later): connected sending
-- Gmail/Outlook OAuth built like calendar-google-oauth. `create_email_draft` → a human approval card → sent one at a time, as a separate permission, respecting suppression and rate limits. No bulk sending.
-
-## 4. Safeguards (unchanged plus new)
-- All existing wallet, pricing, approval and retry logic stays as it is, and the new tools only call it.
-- A server-side campaign cap and per-turn cap. The agent never buys anything, never changes subscriptions, never sends messages without approval, and never uses an asset without a recorded source.
-- Background campaign steps run with restricted tools, exactly like the current resume step.
-
-## Technical notes
-- New tables get GRANT + RLS + updated_at triggers. The campaign lease/claim uses a SECURITY DEFINER RPC with SKIP LOCKED.
-- Everything under `_shared/muse` stays free of Lovable-specific code. Research uses the existing Firecrawl/Perplexity keys, and the agent's own reasoning stays on Muse.
-- EN/DE/ES texts for all new interface elements.
-
-## Open questions before Phase A
-1. Which search source for research: the existing Firecrawl/Perplexity keys, or Muse's own web search (if the Meta API offers one)?
-2. Watermark wording: "Sample · AdTool" or "Demo · useadtool.ai"?
-3. Should Phase A be the only thing built after approval? (Recommended.)
+## Technical details
+- Migration (GRANT + RLS owner-only + service_role, updated_at triggers):
+  - `agent_campaigns` (user_id, conversation_id, company_name, website, location, goal, language, requested_video_count, stage enum research|strategy|asset_collection|script|shot_planning|awaiting_budget_approval|…|completed|failed, audience, commercial_angle, coverage_score, coverage_explanation, lease_until, error)
+  - `campaign_sources` (campaign_id, url, title, fact, category, fetched_at, via: firecrawl|perplexity|safe_fetch)
+  - `campaign_assets` (campaign_id, url, media_library_id, kind: logo|website_image|menu|upload|adtool_media|social, source_url, reuse_status, owner_note)
+  - `campaign_pillars` (campaign_id, name, rank, relevance, evidence_source_ids)
+  - `campaign_videos` (campaign_id, index, pillar_id, target_audience, funnel_stage, primary_goal, hook_type, cta, visual_style, key_asset, rationale, script jsonb, series_key)
+  - `campaign_shots` (video_id, index, start_s, end_s, purpose, shot_type, subject_emphasis, description, on_screen_text, asset_id) — Phase B columns come later.
+- `_shared/muse/campaign/` holds the research adapter (Firecrawl/Perplexity/safe-fetch behind one interface, portable), the diversity validator and the coverage scorer (pure functions with unit tests), and tool runtime handlers. `_shared/muse` stays free of Lovable-specific code.
+- The Muse system prompt gets a campaign workflow section. Stages move forward only through tool calls, so recovery and replay stay idempotent (upsert keyed by campaign_id plus index).
+- UI: a campaign panel inside `AdToolAgent.tsx` (stage, sources, pillars, per-video card with its fields and rationale, script, shot list, coverage score). EN/DE/ES.
+- Docs: `docs/adtool-agent-muse.md` + `AGENTS.md` get one rule each.
+- Roadmap: `roadmap.md` gets Phase A (active) plus Phases B–F listed as blocked until review, including the rule that Phase B's router must learn from past QA results per content category.
