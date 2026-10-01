@@ -287,6 +287,7 @@ export const CAMPAIGN_TOOL_DEFINITIONS: MuseFunctionTool[] = [
       type: 'object',
       properties: {
         campaign_id: str,
+        video_ids: { type: 'array', items: { type: 'string' }, description: 'Optional. Limit the budget (and production) to these video IDs only. Omit for the whole campaign.' },
         retry_budget_per_shot: { type: 'integer', minimum: 0, maximum: 2, description: 'Retries pre-approved per shot, default 1.' },
         retry_mode: { type: 'string', enum: ['manual_retry', 'auto_retry_within_budget'], description: 'manual_retry: every retry needs a foreground confirm. auto_retry_within_budget: the production worker may retry failed shots automatically within the approved budget.' },
       },

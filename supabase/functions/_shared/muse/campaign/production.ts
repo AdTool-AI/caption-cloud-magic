@@ -142,10 +142,25 @@ export async function estimateCampaignBudget(ctx: ToolContext, a: Args): Promise
     .eq('campaign_id', c.id).eq('status', 'quoted').order('shot_index');
   if (!shots?.length) return err('PREREQUISITE', 'Call route_campaign_shots first.');
 
+  // Optional video scoping: the approval scope (shot IDs) is what production
+  // dispatches, so a scoped approval can never start other videos.
+  let scopedShots = shots as Args[];
+  let videoIds: string[] | null = null;
+  if (a.video_ids !== undefined && a.video_ids !== null) {
+    if (!Array.isArray(a.video_ids) || a.video_ids.length === 0 || a.video_ids.some((v: unknown) => typeof v !== 'string')) {
+      return err('INVALID_ARGUMENT', 'video_ids must be a non-empty list of video IDs.');
+    }
+    videoIds = [...new Set(a.video_ids as string[])];
+    const known = new Set(shots.map((s: Args) => s.video_id));
+    const unknown = videoIds.filter((v) => !known.has(v));
+    if (unknown.length) return err('INVALID_ARGUMENT', `Unknown or unrouted video IDs for this campaign: ${unknown.join(', ')}`);
+    scopedShots = shots.filter((s: Args) => videoIds!.includes(s.video_id));
+  }
+
   const retryBudget = Math.max(0, Math.min(2, Number(a.retry_budget_per_shot ?? 1)));
   const retryMode = a.retry_mode === 'auto_retry_within_budget' ? 'auto_retry_within_budget' : 'manual_retry';
-  const scope = shots.map((s: Args) => ({
-    shot_id: s.id, model: s.selected_model, duration_s: Number(s.duration_s), resolution: s.resolution, price: Number(s.estimated_cost),
+  const scope = scopedShots.map((s: Args) => ({
+    shot_id: s.id, video_id: s.video_id, model: s.selected_model, duration_s: Number(s.duration_s), resolution: s.resolution, price: Number(s.estimated_cost),
   }));
   if (scope.some((s) => !Number.isFinite(s.price) || s.price <= 0)) {
     return err('PRICING_UNAVAILABLE', 'At least one shot has no canonical price. Re-run routing.');
