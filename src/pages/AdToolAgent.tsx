@@ -169,6 +169,32 @@ export default function AdToolAgent() {
     );
   };
 
+  const decideCampaign = async (quote: StoredCampaignApproval, decision: "approve" | "reject") => {
+    if (busy) return;
+    const res = await decideCampaignBudgetApproval(quote.approval_id, decision);
+    if (res.ok === false) {
+      const err = res.error;
+      setCampaignApprovals((prev) => prev.map((a) => (a.approval_id === quote.approval_id ? { ...a, state: "error", error: err } : a)));
+      return;
+    }
+    setCampaignApprovals((prev) =>
+      prev.map((a) => (a.approval_id === quote.approval_id ? { ...a, state: decision === "approve" ? "approved" : "rejected" } : a))
+    );
+    await sendText(
+      decision === "approve"
+        ? tx({
+            de: `Kampagnen-Budget freigegeben: ${quote.estimated_total} € geschätzt, maximal ${quote.max_total} € (approval_id ${quote.approval_id}). Bitte starte die Produktion.`,
+            en: `Campaign budget approved: ${quote.estimated_total} € estimated, at most ${quote.max_total} € (approval_id ${quote.approval_id}). Please start the production.`,
+            es: `Presupuesto de campaña aprobado: ${quote.estimated_total} € estimado, máximo ${quote.max_total} € (approval_id ${quote.approval_id}). Inicia la producción.`,
+          })
+        : tx({
+            de: "Ich habe dieses Kampagnen-Budget abgelehnt. Bitte nichts produzieren.",
+            en: "I declined this campaign budget. Please do not produce anything.",
+            es: "He rechazado este presupuesto de campaña. No produzcas nada.",
+          })
+    );
+  };
+
   const sendText = async (text: string) => {
     setBusy(true);
     busyRef.current = true;
@@ -422,6 +448,47 @@ export default function AdToolAgent() {
                           {tx({ de: "Bestätigen", en: "Confirm", es: "Confirmar" })}
                         </Button>
                         <Button size="sm" variant="outline" onClick={() => void decide(a, "reject")} disabled={busy}>
+                          {tx({ de: "Ablehnen", en: "Decline", es: "Rechazar" })}
+                        </Button>
+                      </div>
+                    )}
+                    {a.state === "approved" && (
+                      <Badge className="mt-3">{tx({ de: "Freigegeben", en: "Approved", es: "Aprobado" })}</Badge>
+                    )}
+                    {a.state === "rejected" && (
+                      <Badge variant="outline" className="mt-3">{tx({ de: "Abgelehnt", en: "Declined", es: "Rechazado" })}</Badge>
+                    )}
+                    {a.state === "expired" && (
+                      <Badge variant="outline" className="mt-3">{tx({ de: "Abgelaufen", en: "Expired", es: "Caducado" })}</Badge>
+                    )}
+                    {a.state === "error" && <p className="mt-2 text-xs text-destructive">{a.error}</p>}
+                  </div>
+                ))}
+                {campaignApprovals.map((a) => (
+                  <div key={a.approval_id} className="max-w-[85%] rounded-2xl border border-primary/40 bg-primary/5 p-4 text-sm">
+                    <p className="font-medium text-foreground">
+                      {tx({ de: "Kampagnen-Budget", en: "Campaign budget", es: "Presupuesto de campaña" })}
+                    </p>
+                    <p className="mt-1 text-muted-foreground">
+                      {a.shots.length} {tx({ de: "Shots", en: "shots", es: "tomas" })} ·{" "}
+                      {a.retry_mode === "auto_retry_within_budget"
+                        ? tx({ de: "automatische Wiederholungen im Budget", en: "automatic retries within budget", es: "reintentos automáticos dentro del presupuesto" })
+                        : tx({ de: "Wiederholungen nur nach Freigabe", en: "retries only after confirmation", es: "reintentos solo tras confirmación" })}
+                    </p>
+                    <p className="mt-2 text-lg text-foreground">
+                      {a.estimated_total} € <span className="text-sm text-muted-foreground">({tx({ de: "maximal", en: "at most", es: "máximo" })} {a.max_total} €)</span>
+                    </p>
+                    {a.sufficient_credits === false && (
+                      <p className="mt-1 text-xs text-destructive">
+                        {tx({ de: "Guthaben reicht nicht — bitte vorher aufladen.", en: "Insufficient credits — please top up first.", es: "Créditos insuficientes: recarga primero." })}
+                      </p>
+                    )}
+                    {a.state === "pending" && (
+                      <div className="mt-3 flex gap-2">
+                        <Button size="sm" onClick={() => void decideCampaign(a, "approve")} disabled={busy}>
+                          {tx({ de: "Bestätigen", en: "Confirm", es: "Confirmar" })}
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={() => void decideCampaign(a, "reject")} disabled={busy}>
                           {tx({ de: "Ablehnen", en: "Decline", es: "Rechazar" })}
                         </Button>
                       </div>
