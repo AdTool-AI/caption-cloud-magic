@@ -18,6 +18,7 @@ interface Snapshot {
   videos: Row[];
   shots: Row[];
   social: Row[];
+  budgetApproval: Row | null;
 }
 
 const db = supabase as any;
