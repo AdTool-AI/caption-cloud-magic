@@ -14,6 +14,7 @@ import { useTranslation } from "@/hooks/useTranslation";
 import {
   sendAgentMessage,
   decideAgentApproval,
+  decideCampaignBudgetApproval,
   listAgentConversations,
   loadAgentConversation,
   subscribeAgentConversation,
@@ -25,6 +26,7 @@ import type {
   AgentTask,
   ConversationSummary,
   StoredApproval,
+  StoredCampaignApproval,
 } from "@/services/muse";
 
 const TOOL_LABELS: Record<string, { de: string; en: string; es: string }> = {
@@ -46,6 +48,13 @@ const TOOL_LABELS: Record<string, { de: string; en: string; es: string }> = {
   plan_campaign_videos: { de: "Videos geplant", en: "Planning videos", es: "Planificando vídeos" },
   write_video_scripts: { de: "Skripte & Shots", en: "Scripts & shots", es: "Guiones y tomas" },
   get_campaign: { de: "Kampagne gelesen", en: "Reading campaign", es: "Leyendo campaña" },
+  route_campaign_shots: { de: "Shots geroutet", en: "Routing shots", es: "Asignando modelos" },
+  estimate_campaign_budget: { de: "Budget berechnet", en: "Estimating budget", es: "Estimando presupuesto" },
+  start_campaign_production: { de: "Produktion gestartet", en: "Starting production", es: "Iniciando producción" },
+  review_shot: { de: "Shot geprüft", en: "Reviewing shot", es: "Revisando toma" },
+  prepare_shot_retry: { de: "Retry vorbereitet", en: "Preparing retry", es: "Preparando reintento" },
+  retry_shot: { de: "Shot wiederholt", en: "Retrying shot", es: "Repitiendo toma" },
+  get_campaign_production_status: { de: "Produktionsstatus", en: "Production status", es: "Estado de producción" },
 };
 
 export default function AdToolAgent() {
@@ -63,6 +72,7 @@ export default function AdToolAgent() {
   const [usage, setUsage] = useState<{ costUsd: number } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const [approvals, setApprovals] = useState<StoredApproval[]>([]);
+  const [campaignApprovals, setCampaignApprovals] = useState<StoredCampaignApproval[]>([]);
 
   const setConversationId = useCallback(
     (id: string | null) => {
@@ -81,6 +91,7 @@ export default function AdToolAgent() {
       setMessages([]);
       setOperations([]);
       setApprovals([]);
+      setCampaignApprovals([]);
       setTasks([]);
       setUsage(null);
       return;
@@ -90,6 +101,7 @@ export default function AdToolAgent() {
     setMessages(snap.messages);
     setOperations(snap.operations);
     setApprovals(snap.approvals);
+    setCampaignApprovals(snap.campaignApprovals);
     setTasks(snap.tasks);
     setUsage({ costUsd: snap.costUsd });
   }, []);
@@ -203,9 +215,33 @@ export default function AdToolAgent() {
               });
               break;
             }
-            case "approval_required":
-              setApprovals((prev) => [...prev, { ...event.approval, state: "pending" }]);
+            case "approval_required": {
+              const ap = event.approval as AgentApprovalQuote & { kind?: string; campaign_approval_id?: string };
+              if (ap.kind === "campaign_budget") {
+                setCampaignApprovals((prev) => [
+                  ...prev,
+                  {
+                    approval_id: String(ap.campaign_approval_id),
+                    campaign_id: String((ap as unknown as { campaign_id: string }).campaign_id),
+                    shots: (ap as unknown as { shots: StoredCampaignApproval["shots"] }).shots ?? [],
+                    estimated_total: Number((ap as unknown as { estimated_total: number }).estimated_total),
+                    max_total: Number((ap as unknown as { max_total: number }).max_total),
+                    retry_budget_per_shot: Number((ap as unknown as { retry_budget_per_shot: number }).retry_budget_per_shot ?? 0),
+                    retry_mode: ((ap as unknown as { retry_mode: string }).retry_mode === "auto_retry_within_budget"
+                      ? "auto_retry_within_budget"
+                      : "manual_retry") as StoredCampaignApproval["retry_mode"],
+                    currency: String((ap as unknown as { currency: string }).currency ?? "EUR"),
+                    sufficient_credits: (ap as unknown as { sufficient_credits?: boolean }).sufficient_credits,
+                    start_expires_at: String((ap as unknown as { start_expires_at?: string }).start_expires_at ?? ""),
+                    execution_expires_at: String((ap as unknown as { execution_expires_at?: string }).execution_expires_at ?? ""),
+                    state: "pending",
+                  },
+                ]);
+              } else {
+                setApprovals((prev) => [...prev, { ...event.approval, state: "pending" }]);
+              }
               break;
+            }
             case "message":
               setMessages((prev) => [...prev, { id: crypto.randomUUID(), role: "assistant", text: event.text }]);
               break;
