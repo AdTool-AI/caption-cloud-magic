@@ -45,7 +45,16 @@ const FAIL_TEXT: Record<string, (e: string) => string> = {
   en: (e) => `The video generation failed: ${e}. Nothing was restarted — tell me if you want a new quote.`,
 };
 
-function resumeInstruction(t: { generation_id: string; intent: string | null }, videoUrl: string) {
+function resumeInstruction(t: { generation_id: string; intent: string | null }, videoUrl: string, campaignShotId?: string | null) {
+  if (campaignShotId) {
+    return [
+      'INTERNAL SYSTEM EVENT (not written by the user; do not quote it).',
+      `The campaign shot generation ${t.generation_id} has finished: ${videoUrl}`,
+      `Now call review_shot with shot_id "${campaignShotId}" to run the full-video QA and store the client_ready decision.`,
+      'If the shot is not client-ready, call prepare_shot_retry. If the campaign approval is auto_retry_within_budget, the production worker will execute the prepared retry automatically — do NOT call retry_shot yourself.',
+      'Then give the user a short status update (which shot, verdict, what happens next). You cannot start or regenerate videos in this turn.',
+    ].filter(Boolean).join('\n');
+  }
   return [
     'INTERNAL SYSTEM EVENT (not written by the user; do not quote it).',
     `The video generation ${t.generation_id} you started earlier in this conversation has finished: ${videoUrl}`,
