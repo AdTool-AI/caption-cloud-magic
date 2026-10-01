@@ -267,6 +267,63 @@ export const CAMPAIGN_TOOL_DEFINITIONS: MuseFunctionTool[] = [
     description: 'Returns the full stored campaign (stage, research, sources, pillars, areas, assets, videos, scripts, shots, coverage). Without campaign_id returns the latest campaign of this chat.',
     parameters: { type: 'object', properties: { campaign_id: str }, additionalProperties: false },
   },
+  // ---- Phase B: production (routing, budget, generation, QA) ----
+  {
+    type: 'function',
+    name: 'route_campaign_shots',
+    description: 'Phase B. Routes every planned shot to the best model: content category, risk scores (motion, anatomy, physics, identity, text, reference), t2v vs image-to-video (only reuse_ok assets as first frame), model choice with rationale, English prompt, estimated cost. Learns from past QA results. Free.',
+    parameters: {
+      type: 'object',
+      properties: { campaign_id: str, video_ids: strArr, aspect_ratio: { type: 'string', description: 'Default 9:16.' } },
+      required: ['campaign_id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    type: 'function',
+    name: 'estimate_campaign_budget',
+    description: 'Phase B. Calculates the exact campaign production budget from the canonical price list: per-shot price, retry allowance, estimated total and maximum total. Creates ONE pending campaign approval the user must confirm in the UI. Free.',
+    parameters: {
+      type: 'object',
+      properties: {
+        campaign_id: str,
+        retry_budget_per_shot: { type: 'integer', minimum: 0, maximum: 2, description: 'Retries pre-approved per shot, default 1.' },
+        retry_mode: { type: 'string', enum: ['manual_retry', 'auto_retry_within_budget'], description: 'manual_retry: every retry needs a foreground confirm. auto_retry_within_budget: the production worker may retry failed shots automatically within the approved budget.' },
+      },
+      required: ['campaign_id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    type: 'function',
+    name: 'start_campaign_production',
+    description: 'PAID. Starts generation of all approved shots after the user confirmed the campaign budget in the UI. Refused without a confirmed, unexpired approval whose prices and shot list still match.',
+    parameters: { type: 'object', properties: { approval_id: str }, required: ['approval_id'], additionalProperties: false },
+  },
+  {
+    type: 'function',
+    name: 'review_shot',
+    description: 'Phase B QA. Runs the full-video review on the current attempt of one shot, stores the verdict and the client_ready decision, and feeds the model quality statistics. Free for the wallet.',
+    parameters: { type: 'object', properties: { shot_id: str }, required: ['shot_id'], additionalProperties: false },
+  },
+  {
+    type: 'function',
+    name: 'prepare_shot_retry',
+    description: 'Prepares an improved retry for a shot that failed QA (revised prompt and/or next-ranked model) and checks the remaining approved budget. Never starts or charges anything.',
+    parameters: { type: 'object', properties: { shot_id: str }, required: ['shot_id'], additionalProperties: false },
+  },
+  {
+    type: 'function',
+    name: 'retry_shot',
+    description: 'PAID. Executes one prepared retry within the approved campaign budget. Foreground only unless the approval is auto_retry_within_budget.',
+    parameters: { type: 'object', properties: { shot_id: str }, required: ['shot_id'], additionalProperties: false },
+  },
+  {
+    type: 'function',
+    name: 'get_campaign_production_status',
+    description: 'Phase B. Shows per-shot production status, QA verdicts, budget approvals and recent spend-ledger entries for a campaign. Free.',
+    parameters: { type: 'object', properties: { campaign_id: str }, additionalProperties: false },
+  },
 ];
 
 export const CAMPAIGN_TOOL_NAMES = new Set(CAMPAIGN_TOOL_DEFINITIONS.map((t) => t.name));
