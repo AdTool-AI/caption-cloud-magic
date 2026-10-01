@@ -12,6 +12,13 @@ import {
   assessPairs, coverageScore, dimensionText, exactDiversityRules, norm, SIMILARITY_DIMENSIONS,
   validateShape, validateShots, type PlannedVideo,
 } from './diversity.ts';
+import {
+  estimateCampaignBudget, prepareShotRetry, productionStatus, retryShot,
+  reviewShot, routeCampaignShots, startCampaignProduction,
+} from './production.ts';
+
+// Phase B paid execution tools — foreground-only for Muse (background turns never receive them).
+export const PAID_CAMPAIGN_TOOLS = new Set<string>(['start_campaign_production', 'retry_shot']);
 
 const MAX_REVISION_ROUNDS = 3;
 
@@ -490,6 +497,13 @@ export async function executeCampaignTool(ctx: ToolContext, name: string, args: 
     case 'discover_social_profiles': return await discoverSocial(ctx, args ?? {});
     case 'record_social_analysis': return await recordSocial(ctx, args ?? {});
     case 'get_campaign': return await getCampaign(ctx, args ?? {});
+    case 'route_campaign_shots': return await routeCampaignShots(ctx, args ?? {});
+    case 'estimate_campaign_budget': return await estimateCampaignBudget(ctx, args ?? {});
+    case 'start_campaign_production': return await startCampaignProduction(ctx, args ?? {});
+    case 'review_shot': return await reviewShot(ctx, args ?? {});
+    case 'prepare_shot_retry': return await prepareShotRetry(ctx, args ?? {});
+    case 'retry_shot': return await retryShot(ctx, args ?? {});
+    case 'get_campaign_production_status': return await productionStatus(ctx, args ?? {});
     default: return null;
   }
 }
