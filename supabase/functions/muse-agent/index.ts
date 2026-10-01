@@ -57,9 +57,41 @@ Deno.serve(async (req) => {
     });
   }
 
-  // ---- Approval action: user confirms a quoted generation cost -----------
+  // ---- Campaign budget approval action (Phase B) --------------------------
   // deno-lint-ignore no-explicit-any
   const action = (body as any).action;
+  if (action === 'approve-campaign-budget' || action === 'reject-campaign-budget') {
+    // deno-lint-ignore no-explicit-any
+    const approvalId = String((body as any).approvalId ?? '');
+    if (!/^[0-9a-f-]{36}$/i.test(approvalId)) {
+      return new Response(JSON.stringify({ error: 'approvalId required' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+    const adminClient = createClient(supabaseUrl, serviceKey);
+    const nowIso = new Date().toISOString();
+    const update = action === 'approve-campaign-budget' ? { status: 'approved' } : { status: 'rejected' };
+    const { data } = await adminClient
+      .from('campaign_budget_approvals')
+      .update(update)
+      .eq('id', approvalId)
+      .eq('user_id', authData.user.id)
+      .eq('status', 'pending')
+      .gt('start_expires_at', nowIso)
+      .select('id, status, estimated_total, max_total, retry_mode, retry_budget_per_shot, start_expires_at, execution_expires_at');
+    if (!data || data.length !== 1) {
+      return new Response(JSON.stringify({ error: 'This campaign budget is no longer valid. Ask the agent for a new estimate.', code: 'APPROVAL_INVALID' }), {
+        status: 409,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+    return new Response(JSON.stringify({ campaign_approval: data[0] }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  // ---- Approval action: user confirms a quoted generation cost -----------
   if (action === 'approve' || action === 'reject') {
     // deno-lint-ignore no-explicit-any
     const approvalId = String((body as any).approvalId ?? '');

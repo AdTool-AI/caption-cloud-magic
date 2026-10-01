@@ -41,3 +41,18 @@ export interface AgentApprovalQuote {
   sufficient_credits?: boolean;
   approval_expires_at?: string;
 }
+
+/** Phase B: one budget approval for a whole campaign production run. */
+export interface CampaignBudgetQuote {
+  approval_id: string;
+  campaign_id: string;
+  shots: Array<{ shot_id: string; model: string; duration_s: number; resolution: string; price: number }>;
+  estimated_total: number;
+  max_total: number;
+  retry_budget_per_shot: number;
+  retry_mode: 'manual_retry' | 'auto_retry_within_budget';
+  currency: string;
+  sufficient_credits?: boolean;
+  start_expires_at?: string;
+  execution_expires_at?: string;
+}

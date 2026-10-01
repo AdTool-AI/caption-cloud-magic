@@ -4946,6 +4946,74 @@ export type Database = {
           },
         ]
       }
+      campaign_budget_approvals: {
+        Row: {
+          campaign_id: string
+          conversation_id: string | null
+          created_at: string
+          estimated_total: number
+          execution_expires_at: string
+          id: string
+          max_total: number
+          pricing_version: string
+          retry_budget_per_shot: number
+          retry_mode: string
+          scope: Json
+          spent_total: number
+          start_expires_at: string
+          started_at: string | null
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          campaign_id: string
+          conversation_id?: string | null
+          created_at?: string
+          estimated_total: number
+          execution_expires_at: string
+          id?: string
+          max_total: number
+          pricing_version: string
+          retry_budget_per_shot?: number
+          retry_mode?: string
+          scope: Json
+          spent_total?: number
+          start_expires_at: string
+          started_at?: string | null
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          campaign_id?: string
+          conversation_id?: string | null
+          created_at?: string
+          estimated_total?: number
+          execution_expires_at?: string
+          id?: string
+          max_total?: number
+          pricing_version?: string
+          retry_budget_per_shot?: number
+          retry_mode?: string
+          scope?: Json
+          spent_total?: number
+          start_expires_at?: string
+          started_at?: string | null
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaign_budget_approvals_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "agent_campaigns"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       campaign_business_areas: {
         Row: {
           area: string
@@ -5246,54 +5314,204 @@ export type Database = {
         }
         Relationships: []
       }
+      campaign_shot_attempts: {
+        Row: {
+          attempt_no: number
+          campaign_id: string
+          client_ready: boolean | null
+          cost_charged: number | null
+          created_at: string
+          failure_class: string | null
+          generation_id: string | null
+          id: string
+          model: string | null
+          prompt: string | null
+          qa_issues: Json | null
+          qa_scores: Json | null
+          qa_verdict: string | null
+          shot_id: string
+          user_id: string
+        }
+        Insert: {
+          attempt_no: number
+          campaign_id: string
+          client_ready?: boolean | null
+          cost_charged?: number | null
+          created_at?: string
+          failure_class?: string | null
+          generation_id?: string | null
+          id?: string
+          model?: string | null
+          prompt?: string | null
+          qa_issues?: Json | null
+          qa_scores?: Json | null
+          qa_verdict?: string | null
+          shot_id: string
+          user_id: string
+        }
+        Update: {
+          attempt_no?: number
+          campaign_id?: string
+          client_ready?: boolean | null
+          cost_charged?: number | null
+          created_at?: string
+          failure_class?: string | null
+          generation_id?: string | null
+          id?: string
+          model?: string | null
+          prompt?: string | null
+          qa_issues?: Json | null
+          qa_scores?: Json | null
+          qa_verdict?: string | null
+          shot_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaign_shot_attempts_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "agent_campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campaign_shot_attempts_shot_id_fkey"
+            columns: ["shot_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_shots"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       campaign_shots: {
         Row: {
+          aspect_ratio: string | null
           asset_id: string | null
+          attempt_count: number
           campaign_id: string
+          client_ready: boolean | null
+          content_category: string | null
           created_at: string
+          current_generation_id: string | null
           description: string
+          duration_s: number | null
           end_s: number
+          english_prompt: string | null
+          estimated_cost: number | null
+          generation_mode: string | null
+          human_anatomy_risk: number | null
           id: string
+          identity_consistency_requirement: number | null
+          input_asset_id: string | null
+          motion_complexity: number | null
+          negative_constraints: string | null
           on_screen_text: string | null
+          physics_risk: number | null
           purpose: string
+          qa_summary: Json | null
+          reference_strength: number | null
+          resolution: string | null
+          retry_model: string | null
+          retry_prepared_at: string | null
+          retry_prompt: string | null
+          retry_reason: string | null
+          routing_rationale: Json | null
+          selected_model: string | null
           shot_index: number
           shot_type: string
           start_s: number
+          status: string
           subject_emphasis: string
+          text_requirement: number | null
+          updated_at: string
           user_id: string
           video_id: string
           voiceover: string | null
         }
         Insert: {
+          aspect_ratio?: string | null
           asset_id?: string | null
+          attempt_count?: number
           campaign_id: string
+          client_ready?: boolean | null
+          content_category?: string | null
           created_at?: string
+          current_generation_id?: string | null
           description: string
+          duration_s?: number | null
           end_s: number
+          english_prompt?: string | null
+          estimated_cost?: number | null
+          generation_mode?: string | null
+          human_anatomy_risk?: number | null
           id?: string
+          identity_consistency_requirement?: number | null
+          input_asset_id?: string | null
+          motion_complexity?: number | null
+          negative_constraints?: string | null
           on_screen_text?: string | null
+          physics_risk?: number | null
           purpose: string
+          qa_summary?: Json | null
+          reference_strength?: number | null
+          resolution?: string | null
+          retry_model?: string | null
+          retry_prepared_at?: string | null
+          retry_prompt?: string | null
+          retry_reason?: string | null
+          routing_rationale?: Json | null
+          selected_model?: string | null
           shot_index: number
           shot_type: string
           start_s: number
+          status?: string
           subject_emphasis: string
+          text_requirement?: number | null
+          updated_at?: string
           user_id: string
           video_id: string
           voiceover?: string | null
         }
         Update: {
+          aspect_ratio?: string | null
           asset_id?: string | null
+          attempt_count?: number
           campaign_id?: string
+          client_ready?: boolean | null
+          content_category?: string | null
           created_at?: string
+          current_generation_id?: string | null
           description?: string
+          duration_s?: number | null
           end_s?: number
+          english_prompt?: string | null
+          estimated_cost?: number | null
+          generation_mode?: string | null
+          human_anatomy_risk?: number | null
           id?: string
+          identity_consistency_requirement?: number | null
+          input_asset_id?: string | null
+          motion_complexity?: number | null
+          negative_constraints?: string | null
           on_screen_text?: string | null
+          physics_risk?: number | null
           purpose?: string
+          qa_summary?: Json | null
+          reference_strength?: number | null
+          resolution?: string | null
+          retry_model?: string | null
+          retry_prepared_at?: string | null
+          retry_prompt?: string | null
+          retry_reason?: string | null
+          routing_rationale?: Json | null
+          selected_model?: string | null
           shot_index?: number
           shot_type?: string
           start_s?: number
+          status?: string
           subject_emphasis?: string
+          text_requirement?: number | null
+          updated_at?: string
           user_id?: string
           video_id?: string
           voiceover?: string | null
@@ -5489,6 +5707,54 @@ export type Database = {
             columns: ["campaign_id"]
             isOneToOne: false
             referencedRelation: "agent_campaigns"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      campaign_spend_ledger: {
+        Row: {
+          amount: number
+          approval_id: string
+          created_at: string
+          entry_type: string
+          generation_id: string | null
+          id: string
+          idempotency_key: string
+          shot_id: string | null
+        }
+        Insert: {
+          amount: number
+          approval_id: string
+          created_at?: string
+          entry_type: string
+          generation_id?: string | null
+          id?: string
+          idempotency_key: string
+          shot_id?: string | null
+        }
+        Update: {
+          amount?: number
+          approval_id?: string
+          created_at?: string
+          entry_type?: string
+          generation_id?: string | null
+          id?: string
+          idempotency_key?: string
+          shot_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaign_spend_ledger_approval_id_fkey"
+            columns: ["approval_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_budget_approvals"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campaign_spend_ledger_shot_id_fkey"
+            columns: ["shot_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_shots"
             referencedColumns: ["id"]
           },
         ]
@@ -11278,6 +11544,39 @@ export type Database = {
           state_key?: string | null
           user_id?: string
           uses_config_id?: boolean | null
+        }
+        Relationships: []
+      }
+      model_qa_stats: {
+        Row: {
+          content_category: string
+          generation_mode: string
+          issue_class_counts: Json
+          last_updated: string
+          model: string
+          n_client_ready: number
+          n_runs: number
+          score_sum: number
+        }
+        Insert: {
+          content_category: string
+          generation_mode: string
+          issue_class_counts?: Json
+          last_updated?: string
+          model: string
+          n_client_ready?: number
+          n_runs?: number
+          score_sum?: number
+        }
+        Update: {
+          content_category?: string
+          generation_mode?: string
+          issue_class_counts?: Json
+          last_updated?: string
+          model?: string
+          n_client_ready?: number
+          n_runs?: number
+          score_sum?: number
         }
         Relationships: []
       }
@@ -21663,6 +21962,17 @@ export type Database = {
           variant_b_id: string
         }[]
       }
+      campaign_ledger_entry: {
+        Args: {
+          _amount: number
+          _approval_id: string
+          _entry_type: string
+          _generation_id: string
+          _key: string
+          _shot_id: string
+        }
+        Returns: boolean
+      }
       can_access_composer_project: {
         Args: { _project_id: string; _user_id: string }
         Returns: boolean
@@ -22430,6 +22740,17 @@ export type Database = {
         Args: { p_feature_key: string; p_user_id: string }
         Returns: number
       }
+      increment_model_qa_stats: {
+        Args: {
+          _category: string
+          _client_ready: boolean
+          _issues: Json
+          _mode: string
+          _model: string
+          _score: number
+        }
+        Returns: undefined
+      }
       increment_template_usage: {
         Args: { template_id: string }
         Returns: undefined
@@ -22562,6 +22883,15 @@ export type Database = {
           p_remove_parent?: boolean
         }
         Returns: string[]
+      }
+      reserve_campaign_spend: {
+        Args: {
+          _amount: number
+          _approval_id: string
+          _key: string
+          _shot_id: string
+        }
+        Returns: boolean
       }
       reset_monthly_credits: { Args: never; Returns: undefined }
       revoke_founder_status: {

@@ -32,7 +32,7 @@ async function loadCampaign(conversationId: string): Promise<Snapshot | null> {
     .maybeSingle();
   if (!campaign) return null;
   const id = campaign.id;
-  const [sources, facts, assets, pillars, areas, videos, shots, social] = await Promise.all([
+  const [sources, facts, assets, pillars, areas, videos, shots, social, budgetApprovals] = await Promise.all([
     db.from("campaign_sources").select("url, title, via").eq("campaign_id", id),
     db.from("campaign_facts").select("category, fact, source_url, is_hypothesis").eq("campaign_id", id),
     db.from("campaign_assets").select("id, url, kind, reuse_status, source_url").eq("campaign_id", id),
@@ -41,6 +41,7 @@ async function loadCampaign(conversationId: string): Promise<Snapshot | null> {
     db.from("campaign_videos").select("*").eq("campaign_id", id).order("video_index"),
     db.from("campaign_shots").select("*").eq("campaign_id", id).order("shot_index"),
     db.from("campaign_social_profiles").select("*").eq("campaign_id", id),
+    db.from("campaign_budget_approvals").select("*").eq("campaign_id", id).order("created_at", { ascending: false }).limit(1),
   ]);
   return {
     campaign,
@@ -52,6 +53,7 @@ async function loadCampaign(conversationId: string): Promise<Snapshot | null> {
     videos: videos.data ?? [],
     shots: shots.data ?? [],
     social: social.data ?? [],
+    budgetApproval: (budgetApprovals.data ?? [])[0] ?? null,
   };
 }
 

@@ -3,7 +3,7 @@
  * Reads go through RLS-scoped tables; nothing is kept only in the browser.
  */
 import { supabase } from '@/integrations/supabase/client';
-import type { AgentApprovalQuote, AgentChatMessage, AgentOperation } from './types';
+import type { AgentApprovalQuote, AgentChatMessage, AgentOperation, CampaignBudgetQuote } from './types';
 
 // New agent tables are not in the generated types yet.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -11,6 +11,7 @@ const db = supabase as any;
 
 export type ApprovalState = 'pending' | 'approved' | 'rejected' | 'expired' | 'error';
 export type StoredApproval = AgentApprovalQuote & { state: ApprovalState; error?: string };
+export type StoredCampaignApproval = CampaignBudgetQuote & { state: ApprovalState; error?: string };
 
 export interface AgentTask {
   id: string;
@@ -32,6 +33,7 @@ export interface ConversationSnapshot {
   messages: AgentChatMessage[];
   operations: AgentOperation[];
   approvals: StoredApproval[];
+  campaignApprovals: StoredCampaignApproval[];
   tasks: AgentTask[];
   costUsd: number;
 }
@@ -46,12 +48,13 @@ export async function listAgentConversations(limit = 20): Promise<ConversationSu
 }
 
 export async function loadAgentConversation(id: string): Promise<ConversationSnapshot | null> {
-  const [convo, msgs, ops, apps, tasks] = await Promise.all([
+  const [convo, msgs, ops, apps, tasks, cApps] = await Promise.all([
     db.from('agent_conversations').select('id, estimated_ai_cost_usd').eq('id', id).maybeSingle(),
     db.from('agent_messages').select('id, role, content, internal, created_at').eq('conversation_id', id).order('created_at'),
     db.from('agent_operations').select('id, tool_name, status, arguments, result, generation_id, created_at').eq('conversation_id', id).order('created_at'),
     db.from('agent_generation_approvals').select('*').eq('conversation_id', id).order('created_at'),
     db.from('agent_tasks').select('id, generation_id, status, error, slow_since, result, created_at').eq('conversation_id', id).order('created_at'),
+    db.from('campaign_budget_approvals').select('*').eq('conversation_id', id).order('created_at'),
   ]);
   if (!convo.data) return null;
 
@@ -92,6 +95,29 @@ export async function loadAgentConversation(id: string): Promise<ConversationSna
       } satisfies StoredApproval;
     }),
     tasks: (tasks.data ?? []) as AgentTask[],
+    campaignApprovals: (cApps.data ?? []).map((a: Record<string, unknown>) => {
+      const status = String(a.status);
+      const expired = status === 'pending' && new Date(String(a.start_expires_at)).getTime() < now;
+      const state: ApprovalState =
+        expired ? 'expired'
+        : status === 'pending' ? 'pending'
+        : status === 'approved' || status === 'started' ? 'approved'
+        : status === 'rejected' ? 'rejected'
+        : 'expired';
+      return {
+        approval_id: String(a.id),
+        campaign_id: String(a.campaign_id),
+        shots: (a.scope as CampaignBudgetQuote['shots']) ?? [],
+        estimated_total: Number(a.estimated_total),
+        max_total: Number(a.max_total),
+        retry_budget_per_shot: Number(a.retry_budget_per_shot ?? 0),
+        retry_mode: (a.retry_mode as CampaignBudgetQuote['retry_mode']) ?? 'manual_retry',
+        currency: 'EUR',
+        start_expires_at: String(a.start_expires_at),
+        execution_expires_at: String(a.execution_expires_at),
+        state,
+      } satisfies StoredCampaignApproval;
+    }),
   };
 }
 

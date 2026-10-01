@@ -93,6 +93,18 @@ export async function decideAgentApproval(
   approvalId: string,
   decision: 'approve' | 'reject',
 ): Promise<{ ok: true } | { ok: false; error: string }> {
+  return postDecision(decision, approvalId);
+}
+
+/** Records the user's decision on a campaign production budget (Phase B). */
+export async function decideCampaignBudgetApproval(
+  approvalId: string,
+  decision: 'approve' | 'reject',
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  return postDecision(decision === 'approve' ? 'approve-campaign-budget' : 'reject-campaign-budget', approvalId);
+}
+
+async function postDecision(action: string, approvalId: string): Promise<{ ok: true } | { ok: false; error: string }> {
   const token = await resolveToken();
   if (!token) return { ok: false, error: 'You need to be signed in.' };
   const res = await fetch(resolveEndpoint(), {
@@ -102,7 +114,7 @@ export async function decideAgentApproval(
       apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ action: decision, approvalId }),
+    body: JSON.stringify({ action, approvalId }),
   });
   if (res.ok) return { ok: true };
   const body = await res.json().catch(() => ({}));
