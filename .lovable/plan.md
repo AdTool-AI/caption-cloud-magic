@@ -1,4 +1,10 @@
-# Social connections and posting: how it works today (read-only report)
+# Two read-only reports: social flow + Lovable dependency inventory
+
+No code was changed. Both reports are based on reading the code, not live tests.
+
+---
+
+# Report 1 — Social connections and posting: how it works today
 
 No code was changed. This is how the code works right now, based on reading it. It has not been tested live.
 
