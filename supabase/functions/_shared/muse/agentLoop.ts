@@ -295,6 +295,9 @@ export async function runAgentTurn(params: RunAgentParams): Promise<void> {
       if (call.name === 'estimate_video_cost' && result.output?.approval_required) {
         emit({ type: 'approval_required', approval: result.output });
       }
+      if (call.name === 'estimate_campaign_budget' && result.output?.campaign_approval_required) {
+        emit({ type: 'approval_required', approval: { ...result.output, kind: 'campaign_budget' } });
+      }
 
       input.push({
         type: 'function_call_output',
