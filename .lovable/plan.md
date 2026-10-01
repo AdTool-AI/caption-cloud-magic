@@ -61,3 +61,39 @@ There are two Meta systems running side by side, plus three ways to schedule pos
 
 ## Optional next step (still read-only)
 If you want, I can confirm the open points: the live cron job list, which redirect LinkedIn and TikTok really use, the full TikTok/YouTube posting code, and what calls `linkedin-post` and `publish-post`.
+
+---
+
+# Report 2 — Lovable-specific dependencies if hosted outside Lovable
+
+## Hard blockers (app breaks outside Lovable)
+
+1. **Lovable AI Gateway — the biggest one.** About 157 backend functions call `https://ai.gateway.lovable.dev` with the secret `LOVABLE_API_KEY`. That key only exists inside Lovable Cloud — it is not your own OpenAI key. Outside Lovable, every AI feature stops working (text, image, video helpers, analysis, embeddings, transcription).
+   - Examples: `supabase/functions/_shared/briefing/models.ts:10`, `coach-chat`, `ai-companion`, `ai-queue-worker`, all `analyze-*`, `autopilot-*`, `director-cut-*`, `_shared/plate-face-detect.ts`, `_shared/identity-audit.ts`, `_shared/ai-semantic-cache.ts`, `_shared/muse/campaign/embeddings.ts`.
+   - Replacement: point these calls at a standard provider (e.g. OpenAI) with your own key. Best done by creating one shared client module and swapping the base URL + key once, instead of editing 157 files.
+
+2. **Google sign-in goes through Lovable's login service.** `src/integrations/lovable/index.ts` uses the package `@lovable.dev/cloud-auth-js`; `GoogleSignInButton.tsx` calls it. Outside Lovable, Google login breaks.
+   - Replacement: use the backend's built-in Google login (`supabase.auth.signInWithOAuth({ provider: 'google' })`) with your own Google app credentials, then delete the Lovable auth file and package.
+
+3. **Login redirects point at a Lovable preview address.** `supabase/config.toml:75` sets `site_url` to a `*.lovableproject.com` URL, so sign-in emails and redirects would send people to the wrong place.
+   - Replacement: set `site_url` and the allowed redirect addresses to your real domain.
+
+## Works with a small change
+
+4. **Firecrawl web research via Lovable's connector gateway.** `supabase/functions/_shared/muse/campaign/research.ts:188` already has a direct-mode fallback (`api.firecrawl.dev` with your own `FIRECRAWL_API_KEY`).
+   - Replacement: use the direct mode with your own Firecrawl key. No rewrite needed.
+
+## No action needed (safe outside Lovable)
+
+5. **Preview login sharing** (`src/integrations/supabase/previewAuthStorage.ts`): only active inside Lovable's preview frame; everywhere else it quietly falls back to normal browser storage. Inert on your own domain.
+6. **lovable-tagger** (Vite plugin in `vite.config.ts`): only runs in development. Safe to remove, but not required.
+7. **Preview-host check** in `ConnectionsTab.tsx:313`: just a UI flag that is `false` on your own domain.
+8. **`.lovable/` folder**: planning notes only; the app never reads it.
+
+## Not found (checked, absent)
+- No `VITE_LOVABLE_*` variables, no `APP_USER_CONNECTION_KEY_SECRET`, no `X-Lovable-AIG-*` headers, no Vercel/Netlify hosting config.
+
+## Open points worth a quick check
+- Full list of the 157 `LOVABLE_API_KEY` functions (re-runnable with one search).
+- Confirm Google is the only login using the Lovable auth helper.
+- Actual failure behavior outside Lovable was inferred from code, not tested live.
