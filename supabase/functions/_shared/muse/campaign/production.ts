@@ -191,6 +191,7 @@ export async function estimateCampaignBudget(ctx: ToolContext, a: Args): Promise
       campaign_approval_required: true,
       campaign_approval_id: approval.id,
       campaign_id: c.id,
+      video_ids: videoIds,
       shots: scope,
       estimated_total: estimatedTotal,
       max_total: maxTotal,
@@ -341,7 +342,7 @@ export async function startCampaignProduction(ctx: ToolContext, a: Args): Promis
   }
 
   const scopeIds = (approval.scope as Args[]).map((s) => s.shot_id);
-  const { data: shots } = await ctx.admin.from('campaign_shots').select('*').in('id', scopeIds).eq('user_id', ctx.userId);
+  const { data: shots } = await ctx.admin.from('campaign_shots').select('*').in('id', scopeIds).eq('campaign_id', approval.campaign_id).eq('user_id', ctx.userId);
   const results: Record<string, unknown>[] = [];
   for (const shot of shots ?? []) {
     if (shot.status !== 'quoted') { results.push({ shot_id: shot.id, skipped: true, status: shot.status }); continue; }
