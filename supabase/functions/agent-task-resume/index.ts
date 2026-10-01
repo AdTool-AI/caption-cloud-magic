@@ -166,12 +166,23 @@ Deno.serve(async (req) => {
     console.error('[agent-task-resume] muse not configured', err);
   }
 
+  // Phase B: execute eligible prepared auto-retries (auto_retry_within_budget only, budget-capped).
+  try {
+    const { executeEligibleAutoRetries } = await import('../_shared/muse/campaign/production.ts');
+    const n = await executeEligibleAutoRetries(admin, { supabaseUrl, serviceKey, anonKey, limit: 3 });
+    if (n > 0) console.log('[agent-task-resume] auto retries dispatched', n);
+  } catch (err) {
+    console.error('[agent-task-resume] auto retry pass failed', err);
+  }
+
   for (const t of claimedTasks ?? []) {
     const { data: g } = await admin.from('ai_video_generations').select('video_url').eq('id', t.generation_id).maybeSingle();
     if (!config) {
       await admin.from('agent_tasks').update({ status: 'failed', error: 'Agent not configured', finished_at: new Date().toISOString() }).eq('id', t.id);
       continue;
     }
+    // Campaign shot? Then the resume turn QA's the shot instead of a generic review.
+    const { data: shotRow } = await admin.from('campaign_shots').select('id').eq('current_generation_id', t.generation_id).maybeSingle();
     const hooks = test && test.taskId === t.id ? test : null;
     const events: Array<Record<string, unknown>> = [];
     let lastMessage = '';
@@ -183,7 +194,7 @@ Deno.serve(async (req) => {
         internalAuthUserId: t.user_id,
         supabaseUrl, anonKey,
         conversationId: t.conversation_id,
-        message: resumeInstruction(t, g?.video_url ?? ''),
+        message: resumeInstruction(t, g?.video_url ?? '', shotRow?.id ?? null),
         language: t.language ?? undefined,
         internal: true,
         allowedTools: RESUME_TOOLS,
