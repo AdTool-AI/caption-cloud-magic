@@ -95,7 +95,7 @@ export function assessRisk(shot: Pick<ShotInput, 'description' | 'subject_emphas
 }
 
 /** Map a shot to one content category. */
-export function categorizeShot(shot: Pick<ShotInput, 'description' | 'subject_emphasis' | 'purpose'>): ContentCategory {
+export function categorizeShot(shot: Pick<ShotInput, 'description' | 'subject_emphasis' | 'purpose' | 'on_screen_text'>): ContentCategory {
   const t = `${shot.description} ${shot.purpose}`.toLowerCase();
   if (shot.on_screen_text || /logo|brand|cta|text/.test(t) && shot.subject_emphasis === 'brand') return 'text_brand';
   if (/coffee|latte|espresso|matcha|drink|cocktail|juice|tea|beer|wine/.test(t)) return 'drink';
@@ -210,7 +210,7 @@ export function routeShot(
       duration,
       price_per_second: pps,
       estimated_cost: est,
-      scores: { quality: round3(quality), fit: round3(fit), price: round3(price), consistency },
+      scores: { quality: round3(quality), fit: round3(fit), price: round3(price), consistency, total: round3(total) },
       confidence,
       quality_tier: tier,
     });

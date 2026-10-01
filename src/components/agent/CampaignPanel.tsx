@@ -18,6 +18,7 @@ interface Snapshot {
   videos: Row[];
   shots: Row[];
   social: Row[];
+  budgetApproval: Row | null;
 }
 
 const db = supabase as any;
@@ -367,6 +368,66 @@ export function CampaignPanel({ conversationId, refreshKey }: { conversationId: 
           </div>
           {c.coverage_explanation && (
             <p className="mt-3 whitespace-pre-wrap text-xs text-muted-foreground">{c.coverage_explanation}</p>
+          )}
+        </div>
+      )}
+
+      {snap.budgetApproval && (
+        <div className="mt-4 rounded-md border border-border/60 bg-background/40 p-3">
+          <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            {tx({ de: "Produktion", en: "Production", es: "Producción" })}
+          </h3>
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <Badge variant="outline">
+              {tx({ de: "Budget", en: "Budget", es: "Presupuesto" })}: {Number(snap.budgetApproval.estimated_total).toFixed(2)} €
+              {" / "}{tx({ de: "max", en: "max", es: "máx" })} {Number(snap.budgetApproval.max_total).toFixed(2)} €
+            </Badge>
+            <Badge variant="secondary">
+              {tx({ de: "Ausgegeben", en: "Spent", es: "Gastado" })}: {Number(snap.budgetApproval.spent_total ?? 0).toFixed(2)} €
+            </Badge>
+            <Badge variant="outline">{snap.budgetApproval.status}</Badge>
+            {snap.budgetApproval.retry_mode === "auto_retry_within_budget" && (
+              <Badge variant="outline">
+                {tx({ de: "Auto-Retry im Budget", en: "Auto-retry within budget", es: "Reintento automático dentro del presupuesto" })}
+              </Badge>
+            )}
+          </div>
+          {snap.shots.some((s) => s.selected_model) && (
+            <div className="mt-3 overflow-x-auto">
+              <table className="w-full min-w-[700px] text-left text-xs">
+                <thead className="text-muted-foreground">
+                  <tr className="border-b border-border/60">
+                    <th className="p-1.5">{tx({ de: "Shot", en: "Shot", es: "Toma" })}</th>
+                    <th className="p-1.5">{tx({ de: "Modell", en: "Model", es: "Modelo" })}</th>
+                    <th className="p-1.5">{tx({ de: "Modus", en: "Mode", es: "Modo" })}</th>
+                    <th className="p-1.5">{tx({ de: "Kosten", en: "Cost", es: "Coste" })}</th>
+                    <th className="p-1.5">QA</th>
+                    <th className="p-1.5">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {snap.shots
+                    .filter((s) => s.selected_model)
+                    .map((s) => (
+                      <tr key={s.id} className="border-b border-border/40 align-top">
+                        <td className="p-1.5">V{s.video_index ?? "?"}/S{(s.shot_index ?? 0) + 1}</td>
+                        <td className="p-1.5 font-medium text-foreground">{s.selected_model}</td>
+                        <td className="p-1.5">{s.generation_mode}</td>
+                        <td className="p-1.5">{s.estimated_cost != null ? `${Number(s.estimated_cost).toFixed(2)} €` : "—"}</td>
+                        <td className="p-1.5">
+                          {s.qa_summary?.overall != null ? `${s.qa_summary.overall}/10` : "—"}
+                          {s.client_ready && <Badge className="ml-1 bg-primary/15 text-primary hover:bg-primary/15">ready</Badge>}
+                        </td>
+                        <td className="p-1.5">
+                          <Badge variant={s.status === "failed" ? "destructive" : "outline"} className="text-[10px]">
+                            {s.status}
+                          </Badge>
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       )}
