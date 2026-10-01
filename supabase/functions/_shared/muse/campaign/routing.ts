@@ -210,7 +210,7 @@ export function routeShot(
       duration,
       price_per_second: pps,
       estimated_cost: est,
-      scores: { quality: round3(quality), fit: round3(fit), price: round3(price), consistency },
+      scores: { quality: round3(quality), fit: round3(fit), price: round3(price), consistency, total: round3(total) },
       confidence,
       quality_tier: tier,
     });
