@@ -21962,6 +21962,10 @@ export type Database = {
           variant_b_id: string
         }[]
       }
+      campaign_ledger_actual_spent: {
+        Args: { _approval_id: string }
+        Returns: number
+      }
       campaign_ledger_entry: {
         Args: {
           _amount: number
@@ -21972,6 +21976,10 @@ export type Database = {
           _shot_id: string
         }
         Returns: boolean
+      }
+      campaign_ledger_outstanding_reserved: {
+        Args: { _approval_id: string }
+        Returns: number
       }
       can_access_composer_project: {
         Args: { _project_id: string; _user_id: string }
