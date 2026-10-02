@@ -98,6 +98,7 @@ export async function reviewClaimed(admin: Any, t: QaTransport, claim: { shot_id
   const { data: ok } = await admin.rpc('finalize_shot_qa', {
     _shot_id: claim.shot_id, _claim_id: claim.claim_id, _verdict: parsed.verdict, _overall: parsed.overall,
     _scores: parsed.scores, _issues: parsed.issues, _client_ready: parsed.clientReady,
+    _analysis_source: body?.analysis_source === 'derived_copy' ? 'derived_copy' : 'original',
   });
   return { state: 'final', persisted: ok === true, parsed };
 }
