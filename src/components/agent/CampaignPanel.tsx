@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Target, ExternalLink, AlertTriangle, Layers, ChevronDown } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -121,10 +121,7 @@ export function CampaignPanel({ conversationId, refreshKey }: { conversationId: 
   const citedFacts = snap.facts.filter((f) => !f.is_hypothesis).length;
   const videoIndex = new Map(snap.videos.map((video) => [video.id, video.video_index]));
   const generationById = new Map(snap.generations.map((generation) => [generation.id, generation]));
-  const approvedShotIdSet = useMemo(
-    () => new Set((snap.budgetApproval?.scope ?? []).map((item: Row) => item.shot_id)),
-    [snap.budgetApproval],
-  );
+  const approvedShotIdSet = new Set((snap.budgetApproval?.scope ?? []).map((item: Row) => item.shot_id));
   const routedShots = snap.shots.filter((shot) => shot.selected_model);
   const scopedShots = approvedShotIdSet.size > 0 ? routedShots.filter((shot) => approvedShotIdSet.has(shot.id)) : routedShots;
   const visibleProductionShots = showAllRouted ? routedShots : scopedShots;
