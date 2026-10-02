@@ -21,6 +21,7 @@ import {
   type ModelQaStatsRow, type RouteCandidate, type ShotInput,
 } from './routing.ts';
 import { approvedShotIds, budgetTotals, buildScope, filterDispatchable, scopeShotsToVideos } from './scope.ts';
+import { runShotQa } from './shotQa.ts';
 
 // deno-lint-ignore no-explicit-any
 type Args = any;
@@ -353,85 +354,26 @@ export async function startCampaignProduction(ctx: ToolContext, a: Args): Promis
 // review_shot (full-video QA, free for the wallet)
 // ---------------------------------------------------------------------------
 
-const ISSUE_CLASSES = ['anatomy', 'faces', 'hands', 'food_logic', 'physics', 'text', 'flicker', 'morphing', 'prompt_miss', 'audio'];
-
-function classifyIssues(qa: Record<string, any>): Record<string, number> {
-  const text = JSON.stringify(qa?.issues ?? qa?.timestamped_issues ?? qa ?? '').toLowerCase();
-  const counts: Record<string, number> = {};
-  const add = (cls: string, ...words: string[]) => { if (words.some((w) => text.includes(w))) counts[cls] = (counts[cls] ?? 0) + 1; };
-  add('hands', 'hand', 'finger');
-  add('faces', 'face', 'mouth', 'teeth', 'eyes');
-  add('anatomy', 'anatomy', 'limb', 'arm', 'leg');
-  add('food_logic', 'food', 'coffee', 'pour', 'croissant', 'drink');
-  add('physics', 'physics', 'float', 'disappear', 'teleport', 'impossible');
-  add('text', 'text', 'letter', 'spelling', 'typo');
-  add('flicker', 'flicker');
-  add('morphing', 'morph', 'warp');
-  add('prompt_miss', 'off-prompt', 'wrong subject', 'not show');
-  add('audio', 'audio', 'sound', 'lip-sync', 'lipsync');
-  return counts;
-}
-
 export async function reviewShot(ctx: ToolContext, a: Args): Promise<ToolResult> {
   const { data: shot } = await ctx.admin.from('campaign_shots').select('*').eq('id', a.shot_id).eq('user_id', ctx.userId).maybeSingle();
   if (!shot) return err('NOT_FOUND', 'Shot not found.');
   if (!shot.current_generation_id) return err('PREREQUISITE', 'This shot has no generation yet.');
 
-  // QA at most once per attempt: claim the shot into qa state atomically.
-  const { data: claimed } = await ctx.admin.from('campaign_shots')
-    .update({ status: 'qa' }).eq('id', shot.id).in('status', ['generating']).select('id');
-  if (!claimed?.length) {
-    return { output: { shot_id: shot.id, status: shot.status, client_ready: shot.client_ready, note: 'QA already done or shot not ready.' } };
+  const out = await runShotQa(ctx.admin, {
+    supabaseUrl: ctx.supabaseUrl, jwt: ctx.userJwt, anonKey: ctx.anonKey, internalAuthUserId: ctx.internalAuthUserId,
+  }, shot.id);
+  if (out.state === 'not_claimed') {
+    return { output: { shot_id: shot.id, status: shot.status, client_ready: shot.client_ready, qa_summary: shot.qa_summary, note: 'QA already done, running, or the video is not finished yet.' } };
   }
-
-  const res = await fetch(`${ctx.supabaseUrl}/functions/v1/agent-video-qa`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${ctx.userJwt}`,
-      apikey: ctx.anonKey,
-      'Content-Type': 'application/json',
-      ...(ctx.internalAuthUserId ? { 'x-agent-user-id': ctx.internalAuthUserId } : {}),
-    },
-    body: JSON.stringify({
-      generation_id: shot.current_generation_id,
-      intent: `Advertising shot for ${shot.english_prompt ?? shot.description}. Purpose: ${shot.purpose}.`,
-    }),
-  });
-  // deno-lint-ignore no-explicit-any
-  let qa: any = {};
-  try { qa = await res.json(); } catch { qa = {}; }
-  if (!res.ok) {
-    await ctx.admin.from('campaign_shots').update({ status: 'generating' }).eq('id', shot.id); // allow one re-review
-    return err(qa.code ?? 'QA_UNAVAILABLE', qa.error ?? `Video QA failed (HTTP ${res.status}).`);
+  if (out.state !== 'final') {
+    return err('QA_UNAVAILABLE', `The video is finished; the review is ${out.state === 'qa_pending' ? 'pending and will be retried automatically' : 'failed after several attempts'}. (${out.error})`);
   }
-
-  const verdict = String(qa.verdict ?? qa.analysis?.verdict ?? 'needs_work');
-  const scores = qa.scores ?? qa.analysis?.scores ?? null;
-  const overall = Number(scores?.overall ?? scores?.prompt_adherence ?? qa.overall_score ?? 0);
-  const issues = classifyIssues(qa);
-  // Hard fail: physically absurd content is never client-ready.
-  const absurd = issues.physics > 0 && /absurd|impossible|onto|nonsensical/i.test(JSON.stringify(qa.issues ?? ''));
-  const clientReady = !absurd && (verdict === 'acceptable' || verdict === 'client_ready' || (overall >= 7 && issues.anatomy + issues.hands + issues.faces === 0));
-
-  await ctx.admin.from('campaign_shot_attempts')
-    .update({ qa_verdict: verdict, qa_scores: scores, qa_issues: issues, client_ready: clientReady, failure_class: clientReady ? null : Object.keys(issues)[0] ?? 'quality' })
-    .eq('shot_id', shot.id).eq('generation_id', shot.current_generation_id);
-  await ctx.admin.from('campaign_shots').update({
-    status: clientReady ? 'client_ready' : 'needs_retry',
-    client_ready: clientReady,
-    qa_summary: { verdict, overall, issues, checked_at: new Date().toISOString() },
-  }).eq('id', shot.id);
-  // Atomic stats increment (no read-modify-write).
-  await ctx.admin.rpc('increment_model_qa_stats', {
-    _model: shot.selected_model, _category: shot.content_category ?? 'product', _mode: shot.generation_mode ?? 't2v',
-    _client_ready: clientReady, _score: overall, _issues: issues,
-  });
-
+  const p = out.parsed;
   return {
     output: {
-      shot_id: shot.id, verdict, client_ready: clientReady, overall_score: overall, issue_classes: issues,
-      qa: { scores, issues: qa.issues ?? qa.timestamped_issues ?? null },
-      next: clientReady ? 'Shot is client-ready.' : 'Call prepare_shot_retry to plan an improved attempt within the approved budget.',
+      shot_id: shot.id, verdict: p.verdict, client_ready: p.clientReady, overall_score: p.overall, issue_classes: p.issues,
+      qa: { scores: p.scores, issues: p.rawIssues },
+      next: p.clientReady ? 'Shot is client-ready.' : 'Call prepare_shot_retry to plan an improved attempt within the approved budget.',
     },
   };
 }

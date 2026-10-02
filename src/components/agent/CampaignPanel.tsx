@@ -129,6 +129,8 @@ export function CampaignPanel({ conversationId, refreshKey }: { conversationId: 
     if (shot.status === "client_ready") return tx({ de: "Kundenfertig", en: "Client ready", es: "Listo para cliente" });
     if (shot.status === "needs_retry") return tx({ de: "Retry nötig", en: "Needs retry", es: "Reintento necesario" });
     if (shot.status === "qa") return tx({ de: "QA läuft", en: "QA running", es: "QA en curso" });
+    if (shot.status === "qa_pending") return tx({ de: "Video fertig · QA wird wiederholt", en: "Video done · QA will retry", es: "Vídeo listo · QA se reintentará" });
+    if (shot.status === "qa_failed") return tx({ de: "Video fertig · QA fehlgeschlagen", en: "Video done · QA failed", es: "Vídeo listo · QA fallido" });
     const generation = generationById.get(shot.current_generation_id);
     if (shot.status === "generating" && generation?.status === "completed") {
       return tx({ de: "QA ausstehend", en: "QA pending", es: "QA pendiente" });
