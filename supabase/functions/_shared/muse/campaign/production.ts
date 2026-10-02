@@ -446,7 +446,8 @@ export async function prepareShotRetry(ctx: ToolContext, a: Args): Promise<ToolR
   if (shot.status !== 'needs_retry') return err('INVALID_STATE', `Shot is ${shot.status}, not needs_retry.`);
   const { data: approval } = await ctx.admin.from('campaign_budget_approvals')
     .select('*').eq('campaign_id', shot.campaign_id).in('status', ['approved', 'started'])
-    .order('created_at', { ascending: false }).limit(1).maybeSingle();
+    .order('created_at', { ascending: false }).limit(20)
+    .then((r: Args) => ({ data: (r.data ?? []).find((ap: Args) => approvedShotIds(ap.scope).has(shot.id)) ?? null }));
   if (!approval) return err('APPROVAL_REQUIRED', 'No active campaign budget approval.');
   if (Number(shot.attempt_count) >= 1 + Number(approval.retry_budget_per_shot)) {
     return err('RETRY_CAP', 'The approved retry allowance for this shot is used up. The user can accept the shot or approve more budget.');
@@ -491,7 +492,8 @@ export async function retryShot(ctx: ToolContext, a: Args, opts: { fromWorker?: 
   if (!shot) return err('NOT_FOUND', 'Shot not found.');
   const { data: approval } = await ctx.admin.from('campaign_budget_approvals')
     .select('*').eq('campaign_id', shot.campaign_id).in('status', ['approved', 'started'])
-    .order('created_at', { ascending: false }).limit(1).maybeSingle();
+    .order('created_at', { ascending: false }).limit(20)
+    .then((r: Args) => ({ data: (r.data ?? []).find((ap: Args) => approvedShotIds(ap.scope).has(shot.id)) ?? null }));
   if (!approval) return err('APPROVAL_REQUIRED', 'No active campaign budget approval.');
   if (opts.fromWorker && approval.retry_mode !== 'auto_retry_within_budget') {
     return err('TOOL_NOT_ALLOWED', 'Automatic retry is not approved for this campaign (manual_retry).');
