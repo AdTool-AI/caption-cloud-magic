@@ -5316,6 +5316,7 @@ export type Database = {
       }
       campaign_shot_attempts: {
         Row: {
+          analysis_copy_url: string | null
           attempt_no: number
           campaign_id: string
           client_ready: boolean | null
@@ -5326,13 +5327,16 @@ export type Database = {
           id: string
           model: string | null
           prompt: string | null
+          qa_analysis_source: string | null
           qa_issues: Json | null
           qa_scores: Json | null
+          qa_superseded: Json
           qa_verdict: string | null
           shot_id: string
           user_id: string
         }
         Insert: {
+          analysis_copy_url?: string | null
           attempt_no: number
           campaign_id: string
           client_ready?: boolean | null
@@ -5343,13 +5347,16 @@ export type Database = {
           id?: string
           model?: string | null
           prompt?: string | null
+          qa_analysis_source?: string | null
           qa_issues?: Json | null
           qa_scores?: Json | null
+          qa_superseded?: Json
           qa_verdict?: string | null
           shot_id: string
           user_id: string
         }
         Update: {
+          analysis_copy_url?: string | null
           attempt_no?: number
           campaign_id?: string
           client_ready?: boolean | null
@@ -5360,8 +5367,10 @@ export type Database = {
           id?: string
           model?: string | null
           prompt?: string | null
+          qa_analysis_source?: string | null
           qa_issues?: Json | null
           qa_scores?: Json | null
+          qa_superseded?: Json
           qa_verdict?: string | null
           shot_id?: string
           user_id?: string
@@ -14660,6 +14669,65 @@ export type Database = {
         }
         Relationships: []
       }
+      qa_stats_contributions: {
+        Row: {
+          analysis_source: string
+          client_ready: boolean
+          content_category: string
+          created_at: string
+          generation_id: string
+          generation_mode: string
+          id: string
+          invalidated_at: string | null
+          invalidated_reason: string | null
+          issues: Json
+          model: string
+          overall: number
+          shot_id: string
+          valid: boolean
+        }
+        Insert: {
+          analysis_source?: string
+          client_ready: boolean
+          content_category: string
+          created_at?: string
+          generation_id: string
+          generation_mode: string
+          id?: string
+          invalidated_at?: string | null
+          invalidated_reason?: string | null
+          issues?: Json
+          model: string
+          overall?: number
+          shot_id: string
+          valid?: boolean
+        }
+        Update: {
+          analysis_source?: string
+          client_ready?: boolean
+          content_category?: string
+          created_at?: string
+          generation_id?: string
+          generation_mode?: string
+          id?: string
+          invalidated_at?: string | null
+          invalidated_reason?: string | null
+          issues?: Json
+          model?: string
+          overall?: number
+          shot_id?: string
+          valid?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "qa_stats_contributions_shot_id_fkey"
+            columns: ["shot_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_shots"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       qa_test_assets: {
         Row: {
           asset_type: string
@@ -22637,6 +22705,17 @@ export type Database = {
         Returns: string
       }
       count_founders_claimed: { Args: never; Returns: number }
+      decrement_model_qa_stats: {
+        Args: {
+          _category: string
+          _client_ready: boolean
+          _issues: Json
+          _mode: string
+          _model: string
+          _score: number
+        }
+        Returns: undefined
+      }
       deduct_ai_video_credits: {
         Args: { p_amount: number; p_generation_id: string; p_user_id: string }
         Returns: number
@@ -22693,6 +22772,7 @@ export type Database = {
       }
       finalize_shot_qa: {
         Args: {
+          _analysis_source?: string
           _claim_id: string
           _client_ready: boolean
           _issues: Json
@@ -22820,6 +22900,10 @@ export type Database = {
       increment_usage: {
         Args: { date_param: string; user_id_param: string }
         Returns: number
+      }
+      invalidate_shot_qa: {
+        Args: { _generation_id: string; _reason: string; _shot_id: string }
+        Returns: boolean
       }
       is_active_founder: { Args: { _user_id: string }; Returns: boolean }
       is_founder_active: { Args: { _user_id: string }; Returns: boolean }
@@ -22977,6 +23061,10 @@ export type Database = {
       seed_ai_superuser_demo_data: {
         Args: { _user_id: string }
         Returns: undefined
+      }
+      set_shot_analysis_copy: {
+        Args: { _copy_url: string; _generation_id: string; _shot_id: string }
+        Returns: boolean
       }
       show_limit: { Args: never; Returns: number }
       show_trgm: { Args: { "": string }; Returns: string[] }
