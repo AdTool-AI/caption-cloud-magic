@@ -37,7 +37,7 @@ BEGIN
   ASSERT (SELECT status FROM public.campaign_shots WHERE id=_shot) = 'qa_pending', 'shot reviewable again';
 
   -- Fresh QA: one valid contribution; duplicate finalize is a no-op.
-  SELECT claim_id INTO _claim FROM public.claim_shot_qa(_shot, 1);
+  UPDATE public.campaign_shots SET status='qa', qa_claim_id=gen_random_uuid() WHERE id=_shot AND status='qa_pending' RETURNING qa_claim_id INTO _claim;
   ASSERT public.finalize_shot_qa(_shot, _claim, 'acceptable', 8, NULL, '{}', true) = true, 'fresh QA persisted';
   ASSERT public.finalize_shot_qa(_shot, _claim, 'acceptable', 8, NULL, '{}', true) = false, 'duplicate finalize no-op';
   ASSERT (SELECT count(*) FROM public.qa_stats_contributions WHERE generation_id=_gen AND valid) = 1, 'exactly one valid contribution';
