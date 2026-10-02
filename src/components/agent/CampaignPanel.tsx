@@ -153,7 +153,9 @@ export function CampaignPanel({ conversationId, refreshKey }: { conversationId: 
           </Badge>
         )}
         <span className="ml-auto text-xs text-muted-foreground">
-          {tx({ de: "Nur Planung — nichts berechnet", en: "Planning only — nothing charged", es: "Solo planificación: sin cargos" })}
+          {snap.budgetApproval?.status === "started"
+            ? tx({ de: "Produktion aktiv", en: "Production active", es: "Producción activa" })
+            : tx({ de: "Nur Planung — nichts berechnet", en: "Planning only — nothing charged", es: "Solo planificación: sin cargos" })}
         </span>
       </div>
       <p className="mt-1 text-sm text-muted-foreground">{c.goal}</p>
@@ -448,7 +450,7 @@ export function CampaignPanel({ conversationId, refreshKey }: { conversationId: 
                   return (
                     <div key={shot.id} className="rounded-md border border-border/60 bg-card/40 p-2 text-xs">
                       <div className="flex items-center justify-between gap-2">
-                        <span className="font-medium text-foreground">V{videoIndex.get(shot.video_id) ?? "?"}/S{Number(shot.shot_index ?? 0) + 1}</span>
+                        <span className="font-medium text-foreground">V{videoIndex.get(shot.video_id) ?? "?"}/S{Number(shot.shot_index ?? 0)}</span>
                         <Badge variant={shot.status === "failed" ? "destructive" : "outline"} className="text-[10px]">
                           {displayStatus(shot)}
                         </Badge>
