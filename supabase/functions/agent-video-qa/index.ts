@@ -147,7 +147,8 @@ Deno.serve(async (req) => {
     .eq('generation_id', gen.id)
     .eq('user_id', auth.user.id)
     .maybeSingle();
-  const copyPrefix = `${supabaseUrl}/storage/v1/object/public/ai-videos/${auth.user.id}/qa-derived/`;
+  // Same public storage origin as the original (SUPABASE_URL may be an internal host at runtime).
+  const copyPrefix = `${new URL(gen.video_url).origin}/storage/v1/object/public/ai-videos/${auth.user.id}/qa-derived/`;
   const copyUrl = typeof att?.analysis_copy_url === 'string' && att.analysis_copy_url.startsWith(copyPrefix) ? att.analysis_copy_url : null;
   const analysisUrl: string = copyUrl ?? gen.video_url;
   const analysisSource = copyUrl ? 'derived_copy' : 'original';
