@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Bot, Loader2, Send, Wrench, AlertTriangle, CheckCircle2, Plus, MessageSquare, Clapperboard } from "lucide-react";
+import { Bot, Loader2, Send, Wrench, AlertTriangle, CheckCircle2, Plus, MessageSquare, Clapperboard, ExternalLink } from "lucide-react";
 import { PageWrapper } from "@/components/layout/PageWrapper";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -293,8 +293,8 @@ export default function AdToolAgent() {
   };
 
   return (
-    <PageWrapper>
-      <div className="mx-auto w-full max-w-7xl px-4 py-6">
+    <PageWrapper className="min-h-0">
+      <div className="mx-auto flex min-h-0 w-full max-w-7xl flex-col px-4 py-6">
         <div className="mb-6 flex items-center gap-3">
           <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/15 text-primary">
             <Bot className="h-5 w-5" />
@@ -311,9 +311,9 @@ export default function AdToolAgent() {
           </div>
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)_340px]">
+        <div className="grid min-h-0 gap-4 lg:h-[calc(100vh-11rem)] lg:grid-cols-[220px_minmax(0,1fr)_300px]">
           {/* Conversation history */}
-          <Card className="flex h-[70vh] flex-col overflow-hidden border-border/60 bg-card/70 backdrop-blur">
+          <Card className="flex h-[52vh] min-h-0 flex-col overflow-hidden border-border/60 bg-card/70 backdrop-blur lg:h-full">
             <div className="border-b border-border/60 p-3">
               <Button size="sm" variant="outline" className="w-full" onClick={() => setConversationId(null)} disabled={busy}>
                 <Plus className="mr-1 h-4 w-4" />
@@ -348,11 +348,12 @@ export default function AdToolAgent() {
           </Card>
 
           {/* Conversation */}
-          <Card className="flex h-[70vh] flex-col overflow-hidden border-border/60 bg-card/70 backdrop-blur">
-            {tasks.length > 0 && (
-              <div className="space-y-2 border-b border-border/60 p-3">
+          <Card className="flex h-[72vh] min-h-0 flex-col overflow-hidden border-border/60 bg-card/70 backdrop-blur lg:h-full">
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4">
+              {tasks.length > 0 && (
+                <div className="mb-4 space-y-2">
                 {tasks.map((t) => (
-                  <div key={t.id} className="flex items-start gap-3 rounded-lg border border-primary/30 bg-primary/5 p-3 text-sm">
+                  <div key={t.id} className="flex items-start gap-3 rounded-md border border-primary/30 bg-primary/5 p-3 text-sm">
                     {t.status === "waiting_for_generation" || t.status === "analyzing" ? (
                       <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-primary" />
                     ) : t.status === "failed" ? (
@@ -387,13 +388,20 @@ export default function AdToolAgent() {
                         </p>
                       )}
                       {t.status === "failed" && t.error && <p className="text-xs text-destructive">{t.error}</p>}
-                      {t.result?.video_url && <video src={t.result.video_url} controls className="mt-2 max-h-64 rounded-md" />}
+                      {t.result?.video_url && (
+                        <div className="mt-2 max-w-md">
+                          <video src={t.result.video_url} controls preload="metadata" className="h-[240px] w-full rounded-md bg-muted object-contain" />
+                          <a href={t.result.video_url} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-xs text-primary hover:underline">
+                            <ExternalLink className="h-3 w-3" />
+                            {tx({ de: "Video öffnen", en: "Open video", es: "Abrir vídeo" })}
+                          </a>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}
-              </div>
-            )}
-            <ScrollArea className="flex-1 p-4">
+                </div>
+              )}
               {loading && messages.length === 0 && (
                 <div className="flex justify-center p-6">
                   <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -512,7 +520,7 @@ export default function AdToolAgent() {
                   </div>
                 )}
               </div>
-            </ScrollArea>
+            </div>
 
             <div className="border-t border-border/60 p-3">
               <div className="flex gap-2">
@@ -541,7 +549,7 @@ export default function AdToolAgent() {
           </Card>
 
           {/* Operation board */}
-          <Card className="flex h-[70vh] flex-col overflow-hidden border-border/60 bg-card/70 backdrop-blur">
+          <Card className="flex h-[52vh] min-h-0 flex-col overflow-hidden border-border/60 bg-card/70 backdrop-blur lg:h-full">
             <div className="flex items-center gap-2 border-b border-border/60 px-4 py-3">
               <Wrench className="h-4 w-4 text-primary" />
               <span className="text-sm font-medium">
@@ -558,7 +566,7 @@ export default function AdToolAgent() {
                   {operations.map((op) => {
                     const result = (op.result ?? {}) as Record<string, unknown>;
                     return (
-                      <div key={op.id} className="rounded-lg border border-border/60 bg-background/40 p-3">
+                      <div key={op.id} className="rounded-md border border-border/60 bg-background/40 p-2.5">
                         <div className="flex items-center justify-between gap-2">
                           <span className="text-sm">{label(op.name)}</span>
                           {op.status === "running" && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
@@ -576,7 +584,7 @@ export default function AdToolAgent() {
                           </Badge>
                         )}
                         {typeof result.video_url === "string" && (
-                          <video src={result.video_url} controls className="mt-2 w-full rounded-md" />
+                          <video src={result.video_url} controls preload="metadata" className="mt-2 h-[220px] w-full rounded-md bg-muted object-contain" />
                         )}
                         {typeof result.error === "string" && (
                           <p className="mt-2 text-xs text-destructive">{result.error}</p>

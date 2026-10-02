@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
-import { Target, ExternalLink, AlertTriangle, Layers } from "lucide-react";
+import { Target, ExternalLink, AlertTriangle, Layers, ChevronDown } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { supabase } from "@/integrations/supabase/client";
 import { tx } from "@/lib/i18nText";
 
@@ -18,6 +20,7 @@ interface Snapshot {
   videos: Row[];
   shots: Row[];
   social: Row[];
+  generations: Row[];
   budgetApproval: Row | null;
 }
 
@@ -44,6 +47,10 @@ async function loadCampaign(conversationId: string): Promise<Snapshot | null> {
     db.from("campaign_social_profiles").select("*").eq("campaign_id", id),
     db.from("campaign_budget_approvals").select("*").eq("campaign_id", id).order("created_at", { ascending: false }).limit(1),
   ]);
+  const generationIds = (shots.data ?? []).map((shot: Row) => shot.current_generation_id).filter(Boolean);
+  const generations = generationIds.length
+    ? await db.from("ai_video_generations").select("id, status, video_url").in("id", generationIds)
+    : { data: [] };
   return {
     campaign,
     sources: sources.data ?? [],
@@ -54,6 +61,7 @@ async function loadCampaign(conversationId: string): Promise<Snapshot | null> {
     videos: videos.data ?? [],
     shots: shots.data ?? [],
     social: social.data ?? [],
+    generations: generations.data ?? [],
     budgetApproval: (budgetApprovals.data ?? [])[0] ?? null,
   };
 }
@@ -93,6 +101,8 @@ const lbl = (m: Record<string, { de: string; en: string; es: string }>, k: strin
 export function CampaignPanel({ conversationId, refreshKey }: { conversationId: string | null; refreshKey: number }) {
   const [snap, setSnap] = useState<Snapshot | null>(null);
   const [openVideo, setOpenVideo] = useState<number | null>(null);
+  const [planningOpen, setPlanningOpen] = useState(false);
+  const [showAllRouted, setShowAllRouted] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -109,6 +119,24 @@ export function CampaignPanel({ conversationId, refreshKey }: { conversationId: 
   if (!snap) return null;
   const { campaign: c } = snap;
   const citedFacts = snap.facts.filter((f) => !f.is_hypothesis).length;
+  const videoIndex = new Map(snap.videos.map((video) => [video.id, video.video_index]));
+  const generationById = new Map(snap.generations.map((generation) => [generation.id, generation]));
+  const approvedShotIdSet = new Set((snap.budgetApproval?.scope ?? []).map((item: Row) => item.shot_id));
+  const routedShots = snap.shots.filter((shot) => shot.selected_model);
+  const scopedShots = approvedShotIdSet.size > 0 ? routedShots.filter((shot) => approvedShotIdSet.has(shot.id)) : routedShots;
+  const visibleProductionShots = showAllRouted ? routedShots : scopedShots;
+  const displayStatus = (shot: Row) => {
+    if (shot.status === "client_ready") return tx({ de: "Kundenfertig", en: "Client ready", es: "Listo para cliente" });
+    if (shot.status === "needs_retry") return tx({ de: "Retry nötig", en: "Needs retry", es: "Reintento necesario" });
+    if (shot.status === "qa") return tx({ de: "QA läuft", en: "QA running", es: "QA en curso" });
+    const generation = generationById.get(shot.current_generation_id);
+    if (shot.status === "generating" && generation?.status === "completed") {
+      return tx({ de: "QA ausstehend", en: "QA pending", es: "QA pendiente" });
+    }
+    if (shot.status === "generating") return tx({ de: "Wird erstellt", en: "Generating", es: "Generando" });
+    if (shot.status === "failed") return tx({ de: "Fehlgeschlagen", en: "Failed", es: "Fallido" });
+    return String(shot.status ?? "—");
+  };
 
   return (
     <Card className="mt-4 border-border/60 bg-card/70 p-4 backdrop-blur">
@@ -125,7 +153,9 @@ export function CampaignPanel({ conversationId, refreshKey }: { conversationId: 
           </Badge>
         )}
         <span className="ml-auto text-xs text-muted-foreground">
-          {tx({ de: "Nur Planung — nichts berechnet", en: "Planning only — nothing charged", es: "Solo planificación: sin cargos" })}
+          {snap.budgetApproval?.status === "started"
+            ? tx({ de: "Produktion aktiv", en: "Production active", es: "Producción activa" })
+            : tx({ de: "Nur Planung — nichts berechnet", en: "Planning only — nothing charged", es: "Solo planificación: sin cargos" })}
         </span>
       </div>
       <p className="mt-1 text-sm text-muted-foreground">{c.goal}</p>
@@ -144,7 +174,15 @@ export function CampaignPanel({ conversationId, refreshKey }: { conversationId: 
         </div>
       )}
 
-      <div className="mt-4 grid gap-4 lg:grid-cols-3">
+      <Collapsible open={planningOpen} onOpenChange={setPlanningOpen} className="mt-4">
+        <CollapsibleTrigger asChild>
+          <Button variant="ghost" size="sm" className="w-full justify-between px-2">
+            {tx({ de: "Planung & Recherche", en: "Planning & research", es: "Planificación e investigación" })}
+            <ChevronDown className={`h-4 w-4 transition-transform ${planningOpen ? "rotate-180" : ""}`} />
+          </Button>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+      <div className="mt-3 grid gap-4 lg:grid-cols-3">
         <div className="space-y-2 text-sm">
           <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
             {tx({ de: "Strategie", en: "Strategy", es: "Estrategia" })}
@@ -371,6 +409,8 @@ export function CampaignPanel({ conversationId, refreshKey }: { conversationId: 
           )}
         </div>
       )}
+        </CollapsibleContent>
+      </Collapsible>
 
       {snap.budgetApproval && (
         <div className="mt-4 rounded-md border border-border/60 bg-background/40 p-3">
@@ -392,41 +432,42 @@ export function CampaignPanel({ conversationId, refreshKey }: { conversationId: 
               </Badge>
             )}
           </div>
-          {snap.shots.some((s) => s.selected_model) && (
-            <div className="mt-3 overflow-x-auto">
-              <table className="w-full min-w-[700px] text-left text-xs">
-                <thead className="text-muted-foreground">
-                  <tr className="border-b border-border/60">
-                    <th className="p-1.5">{tx({ de: "Shot", en: "Shot", es: "Toma" })}</th>
-                    <th className="p-1.5">{tx({ de: "Modell", en: "Model", es: "Modelo" })}</th>
-                    <th className="p-1.5">{tx({ de: "Modus", en: "Mode", es: "Modo" })}</th>
-                    <th className="p-1.5">{tx({ de: "Kosten", en: "Cost", es: "Coste" })}</th>
-                    <th className="p-1.5">QA</th>
-                    <th className="p-1.5">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {snap.shots
-                    .filter((s) => s.selected_model)
-                    .map((s) => (
-                      <tr key={s.id} className="border-b border-border/40 align-top">
-                        <td className="p-1.5">V{s.video_index ?? "?"}/S{(s.shot_index ?? 0) + 1}</td>
-                        <td className="p-1.5 font-medium text-foreground">{s.selected_model}</td>
-                        <td className="p-1.5">{s.generation_mode}</td>
-                        <td className="p-1.5">{s.estimated_cost != null ? `${Number(s.estimated_cost).toFixed(2)} €` : "—"}</td>
-                        <td className="p-1.5">
-                          {s.qa_summary?.overall != null ? `${s.qa_summary.overall}/10` : "—"}
-                          {s.client_ready && <Badge className="ml-1 bg-primary/15 text-primary hover:bg-primary/15">ready</Badge>}
-                        </td>
-                        <td className="p-1.5">
-                          <Badge variant={s.status === "failed" ? "destructive" : "outline"} className="text-[10px]">
-                            {s.status}
-                          </Badge>
-                        </td>
-                      </tr>
-                    ))}
-                </tbody>
-              </table>
+          {routedShots.length > 0 && (
+            <div className="mt-3 space-y-2">
+              <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                <span>{visibleProductionShots.length} {tx({ de: "Shots im Budget", en: "shots in budget", es: "tomas en presupuesto" })}</span>
+                {routedShots.length > scopedShots.length && (
+                  <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => setShowAllRouted((value) => !value)}>
+                    {showAllRouted
+                      ? tx({ de: "Nur Freigabe", en: "Approval only", es: "Solo aprobación" })
+                      : tx({ de: `Alle ${routedShots.length} zeigen`, en: `Show all ${routedShots.length}`, es: `Mostrar las ${routedShots.length}` })}
+                  </Button>
+                )}
+              </div>
+              <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                {visibleProductionShots.map((shot) => {
+                  const generation = generationById.get(shot.current_generation_id);
+                  return (
+                    <div key={shot.id} className="rounded-md border border-border/60 bg-card/40 p-2 text-xs">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-medium text-foreground">V{videoIndex.get(shot.video_id) ?? "?"}/S{Number(shot.shot_index ?? 0)}</span>
+                        <Badge variant={shot.status === "failed" ? "destructive" : "outline"} className="text-[10px]">
+                          {displayStatus(shot)}
+                        </Badge>
+                      </div>
+                      <p className="mt-1 truncate text-muted-foreground">{shot.selected_model} · {shot.generation_mode} · {Number(shot.estimated_cost ?? 0).toFixed(2)} €</p>
+                      <div className="mt-1 flex items-center justify-between">
+                        <span>QA {shot.qa_summary?.overall != null ? `${shot.qa_summary.overall}/10` : "—"}</span>
+                        {generation?.video_url && (
+                          <a href={generation.video_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
+                            <ExternalLink className="h-3 w-3" /> {tx({ de: "Clip", en: "Clip", es: "Clip" })}
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
         </div>
