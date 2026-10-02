@@ -68,7 +68,9 @@ export async function runShotQa(admin: Any, t: QaTransport, shotId: string): Pro
 export async function reviewClaimed(admin: Any, t: QaTransport, claim: { shot_id: string; claim_id: string; generation_id: string }): Promise<ShotQaOutcome> {
   const { data: shot } = await admin.from('campaign_shots').select('english_prompt, description, purpose').eq('id', claim.shot_id).maybeSingle();
   const fail = async (error: string): Promise<ShotQaOutcome> => {
-    const { data: st } = await admin.rpc('fail_shot_qa', { _shot_id: claim.shot_id, _claim_id: claim.claim_id, _error: error });
+    // A file above the analyzer's size limits will never pass: stop retrying at once.
+    const permanent = /input_too_large/.test(error);
+    const { data: st } = await admin.rpc('fail_shot_qa', { _shot_id: claim.shot_id, _claim_id: claim.claim_id, _error: error, ...(permanent ? { _max_attempts: 1 } : {}) });
     console.warn('[shot-qa] retryable failure', JSON.stringify({ shot_id: claim.shot_id, error, state: st }));
     return { state: st === 'qa_failed' ? 'qa_failed' : 'qa_pending', error };
   };

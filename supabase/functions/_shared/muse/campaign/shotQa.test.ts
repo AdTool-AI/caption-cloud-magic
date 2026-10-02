@@ -18,7 +18,7 @@ function fakeDb(shot: Record<string, unknown>, genCompleted = true) {
       }
       if (name === 'fail_shot_qa') {
         if (s.status !== 'qa' || s.qa_claim_id !== a._claim_id) return { data: null };
-        s.status = s.qa_attempts >= 5 ? 'qa_failed' : 'qa_pending'; s.qa_claim_id = null;
+        s.status = s.qa_attempts >= (a._max_attempts ?? 5) ? 'qa_failed' : 'qa_pending'; s.qa_claim_id = null;
         return { data: s.status };
       }
       if (name === 'finalize_shot_qa') {
@@ -92,4 +92,12 @@ Deno.test('repair flow never calls a paid generation tool', async () => {
   assert(db.calls.every((c) => ['claim_shot_qa', 'fail_shot_qa', 'finalize_shot_qa'].includes(c)));
   const src = await Deno.readTextFile(new URL('./shotQa.ts', import.meta.url));
   assert(!/generate-|retry_shot|reserve_campaign_spend|campaign_ledger_entry|deduct/.test(src.replace(/\/\*\*[\s\S]*?\*\//g, '')));
+});
+
+Deno.test('file above analyzer limits -> qa_failed at once (no retry loop)', async () => {
+  const big = (async () => new Response(JSON.stringify({ code: 'QA_UNAVAILABLE', reason: 'gateway_rejected_content+fallback_skipped_input_too_large_or_unreachable' }), { status: 502 })) as typeof fetch;
+  const db = fakeDb({ id: 's6', status: 'generating', current_generation_id: 'g6' });
+  const out = await runShotQa(db.admin, t(big), 's6');
+  assertEquals(out.state, 'qa_failed');
+  assertEquals(db.stats.length, 0);
 });
