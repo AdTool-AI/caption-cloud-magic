@@ -139,6 +139,19 @@ Deno.serve(async (req) => {
   }
   const duration = Number(gen.duration_seconds ?? 5);
 
+  // Review-only derived copy (server-owned, same owner's qa-derived/ folder).
+  // The customer's original video_url is never replaced or modified.
+  const { data: att } = await admin
+    .from('campaign_shot_attempts')
+    .select('analysis_copy_url')
+    .eq('generation_id', gen.id)
+    .eq('user_id', auth.user.id)
+    .maybeSingle();
+  const copyPrefix = `${supabaseUrl}/storage/v1/object/public/ai-videos/${auth.user.id}/qa-derived/`;
+  const copyUrl = typeof att?.analysis_copy_url === 'string' && att.analysis_copy_url.startsWith(copyPrefix) ? att.analysis_copy_url : null;
+  const analysisUrl: string = copyUrl ?? gen.video_url;
+  const analysisSource = copyUrl ? 'derived_copy' : 'original';
+
   // 1) Scene segmentation through the existing analyzer (best effort).
   // deno-lint-ignore no-explicit-any
   let scenes: any[] = [];
