@@ -5408,6 +5408,11 @@ export type Database = {
           on_screen_text: string | null
           physics_risk: number | null
           purpose: string
+          qa_attempts: number
+          qa_claim_id: string | null
+          qa_claimed_at: string | null
+          qa_error: string | null
+          qa_stats_generation_id: string | null
           qa_summary: Json | null
           reference_strength: number | null
           resolution: string | null
@@ -5452,6 +5457,11 @@ export type Database = {
           on_screen_text?: string | null
           physics_risk?: number | null
           purpose: string
+          qa_attempts?: number
+          qa_claim_id?: string | null
+          qa_claimed_at?: string | null
+          qa_error?: string | null
+          qa_stats_generation_id?: string | null
           qa_summary?: Json | null
           reference_strength?: number | null
           resolution?: string | null
@@ -5496,6 +5506,11 @@ export type Database = {
           on_screen_text?: string | null
           physics_risk?: number | null
           purpose?: string
+          qa_attempts?: number
+          qa_claim_id?: string | null
+          qa_claimed_at?: string | null
+          qa_error?: string | null
+          qa_stats_generation_id?: string | null
           qa_summary?: Json | null
           reference_strength?: number | null
           resolution?: string | null
@@ -22054,6 +22069,20 @@ export type Database = {
         }
         Returns: Json
       }
+      claim_shot_qa: {
+        Args: {
+          _lease_minutes?: number
+          _limit?: number
+          _max_attempts?: number
+          _shot_id?: string
+        }
+        Returns: {
+          claim_id: string
+          generation_id: string
+          shot_id: string
+          user_id: string
+        }[]
+      }
       cleanup_expired_ai_cache: { Args: never; Returns: number }
       cleanup_expired_oauth_states: { Args: never; Returns: undefined }
       cleanup_expired_verification_tokens: { Args: never; Returns: undefined }
@@ -22652,6 +22681,27 @@ export type Database = {
       enqueue_email: {
         Args: { payload: Json; queue_name: string }
         Returns: number
+      }
+      fail_shot_qa: {
+        Args: {
+          _claim_id: string
+          _error: string
+          _max_attempts?: number
+          _shot_id: string
+        }
+        Returns: string
+      }
+      finalize_shot_qa: {
+        Args: {
+          _claim_id: string
+          _client_ready: boolean
+          _issues: Json
+          _overall: number
+          _scores: Json
+          _shot_id: string
+          _verdict: string
+        }
+        Returns: boolean
       }
       founder_status_details: {
         Args: { _user_id: string }
