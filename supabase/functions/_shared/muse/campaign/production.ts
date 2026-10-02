@@ -21,6 +21,7 @@ import {
   type ModelQaStatsRow, type RouteCandidate, type ShotInput,
 } from './routing.ts';
 import { approvedShotIds, budgetTotals, buildScope, filterDispatchable, scopeShotsToVideos } from './scope.ts';
+import { runShotQa } from './shotQa.ts';
 
 // deno-lint-ignore no-explicit-any
 type Args = any;

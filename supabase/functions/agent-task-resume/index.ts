@@ -156,7 +156,9 @@ Deno.serve(async (req) => {
   summary.stale_analyzing = stale?.length ?? 0;
 
   // Completed generations: atomic claim (waiting → analyzing, SKIP LOCKED).
-  const { data: claimedTasks, error: claimErr } = await admin.rpc('claim_agent_tasks', { _limit: 3 });
+  // One Muse turn per run: three sequential QA turns exceeded the worker wall clock
+  // and left shots stuck mid-QA. Unreviewed shots are picked up by the QA pass below.
+  const { data: claimedTasks, error: claimErr } = await admin.rpc('claim_agent_tasks', { _limit: 1 });
   if (claimErr) console.error('[agent-task-resume] claim failed', claimErr.message);
 
   let config;
@@ -173,6 +175,19 @@ Deno.serve(async (req) => {
     if (n > 0) console.log('[agent-task-resume] auto retries dispatched', n);
   } catch (err) {
     console.error('[agent-task-resume] auto retry pass failed', err);
+  }
+
+  // Shot QA reconciliation (QA only, no Muse turn, no generation): finished
+  // shots stuck in generating / qa_pending / an expired qa lease get reviewed.
+  // Skipped when this run already resumes tasks, to stay inside the wall clock.
+  if (!(claimedTasks?.length)) {
+    try {
+      const { reconcilePendingShotQa } = await import('../_shared/muse/campaign/shotQa.ts');
+      const n = await reconcilePendingShotQa(admin, { supabaseUrl, jwt: serviceKey, anonKey }, 1);
+      if (n > 0) console.log('[agent-task-resume] shot QA reconciled', n);
+    } catch (err) {
+      console.error('[agent-task-resume] shot QA pass failed', err);
+    }
   }
 
   for (const t of claimedTasks ?? []) {
