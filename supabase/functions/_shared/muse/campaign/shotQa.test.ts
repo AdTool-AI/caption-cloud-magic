@@ -101,3 +101,18 @@ Deno.test('file above analyzer limits -> qa_failed at once (no retry loop)', asy
   assertEquals(out.state, 'qa_failed');
   assertEquals(db.stats.length, 0);
 });
+
+Deno.test('derived-copy QA records analysis source and never calls a paid tool', async () => {
+  const db = fakeDb({ id: 's2', status: 'qa_pending', current_generation_id: 'g2' });
+  const urls: string[] = [];
+  const f = (async (u: string) => { urls.push(String(u)); return new Response(JSON.stringify({ ...okBody, analysis_source: 'derived_copy' }), { status: 200 }); }) as typeof fetch;
+  const r = await runShotQa(db.admin, t(f), 's2');
+  assertEquals(r.state, 'final');
+  assertEquals(db.stats.length, 1);
+  assertEquals((db.stats[0] as Record<string, unknown>)._analysis_source, 'derived_copy');
+  assert(urls.every((u) => u.endsWith('/agent-video-qa')), 'only the free QA function is called');
+  assert(!db.calls.some((c) => /generate|retry|reserve|charge/.test(c)), 'no paid rpc');
+  const again = await runShotQa(db.admin, t(f), 's2');
+  assertEquals(again.state, 'not_claimed');
+  assertEquals(db.stats.length, 1);
+});
