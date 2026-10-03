@@ -8,6 +8,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { loadMuseConfig } from '../_shared/muse/config.ts';
 import { runAgentTurn, type AgentEvent } from '../_shared/muse/agentLoop.ts';
+import { prepareShotRetry } from '../_shared/muse/campaign/production.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -60,6 +61,24 @@ Deno.serve(async (req) => {
   // ---- Campaign budget approval action (Phase B) --------------------------
   // deno-lint-ignore no-explicit-any
   const action = (body as any).action;
+
+  // ---- Prepare retry plans (free; never dispatches or charges) -----------
+  if (action === 'prepare-shot-retries') {
+    // deno-lint-ignore no-explicit-any
+    const ids = Array.isArray((body as any).shotIds) ? (body as any).shotIds.map(String).filter((s: string) => /^[0-9a-f-]{36}$/i.test(s)).slice(0, 10) : [];
+    if (!ids.length) {
+      return new Response(JSON.stringify({ error: 'shotIds required' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+    const adminClient = createClient(supabaseUrl, serviceKey);
+    const ctx = {
+      userId: authData.user.id, conversationId: '', admin: adminClient, userJwt: jwt, supabaseUrl, anonKey,
+      museConfig: { apiKey: '', baseUrl: '', model: '', maxToolIterations: 0, maxRegenerations: 0, maxTurnSpend: 0 },
+      regenerationsUsed: 0, maxRegenerations: 0, maxTurnSpend: 0, spentThisTurn: 0,
+    };
+    const plans = [];
+    for (const id of ids) plans.push((await prepareShotRetry(ctx, { shot_id: id })).output);
+    return new Response(JSON.stringify({ plans }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+  }
   if (action === 'approve-campaign-budget' || action === 'reject-campaign-budget') {
     // deno-lint-ignore no-explicit-any
     const approvalId = String((body as any).approvalId ?? '');

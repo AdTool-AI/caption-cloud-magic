@@ -126,7 +126,8 @@ export function CampaignPanel({ conversationId, refreshKey }: { conversationId: 
   const scopedShots = approvedShotIdSet.size > 0 ? routedShots.filter((shot) => approvedShotIdSet.has(shot.id)) : routedShots;
   const visibleProductionShots = showAllRouted ? routedShots : scopedShots;
   const displayStatus = (shot: Row) => {
-    if (shot.status === "client_ready") return tx({ de: "Kundenfertig", en: "Client ready", es: "Listo para cliente" });
+    if (shot.status === "client_ready") return tx({ de: "Bild fertig", en: "Visual ready", es: "Visual listo" });
+    if (shot.status === "needs_retry" && shot.retry_plan) return tx({ de: "Retry geplant", en: "Retry planned", es: "Reintento planificado" });
     if (shot.status === "needs_retry") return tx({ de: "Retry nötig", en: "Needs retry", es: "Reintento necesario" });
     if (shot.status === "qa") return tx({ de: "QA läuft", en: "QA running", es: "QA en curso" });
     if (shot.status === "qa_pending") return tx({ de: "Video fertig · QA wird wiederholt", en: "Video done · QA will retry", es: "Vídeo listo · QA se reintentará" });
@@ -466,6 +467,12 @@ export function CampaignPanel({ conversationId, refreshKey }: { conversationId: 
                           </a>
                         )}
                       </div>
+                      {shot.retry_plan?.proposed && (
+                        <p className="mt-1 truncate text-muted-foreground" title={shot.retry_plan.revised_prompt}>
+                          {tx({ de: "Retry", en: "Retry", es: "Reintento" })}: {shot.retry_plan.proposed.model} · {Number(shot.retry_plan.cost?.retry_cost ?? 0).toFixed(2)}
+                          {shot.retry_plan.cost?.requires_new_approval ? ` · ${tx({ de: "neue Freigabe nötig", en: "needs new approval", es: "requiere nueva aprobación" })}` : ""}
+                        </p>
+                      )}
                     </div>
                   );
                 })}

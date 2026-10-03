@@ -22,6 +22,8 @@ import {
 } from './routing.ts';
 import { approvedShotIds, budgetTotals, buildScope, filterDispatchable, scopeShotsToVideos } from './scope.ts';
 import { runShotQa } from './shotQa.ts';
+import { budgetFit, materialChanges, planRetry, predictImprovement } from './retryPlan.ts';
+import { buildPostProduction } from './postProduction.ts';
 
 // deno-lint-ignore no-explicit-any
 type Args = any;
@@ -391,36 +393,114 @@ export async function prepareShotRetry(ctx: ToolContext, a: Args): Promise<ToolR
     .order('created_at', { ascending: false }).limit(20)
     .then((r: Args) => ({ data: (r.data ?? []).find((ap: Args) => approvedShotIds(ap.scope).has(shot.id)) ?? null }));
   if (!approval) return err('APPROVAL_REQUIRED', 'No active campaign budget approval.');
-  if (Number(shot.attempt_count) >= 1 + Number(approval.retry_budget_per_shot)) {
-    return err('RETRY_CAP', 'The approved retry allowance for this shot is used up. The user can accept the shot or approve more budget.');
-  }
 
-  // Next-ranked model from the stored routing candidates, else same model with a revised prompt.
-  const candidates = (shot.routing_rationale?.candidates ?? []) as RouteCandidate[];
-  const currentIdx = candidates.findIndex((c) => c.model === shot.selected_model);
-  const next = candidates[currentIdx + 1] ?? null;
-  const retryModel = next && next.quality_tier >= (candidates[currentIdx]?.quality_tier ?? 1) ? next.model : shot.selected_model;
-  const issues = Object.keys(shot.qa_summary?.issues ?? {});
-  const retryPrompt = [
-    shot.english_prompt,
-    issues.length ? `Avoid: ${issues.join(', ')} artifacts.` : '',
-    'Keep the subject stable and physically plausible throughout.',
-  ].filter(Boolean).join(' ');
+  const [{ data: campaign }, { data: video }, { data: siblings }, { data: ledger }] = await Promise.all([
+    ctx.admin.from('agent_campaigns').select('company_name').eq('id', shot.campaign_id).maybeSingle(),
+    ctx.admin.from('campaign_videos').select('id, script, cta, visual_style').eq('id', shot.video_id).maybeSingle(),
+    ctx.admin.from('campaign_shots').select('id, selected_model').eq('video_id', shot.video_id),
+    ctx.admin.from('campaign_spend_ledger').select('entry_type, amount').eq('approval_id', approval.id),
+  ]);
+  const linkedAssetId = shot.input_asset_id ?? shot.asset_id ?? null;
+  const { data: linkedAsset } = linkedAssetId
+    ? await ctx.admin.from('campaign_assets').select('id, reuse_status').eq('id', linkedAssetId).maybeSingle()
+    : { data: null };
+  const currency = (await resolveWalletCurrency(ctx.admin, ctx.userId)) ?? 'EUR';
+  const discount = await resolveAccountDiscountFactor(ctx.admin, ctx.userId);
+  const stats = await loadStats(ctx);
+
+  const plan = planRetry({
+    shot: {
+      ...shot,
+      risk: {
+        motion_complexity: Number(shot.motion_complexity ?? 0), human_anatomy_risk: Number(shot.human_anatomy_risk ?? 0),
+        physics_risk: Number(shot.physics_risk ?? 0), identity_consistency_requirement: Number(shot.identity_consistency_requirement ?? 0),
+        text_requirement: Number(shot.text_requirement ?? 0), reference_strength: Number(shot.reference_strength ?? 1),
+      },
+      category: shot.content_category ?? categorizeShot(shot),
+      visual_style: video?.visual_style ?? null,
+    },
+    linkedAsset: linkedAsset ?? null,
+    stats,
+    pricePerSecond: (pid) => {
+      const list = resolveCostPerSecond(pid, currency);
+      return list == null ? null : Math.round(list * 100) / 100;
+    },
+    neighborModels: [],
+  });
+  if (!plan.best) return err('NO_MODEL', 'No certified model supports this shot at the required quality tier.');
+  const best = plan.best;
+  const retryCost = best.estimated_cost == null ? null : Math.round(best.estimated_cost * discount * 100) / 100;
+  if (retryCost == null || retryCost <= 0) return err('PRICING_UNAVAILABLE', `No canonical price for ${best.model} ${best.resolution}.`);
+
+  const change = materialChanges(
+    { model: shot.selected_model, mode: shot.generation_mode, asset: shot.input_asset_id ?? null, duration: Number(shot.duration_s), motion_plan: plan.rewrite.previous_motion_plan },
+    { model: best.model, mode: plan.mode, asset: plan.mode === 'i2v' ? plan.asset?.id ?? shot.input_asset_id ?? null : null, duration: best.duration,
+      motion_plan: plan.rewrite.motion_plan, subject_reduced: plan.rewrite.subject_reduced, structural_rules: plan.rewrite.structural_rules },
+  );
+  if (!change.material) return err('TRIVIAL_RETRY', 'The proposed retry only rewords the prompt; nothing material changes. Nothing was stored.');
+
+  const sum = (t: string) => (ledger ?? []).filter((l: Args) => l.entry_type === t).reduce((x: number, l: Args) => x + Number(l.amount), 0);
+  const spent = sum('charge') - sum('refund');
+  const outstanding = Math.max(0, sum('reserve') - sum('charge') - sum('release'));
+  const scopeEntry = (approval.scope as Args[]).find((x) => x.shot_id === shot.id) ?? null;
+  const fit = budgetFit({
+    originalCost: Number(scopeEntry?.price ?? shot.estimated_cost ?? 0), retryCost,
+    maxTotal: Number(approval.max_total), spent, outstanding,
+    attempts: Number(shot.attempt_count), retryBudgetPerShot: Number(approval.retry_budget_per_shot),
+    scope: scopeEntry, proposed: { model: best.model, duration: best.duration, resolution: best.resolution },
+  });
+  const improvement = predictImprovement({
+    classes: plan.classes, rewrite: plan.rewrite, changed: change.changed,
+    oldModel: shot.selected_model, newModel: best.model, category: shot.content_category ?? 'product', mode: plan.mode, stats,
+  });
+  const post = buildPostProduction({
+    script: video?.script ?? null, ctaFallback: video?.cta ?? null, company: campaign?.company_name ?? '',
+    shot, shotCount: (siblings ?? []).length || 1, model: best.model, textFailure: !!plan.classes.text_branding,
+  });
+
+  const retryPlan = {
+    version: 1,
+    prepared_at: new Date().toISOString(),
+    original: { model: shot.selected_model, mode: shot.generation_mode, duration_s: Number(shot.duration_s), resolution: shot.resolution, prompt: shot.english_prompt, negative: shot.negative_constraints, qa_overall: shot.qa_summary?.overall ?? null },
+    failure_classes: plan.classes,
+    raised_risk: plan.risk,
+    proposed: { model: best.model, model_name: best.displayName, mode: plan.mode, duration_s: best.duration, resolution: best.resolution, input_asset_id: plan.mode === 'i2v' ? plan.asset?.id ?? shot.input_asset_id ?? null : null, mode_note: plan.modeNote },
+    model_changed: best.model !== shot.selected_model,
+    ranking: plan.ranked.slice(0, 4).map((c) => ({ model: c.model, total: c.scores.total, quality: c.scores.quality, confidence: c.confidence, cost: c.estimated_cost })),
+    revised_prompt: plan.rewrite.prompt,
+    negative_constraints: plan.rewrite.negative,
+    motion_plan: { before: plan.rewrite.previous_motion_plan, after: plan.rewrite.motion_plan },
+    material_changes: change.changed,
+    cost: { ...fit, currency, pricing_version: CATALOG_VERSION },
+    predicted_improvement: improvement,
+    post_production: post,
+  };
 
   await ctx.admin.from('campaign_shots').update({
-    retry_prompt: retryPrompt, retry_model: retryModel,
-    retry_reason: `QA verdict ${shot.qa_summary?.verdict ?? 'needs_work'}: ${issues.join(', ') || 'quality'}`,
-    retry_prepared_at: new Date().toISOString(),
+    retry_prompt: plan.rewrite.prompt, retry_model: best.model,
+    retry_reason: `QA ${shot.qa_summary?.overall ?? '?'}/10 — ${Object.keys(plan.classes).join(', ')}; changes: ${change.changed.join(', ')}`,
+    retry_prepared_at: retryPlan.prepared_at,
+    retry_plan: retryPlan,
+    post_production: post,
   }).eq('id', shot.id);
+  // Video-level requirements: written once, never overwritten by later retries.
+  await ctx.admin.from('campaign_videos').update({
+    post_production: {
+      voiceover_required: post.voiceover_required, voiceover_language: post.voiceover_language, voiceover_script: post.voiceover_script,
+      voiceover_source: post.voiceover_source, music_direction: post.music_direction, cta_text: video?.script?.cta ?? video?.cta ?? null,
+      brand_name_overlay: campaign?.company_name ?? null, overlay_text: video?.script?.on_screen_text ?? [], subtitles_required: post.subtitles_required,
+    },
+  }).eq('id', shot.video_id).is('post_production', null);
 
   return {
     output: {
-      shot_id: shot.id, retry_prepared: true, retry_model: retryModel, model_changed: retryModel !== shot.selected_model,
-      retry_prompt: retryPrompt, reason: issues,
+      shot_id: shot.id, retry_prepared: true, ...retryPlan,
       retry_mode: approval.retry_mode,
-      note: approval.retry_mode === 'auto_retry_within_budget'
-        ? 'The production worker will execute this retry automatically within the approved budget.'
-        : 'Ask the user to confirm, then call retry_shot in the foreground.',
+      note: fit.requires_new_approval
+        ? `Prepared only. ${fit.note} Nothing was started or charged.`
+        : approval.retry_mode === 'auto_retry_within_budget'
+          ? 'The production worker will execute this retry automatically within the approved budget.'
+          : 'Ask the user to confirm, then call retry_shot in the foreground.',
     },
   };
 }
@@ -449,7 +529,7 @@ export async function retryShot(ctx: ToolContext, a: Args, opts: { fromWorker?: 
   if (!check.ok) return check.result;
 
   const attemptNo = Number(shot.attempt_count) + 1;
-  const patched = { ...shot, selected_model: shot.retry_model };
+  const patched = { ...shot, selected_model: shot.retry_model, negative_constraints: shot.retry_plan?.negative_constraints ?? shot.negative_constraints };
   const r = await dispatchShot(ctx, approval, patched, attemptNo, { prompt: shot.retry_prompt, model: shot.retry_model, internalUserId: opts.fromWorker ? ctx.userId : undefined });
   if (!r.output?.error) {
     await ctx.admin.from('campaign_shots').update({ selected_model: shot.retry_model, english_prompt: shot.retry_prompt }).eq('id', shot.id);
