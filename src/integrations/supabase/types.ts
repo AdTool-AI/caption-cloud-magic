@@ -5416,6 +5416,7 @@ export type Database = {
           negative_constraints: string | null
           on_screen_text: string | null
           physics_risk: number | null
+          post_production: Json | null
           purpose: string
           qa_attempts: number
           qa_claim_id: string | null
@@ -5426,6 +5427,7 @@ export type Database = {
           reference_strength: number | null
           resolution: string | null
           retry_model: string | null
+          retry_plan: Json | null
           retry_prepared_at: string | null
           retry_prompt: string | null
           retry_reason: string | null
@@ -5440,6 +5442,7 @@ export type Database = {
           updated_at: string
           user_id: string
           video_id: string
+          visual_client_ready: boolean | null
           voiceover: string | null
         }
         Insert: {
@@ -5465,6 +5468,7 @@ export type Database = {
           negative_constraints?: string | null
           on_screen_text?: string | null
           physics_risk?: number | null
+          post_production?: Json | null
           purpose: string
           qa_attempts?: number
           qa_claim_id?: string | null
@@ -5475,6 +5479,7 @@ export type Database = {
           reference_strength?: number | null
           resolution?: string | null
           retry_model?: string | null
+          retry_plan?: Json | null
           retry_prepared_at?: string | null
           retry_prompt?: string | null
           retry_reason?: string | null
@@ -5489,6 +5494,7 @@ export type Database = {
           updated_at?: string
           user_id: string
           video_id: string
+          visual_client_ready?: boolean | null
           voiceover?: string | null
         }
         Update: {
@@ -5514,6 +5520,7 @@ export type Database = {
           negative_constraints?: string | null
           on_screen_text?: string | null
           physics_risk?: number | null
+          post_production?: Json | null
           purpose?: string
           qa_attempts?: number
           qa_claim_id?: string | null
@@ -5524,6 +5531,7 @@ export type Database = {
           reference_strength?: number | null
           resolution?: string | null
           retry_model?: string | null
+          retry_plan?: Json | null
           retry_prepared_at?: string | null
           retry_prompt?: string | null
           retry_reason?: string | null
@@ -5538,6 +5546,7 @@ export type Database = {
           updated_at?: string
           user_id?: string
           video_id?: string
+          visual_client_ready?: boolean | null
           voiceover?: string | null
         }
         Relationships: [
@@ -5792,6 +5801,7 @@ export type Database = {
           created_at: string
           cta: string
           emotional_angle: string
+          final_client_ready: boolean
           funnel_stage: string
           hero_subject: string
           hook_text: string
@@ -5799,6 +5809,7 @@ export type Database = {
           id: string
           main_message: string
           pillar: string
+          post_production: Json | null
           primary_goal: string
           rationale: string
           script: Json | null
@@ -5819,6 +5830,7 @@ export type Database = {
           created_at?: string
           cta: string
           emotional_angle: string
+          final_client_ready?: boolean
           funnel_stage: string
           hero_subject: string
           hook_text: string
@@ -5826,6 +5838,7 @@ export type Database = {
           id?: string
           main_message: string
           pillar: string
+          post_production?: Json | null
           primary_goal: string
           rationale: string
           script?: Json | null
@@ -5846,6 +5859,7 @@ export type Database = {
           created_at?: string
           cta?: string
           emotional_angle?: string
+          final_client_ready?: boolean
           funnel_stage?: string
           hero_subject?: string
           hook_text?: string
@@ -5853,6 +5867,7 @@ export type Database = {
           id?: string
           main_message?: string
           pillar?: string
+          post_production?: Json | null
           primary_goal?: string
           rationale?: string
           script?: Json | null
