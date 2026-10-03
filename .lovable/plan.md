@@ -34,7 +34,11 @@ Today `prepare_shot_retry` only appends "Avoid: <issues>" to the old prompt and 
 ## Final planner rules
 11. **Mode switch** — re-ranking can change both the model and the generation mode. A failed text-to-video shot can switch to image-to-video or reference mode when the campaign has a `reuse_ok` asset and that clearly lowers identity, anatomy or consistency risk. `reference_only` assets are never used as a frame.
 12. **No trivial retries** — a prepared retry must clearly change at least one of: model, generation mode, prompt structure, motion plan, subject complexity, reference asset or duration. A change to the wording alone is rejected with `TRIVIAL_RETRY` and nothing is stored.
-13. **Predicted improvement** — every proposal returns `predicted_improvement`: for each QA risk (anatomy, physics, food logic, text, morphing, flicker, identity), the expected direction of change and the concrete reason (for example "hands out of frame → anatomy risk ↓").
+13. **Predicted improvement** — every proposal returns `predicted_improvement`: for each QA risk (anatomy, physics, food logic, text, morphing, flicker, identity, product consistency), the expected direction of change and the concrete reason (for example "hands out of frame → anatomy risk ↓"), why the proposed model suits those risks, and a confidence level (low/medium/high) based on the sample size and scores in `model_qa_stats`.
+14. **Cost breakdown** — priced from the canonical catalog by model, duration, resolution and generation mode. Returns the original attempt cost, the retry cost, the campaign budget still approved (max_total − net spend − outstanding reservations), and whether the retry fits the existing retry allowance.
+
+## Report format
+One table for all five shots: Shot, original model, QA score, failure classes, proposed model, proposed generation mode, revised prompt, negative constraints, retry cost, text/branding deferred to composition, voiceover/audio requirements, predicted improvement. Then stop: no generation, no charge, no Phase C.
 
 ## Then (no spend)
 Deploy only the changed functions, run `prepare_shot_retry` for S1–S5, and verify wallet €92.32, generation count 501, ledger 10 rows, no retries started. Phase C is not started.
