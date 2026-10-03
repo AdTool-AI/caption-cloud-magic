@@ -29,6 +29,7 @@ Today `prepare_shot_retry` only appends "Avoid: <issues>" to the old prompt and 
    - `composite_text_later`, `overlay_text`, `cta_text`, `brand_name_overlay`, `subtitles_required`
    Filled from the existing German scripts and content matrix of the campaign. Kling audio support is not treated as suitable by default; German speech is marked `deferred_tts_phase_c` unless verified for the chosen model.
 9. **Text/branding** — on text QA failures the retry prompt carries no text, logos or signs; the exact wording (e.g. "Café Buur", "Brunch in Köln", "Jetzt Tisch reservieren") is stored for Director's Cut / Remotion overlays. Retry prompts always ask for the shot silent or with ambience only, per the audio decision.
+10. **Visual-only fallback** — if native audio is unsuitable, the shot is kept visual-only and voice, music and SFX move to Phase C. Every prepared retry both stores and returns all of the fields above, plus `visual_client_ready`.
 
 ## Then (no spend)
 Deploy only the changed functions, run `prepare_shot_retry` for S1–S5, and verify wallet €92.32, generation count 501, ledger 10 rows, no retries started. Phase C is not started.
