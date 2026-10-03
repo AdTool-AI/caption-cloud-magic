@@ -529,7 +529,7 @@ export async function retryShot(ctx: ToolContext, a: Args, opts: { fromWorker?: 
   if (!check.ok) return check.result;
 
   const attemptNo = Number(shot.attempt_count) + 1;
-  const patched = { ...shot, selected_model: shot.retry_model };
+  const patched = { ...shot, selected_model: shot.retry_model, negative_constraints: shot.retry_plan?.negative_constraints ?? shot.negative_constraints };
   const r = await dispatchShot(ctx, approval, patched, attemptNo, { prompt: shot.retry_prompt, model: shot.retry_model, internalUserId: opts.fromWorker ? ctx.userId : undefined });
   if (!r.output?.error) {
     await ctx.admin.from('campaign_shots').update({ selected_model: shot.retry_model, english_prompt: shot.retry_prompt }).eq('id', shot.id);
