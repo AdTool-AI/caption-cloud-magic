@@ -31,6 +31,11 @@ Today `prepare_shot_retry` only appends "Avoid: <issues>" to the old prompt and 
 9. **Text/branding** — on text QA failures the retry prompt carries no text, logos or signs; the exact wording (e.g. "Café Buur", "Brunch in Köln", "Jetzt Tisch reservieren") is stored for Director's Cut / Remotion overlays. Retry prompts always ask for the shot silent or with ambience only, per the audio decision.
 10. **Visual-only fallback** — if native audio is unsuitable, the shot is kept visual-only and voice, music and SFX move to Phase C. Every prepared retry both stores and returns all of the fields above, plus `visual_client_ready`.
 
+## Final planner rules
+11. **Mode switch** — re-ranking can change both the model and the generation mode. A failed text-to-video shot can switch to image-to-video or reference mode when the campaign has a `reuse_ok` asset and that clearly lowers identity, anatomy or consistency risk. `reference_only` assets are never used as a frame.
+12. **No trivial retries** — a prepared retry must clearly change at least one of: model, generation mode, prompt structure, motion plan, subject complexity, reference asset or duration. A change to the wording alone is rejected with `TRIVIAL_RETRY` and nothing is stored.
+13. **Predicted improvement** — every proposal returns `predicted_improvement`: for each QA risk (anatomy, physics, food logic, text, morphing, flicker, identity), the expected direction of change and the concrete reason (for example "hands out of frame → anatomy risk ↓").
+
 ## Then (no spend)
 Deploy only the changed functions, run `prepare_shot_retry` for S1–S5, and verify wallet €92.32, generation count 501, ledger 10 rows, no retries started. Phase C is not started.
 
