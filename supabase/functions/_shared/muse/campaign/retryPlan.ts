@@ -85,7 +85,7 @@ function foodActionConstraints(description: string): string[] {
   const out: string[] = [];
   if (/egg/.test(d)) out.push('Exactly one egg: the shell opens once, the yolk drops intact into the sauce and stays where it lands; the shell leaves the frame and never reappears.');
   if (/herb|sprinkl/.test(d)) out.push('Herbs fall straight down under gravity and settle on the surface; they never float upward or vanish.');
-  if (/sizzl|pan|sausage|sucuk/.test(d)) out.push('The same number of sausage slices throughout, each keeps its shape; oil bubbles only around the slices; steam rises upward and thins out.');
+  if (/sizzl|sausage|sucuk/.test(d)) out.push('The same number of sausage slices throughout, each keeps its shape; oil bubbles only around the slices; steam rises upward and thins out.');
   if (/table|spread/.test(d)) out.push('Every dish stays in its place for the whole shot; the number of plates, cups and bowls never changes; nothing appears or disappears.');
   if (/bite|eat/.test(d)) out.push('One piece of bread already held at mouth level at the start; exactly one bite; afterwards the piece shows a matching bite mark.');
   if (/coffee|pour|drink/.test(d)) out.push('Liquid level only changes while liquid is visibly poured; cups stay full or empty consistently.');
@@ -132,7 +132,7 @@ export function rewritePrompt(input: {
     : 'One slow, steady push-in on a tripod dolly, no handheld shake, no cuts.';
 
   const action: string[] = [];
-  if (c.food_logic || c.physics) { action.push(...foodActionConstraints(input.description)); rules.push('physical_action_constraints'); }
+  if (c.food_logic || c.physics) { action.push(...foodActionConstraints(subject)); rules.push('physical_action_constraints'); }
   if (c.anatomy_hands) {
     action.push(hasPerson
       ? 'Hands stay simple: one hand holds one object in a static, natural grip; no finger close-ups; no gestures.'
