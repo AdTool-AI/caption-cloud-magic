@@ -20,10 +20,24 @@ Today `prepare_shot_retry` only appends "Avoid: <issues>" to the old prompt and 
 5. **Output** — `prepare_shot_retry` returns and stores per shot: original model, original prompt, failure classes, revised prompt, negative constraints, stay/switch, proposed model, exact cost, budget fit, and the reasoning. It stays free and never dispatches; `retry_shot` is unchanged.
 6. **Tests** — text shot drops text and sets composite flag; food-logic shot gets action constraints; high anatomy risk + bad Kling stats makes an alternative model rank first; cost comes from the catalog; budget-exceeded case is reported; no paid tool called.
 
+## Visual readiness vs. final ad readiness
+7. **Two readiness levels** — a shot passing visual QA becomes `visual_client_ready`. A video (and the whole ad) is only `final_client_ready` once its planned voiceover, music/SFX, brand text, CTA and subtitles (if planned) are added and final QA has passed. Phase B can never set final readiness. The panel labels change to "Visual ready" vs. "Ad ready" (EN/DE/ES).
+8. **Post-production requirements, persisted per shot and per video** so Phase C can use them without guessing:
+   - `audio_required`, `audio_decision` (`native_useful` / `separate_sound_design` / `silent_until_composition`), `native_audio_preferred`
+   - `voiceover_required`, `voiceover_language`, `voiceover_script`, `voiceover_source` (`native_model_verified` / `deferred_tts_phase_c`)
+   - `music_direction`, `sfx_direction`
+   - `composite_text_later`, `overlay_text`, `cta_text`, `brand_name_overlay`, `subtitles_required`
+   Filled from the existing German scripts and content matrix of the campaign. Kling audio support is not treated as suitable by default; German speech is marked `deferred_tts_phase_c` unless verified for the chosen model.
+9. **Text/branding** — on text QA failures the retry prompt carries no text, logos or signs; the exact wording (e.g. "Café Buur", "Brunch in Köln", "Jetzt Tisch reservieren") is stored for Director's Cut / Remotion overlays. Retry prompts always ask for the shot silent or with ambience only, per the audio decision.
+
 ## Then (no spend)
-Deploy only the changed functions, run `prepare_shot_retry` for S1–S5, and verify wallet €92.32, generation count 501, ledger 10 rows, no retries started. Report the retry plan as a table per shot and stop.
+Deploy only the changed functions, run `prepare_shot_retry` for S1–S5, and verify wallet €92.32, generation count 501, ledger 10 rows, no retries started. Phase C is not started.
+
+Report per shot: original model and prompt, QA failure classes, revised visual prompt, negative constraints, stay/switch and proposed model, exact retry cost and budget fit, why it fixes the QA failures, text to composite later, audio decision, German voiceover requirement, music/SFX direction. Then stop.
 
 ## Technical details
-- Files: `_shared/muse/campaign/production.ts` (prepareShotRetry), new pure `_shared/muse/campaign/retryPlan.ts` + tests, reuse existing router/risk/catalog modules; small UI addition in CampaignPanel to show the prepared retry (EN/DE/ES).
-- Storage: existing `retry_prompt`, `retry_model`, `retry_reason` columns plus a `retry_plan` JSON column (migration, additive only).
-- Untouched: pricing catalog, wallet, ledger, retry policy (manual_retry), routing weights, Lip-Sync.
+- Files: `_shared/muse/campaign/production.ts` (prepareShotRetry, review readiness), new pure `_shared/muse/campaign/retryPlan.ts` and `postProduction.ts` + Deno tests, reuse existing router/risk/catalog modules; CampaignPanel shows the retry plan and both readiness levels (EN/DE/ES).
+- Storage (additive migration): `campaign_shots.retry_plan` jsonb, `campaign_shots.visual_client_ready` boolean, `campaign_shots.post_production` jsonb, `campaign_videos.post_production` jsonb, `campaign_videos.final_client_ready` boolean (default false). Existing `client_ready` is kept and read as visual readiness.
+- Extra tests: Phase B never sets final readiness; requirements are written once from the campaign scripts and survive retry preparation; German voiceover defaults to Phase C TTS.
+- Untouched: pricing catalog, wallet, ledger, retry policy (manual_retry), routing weights, Lip-Sync, Director's Cut.
+- roadmap.md gets the post-production/readiness task when build starts.
