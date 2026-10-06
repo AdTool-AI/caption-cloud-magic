@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Bot, Loader2, Send, Wrench, AlertTriangle, CheckCircle2, Plus, MessageSquare, Clapperboard, ExternalLink } from "lucide-react";
+import { Bot, Loader2, Send, Wrench, AlertTriangle, CheckCircle2, Plus, MessageSquare, Clapperboard, ChevronDown, RotateCcw } from "lucide-react";
 import { PageWrapper } from "@/components/layout/PageWrapper";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -9,6 +9,9 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { CampaignPanel } from "@/components/agent/CampaignPanel";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { useAIVideoWallet } from "@/hooks/useAIVideoWallet";
+import { formatMoney, groupByTurn, isApprovalActionable } from "@/lib/agentStatus";
 import { tx } from "@/lib/i18nText";
 import { useTranslation } from "@/hooks/useTranslation";
 import {
@@ -73,6 +76,12 @@ export default function AdToolAgent() {
   const abortRef = useRef<AbortController | null>(null);
   const [approvals, setApprovals] = useState<StoredApproval[]>([]);
   const [campaignApprovals, setCampaignApprovals] = useState<StoredCampaignApproval[]>([]);
+  const { wallet } = useAIVideoWallet();
+  const walletCurrency = wallet?.currency ?? null;
+  const [focusGen, setFocusGen] = useState<{ id: string; nonce: number } | null>(null);
+  const [activityOpen, setActivityOpen] = useState(false);
+  const bottomRef = useRef<HTMLDivElement | null>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
 
   const setConversationId = useCallback(
     (id: string | null) => {
@@ -183,9 +192,9 @@ export default function AdToolAgent() {
     await sendText(
       decision === "approve"
         ? tx({
-            de: `Kampagnen-Budget freigegeben: ${quote.estimated_total} € geschätzt, maximal ${quote.max_total} € (approval_id ${quote.approval_id}). Bitte starte die Produktion.`,
-            en: `Campaign budget approved: ${quote.estimated_total} € estimated, at most ${quote.max_total} € (approval_id ${quote.approval_id}). Please start the production.`,
-            es: `Presupuesto de campaña aprobado: ${quote.estimated_total} € estimado, máximo ${quote.max_total} € (approval_id ${quote.approval_id}). Inicia la producción.`,
+            de: `Kampagnen-Budget freigegeben: ${formatMoney(quote.estimated_total, walletCurrency)} geschätzt, maximal ${formatMoney(quote.max_total, walletCurrency)} (approval_id ${quote.approval_id}). Bitte starte die Produktion.`,
+            en: `Campaign budget approved: ${formatMoney(quote.estimated_total, walletCurrency)} estimated, at most ${formatMoney(quote.max_total, walletCurrency)} (approval_id ${quote.approval_id}). Please start the production.`,
+            es: `Presupuesto de campaña aprobado: ${formatMoney(quote.estimated_total, walletCurrency)} estimado, máximo ${formatMoney(quote.max_total, walletCurrency)} (approval_id ${quote.approval_id}). Inicia la producción.`,
           })
         : tx({
             de: "Ich habe dieses Kampagnen-Budget abgelehnt. Bitte nichts produzieren.",
@@ -199,7 +208,7 @@ export default function AdToolAgent() {
     setBusy(true);
     busyRef.current = true;
     let activeId = conversationId;
-    setMessages((prev) => [...prev, { id: crypto.randomUUID(), role: "user", text }]);
+    setMessages((prev) => [...prev, { id: crypto.randomUUID(), role: "user", text, createdAt: new Date().toISOString() }]);
 
     const controller = new AbortController();
     abortRef.current = controller;
@@ -261,15 +270,16 @@ export default function AdToolAgent() {
                     start_expires_at: String((ap as unknown as { start_expires_at?: string }).start_expires_at ?? ""),
                     execution_expires_at: String((ap as unknown as { execution_expires_at?: string }).execution_expires_at ?? ""),
                     state: "pending",
+                    created_at: new Date().toISOString(),
                   },
                 ]);
               } else {
-                setApprovals((prev) => [...prev, { ...event.approval, state: "pending" }]);
+                setApprovals((prev) => [...prev, { ...event.approval, state: "pending", created_at: new Date().toISOString() }]);
               }
               break;
             }
             case "message":
-              setMessages((prev) => [...prev, { id: crypto.randomUUID(), role: "assistant", text: event.text }]);
+              setMessages((prev) => [...prev, { id: crypto.randomUUID(), role: "assistant", text: event.text, createdAt: new Date().toISOString() }]);
               break;
             case "usage":
               setUsage({ costUsd: event.costUsd });
@@ -277,7 +287,7 @@ export default function AdToolAgent() {
             case "error":
               setMessages((prev) => [
                 ...prev,
-                { id: crypto.randomUUID(), role: "assistant", text: `⚠️ ${event.message}` },
+                { id: crypto.randomUUID(), role: "assistant", text: event.message, status: "interrupted", error: event.message, createdAt: new Date().toISOString() },
               ]);
               break;
           }
@@ -292,10 +302,123 @@ export default function AdToolAgent() {
     }
   };
 
+  // ---- turn association ---------------------------------------------------
+  type Item =
+    | { kind: "approval"; at?: string; a: StoredApproval }
+    | { kind: "campaign"; at?: string; a: StoredCampaignApproval }
+    | { kind: "task"; at?: string; t: AgentTask };
+  const now = Date.now();
+  // Only valid, open approvals render in the chat; everything else lives in the
+  // campaign workspace's collapsed approval history.
+  const items: Item[] = [
+    ...approvals.filter((a) => isApprovalActionable(a.state, a.approval_expires_at, now)).map((a) => ({ kind: "approval" as const, at: a.created_at, a })),
+    ...campaignApprovals.filter((a) => isApprovalActionable(a.state, a.start_expires_at, now)).map((a) => ({ kind: "campaign" as const, at: a.created_at, a })),
+    ...tasks.map((t) => ({ kind: "task" as const, at: t.created_at, t })),
+  ];
+  const userIdx: number[] = [];
+  messages.forEach((m, i) => m.role === "user" && userIdx.push(i));
+  const byTurn = groupByTurn(
+    userIdx.map((i) => messages[i].createdAt ?? new Date().toISOString()),
+    items,
+    (it) => it.at,
+  );
+  const turnEnd = new Map<number, number>(); // message index after which a turn's items render
+  userIdx.forEach((mi, ti) => {
+    const next = userIdx[ti + 1] ?? messages.length;
+    turnEnd.set(next - 1, ti);
+  });
+  const lastUserText = (beforeIndex: number) => {
+    for (let i = beforeIndex; i >= 0; i--) if (messages[i].role === "user") return messages[i].text;
+    return null;
+  };
+
+  // Keep the latest turn in view (scrolls only the chat pane, not the page).
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [messages.length, busy, conversationId]);
+
+  const viewClip = (generationId: string) => setFocusGen({ id: generationId, nonce: Date.now() });
+
+  const renderItem = (it: Item) => {
+    if (it.kind === "task") {
+      const t = it.t;
+      return (
+        <div key={t.id} className="flex max-w-[85%] items-center gap-2 rounded-lg border border-border/60 bg-background/40 px-3 py-2 text-xs">
+          {t.status === "waiting_for_generation" || t.status === "analyzing" ? (
+            <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
+          ) : t.status === "failed" ? (
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-destructive" />
+          ) : (
+            <Clapperboard className="h-3.5 w-3.5 shrink-0 text-primary" />
+          )}
+          <span className="min-w-0 flex-1 truncate text-foreground">
+            {t.status === "waiting_for_generation" &&
+              (t.slow_since
+                ? tx({ de: "Video wird erstellt (dauert länger)", en: "Generating video (taking longer)", es: "Generando vídeo (tarda más)" })
+                : tx({ de: "Video wird erstellt", en: "Generating video", es: "Generando vídeo" }))}
+            {t.status === "analyzing" && tx({ de: "Video fertig · wird geprüft", en: "Video done · being checked", es: "Vídeo listo · en revisión" })}
+            {t.status === "completed" && tx({ de: "Video fertig · QA siehe Kampagne", en: "Video done · see QA in campaign", es: "Vídeo listo · QA en la campaña" })}
+            {t.status === "failed" && `${tx({ de: "Video fehlgeschlagen", en: "Video failed", es: "El vídeo ha fallado" })}${t.error ? ` — ${t.error}` : ""}`}
+            {!["waiting_for_generation", "analyzing", "completed", "failed"].includes(t.status) && t.status}
+          </span>
+          {t.result?.video_url && (
+            <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={() => viewClip(t.generation_id)}>
+              {tx({ de: "Clip ansehen", en: "View clip", es: "Ver clip" })}
+            </Button>
+          )}
+        </div>
+      );
+    }
+    if (it.kind === "approval") {
+      const a = it.a;
+      return (
+        <div key={a.approval_id} className="max-w-[85%] rounded-2xl border border-primary/40 bg-primary/5 p-3 text-sm">
+          <p className="font-medium text-foreground">{tx({ de: "Kostenfreigabe", en: "Cost approval", es: "Aprobación de coste" })}</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">{a.model_name ?? a.model} · {a.duration}s · {a.resolution}</p>
+          <p className="mt-1 text-foreground">
+            {formatMoney(a.total_cost, a.currency)}
+            <span className="text-xs text-muted-foreground"> · {tx({ de: "maximal", en: "at most", es: "máximo" })} {formatMoney(a.max_total_cost, a.currency)}</span>
+          </p>
+          <div className="mt-2 flex gap-2">
+            <Button size="sm" onClick={() => void decide(a, "approve")} disabled={busy}>{tx({ de: "Bestätigen", en: "Confirm", es: "Confirmar" })}</Button>
+            <Button size="sm" variant="outline" onClick={() => void decide(a, "reject")} disabled={busy}>{tx({ de: "Ablehnen", en: "Decline", es: "Rechazar" })}</Button>
+          </div>
+          {a.error && <p className="mt-2 text-xs text-destructive">{a.error}</p>}
+        </div>
+      );
+    }
+    const a = it.a;
+    return (
+      <div key={a.approval_id} className="max-w-[85%] rounded-2xl border border-primary/40 bg-primary/5 p-3 text-sm">
+        <p className="font-medium text-foreground">{tx({ de: "Kampagnen-Budget", en: "Campaign budget", es: "Presupuesto de campaña" })}</p>
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          {a.shots.length} {tx({ de: "Shots — Details im Kampagnenbereich", en: "shots — details in the campaign workspace", es: "tomas: detalles en la campaña" })} ·{" "}
+          {a.retry_mode === "auto_retry_within_budget"
+            ? tx({ de: "automatische Wiederholungen im Budget", en: "automatic retries within budget", es: "reintentos automáticos dentro del presupuesto" })
+            : tx({ de: "Wiederholungen nur nach Freigabe", en: "retries only after confirmation", es: "reintentos solo tras confirmación" })}
+        </p>
+        <p className="mt-1 text-foreground">
+          {formatMoney(a.estimated_total, walletCurrency)}
+          <span className="text-xs text-muted-foreground"> · {tx({ de: "maximal", en: "at most", es: "máximo" })} {formatMoney(a.max_total, walletCurrency)}</span>
+        </p>
+        {a.sufficient_credits === false && (
+          <p className="mt-1 text-xs text-destructive">{tx({ de: "Guthaben reicht nicht — bitte vorher aufladen.", en: "Insufficient credits — please top up first.", es: "Créditos insuficientes: recarga primero." })}</p>
+        )}
+        <div className="mt-2 flex gap-2">
+          <Button size="sm" onClick={() => void decideCampaign(a, "approve")} disabled={busy}>{tx({ de: "Bestätigen", en: "Confirm", es: "Confirmar" })}</Button>
+          <Button size="sm" variant="outline" onClick={() => void decideCampaign(a, "reject")} disabled={busy}>{tx({ de: "Ablehnen", en: "Decline", es: "Rechazar" })}</Button>
+        </div>
+        {a.error && <p className="mt-2 text-xs text-destructive">{a.error}</p>}
+      </div>
+    );
+  };
+
   return (
     <PageWrapper className="min-h-0">
       <div className="mx-auto flex min-h-0 w-full max-w-7xl flex-col px-4 py-6">
-        <div className="mb-6 flex items-center gap-3">
+        <div className="mb-4 flex items-center gap-3">
           <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/15 text-primary">
             <Bot className="h-5 w-5" />
           </div>
@@ -311,9 +434,9 @@ export default function AdToolAgent() {
           </div>
         </div>
 
-        <div className="grid min-h-0 gap-4 lg:h-[calc(100vh-11rem)] lg:grid-cols-[220px_minmax(0,1fr)_300px]">
+        <div className="grid min-h-0 gap-4 lg:h-[calc(100vh-11rem)] lg:grid-cols-[220px_minmax(0,1fr)]">
           {/* Conversation history */}
-          <Card className="flex h-[52vh] min-h-0 flex-col overflow-hidden border-border/60 bg-card/70 backdrop-blur lg:h-full">
+          <Card className="flex max-h-48 min-h-0 flex-col overflow-hidden border-border/60 bg-card/70 backdrop-blur lg:h-full lg:max-h-none">
             <div className="border-b border-border/60 p-3">
               <Button size="sm" variant="outline" className="w-full" onClick={() => setConversationId(null)} disabled={busy}>
                 <Plus className="mr-1 h-4 w-4" />
@@ -322,9 +445,7 @@ export default function AdToolAgent() {
             </div>
             <ScrollArea className="flex-1 p-2">
               {history.length === 0 ? (
-                <p className="p-3 text-center text-xs text-muted-foreground">
-                  {tx({ de: "Noch keine Chats.", en: "No chats yet.", es: "Aún no hay chats." })}
-                </p>
+                <p className="p-3 text-center text-xs text-muted-foreground">{tx({ de: "Noch keine Chats.", en: "No chats yet.", es: "Aún no hay chats." })}</p>
               ) : (
                 <div className="space-y-1">
                   {history.map((c) => (
@@ -347,65 +468,11 @@ export default function AdToolAgent() {
             </ScrollArea>
           </Card>
 
-          {/* Conversation */}
-          <Card className="flex h-[72vh] min-h-0 flex-col overflow-hidden border-border/60 bg-card/70 backdrop-blur lg:h-full">
-            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4">
-              {tasks.length > 0 && (
-                <div className="mb-4 space-y-2">
-                {tasks.map((t) => (
-                  <div key={t.id} className="flex items-start gap-3 rounded-md border border-primary/30 bg-primary/5 p-3 text-sm">
-                    {t.status === "waiting_for_generation" || t.status === "analyzing" ? (
-                      <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-primary" />
-                    ) : t.status === "failed" ? (
-                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
-                    ) : (
-                      <Clapperboard className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <p className="text-foreground">
-                        {t.status === "waiting_for_generation" &&
-                          tx({
-                            de: "Video wird erstellt — du kannst diese Seite verlassen.",
-                            en: "Video is being generated — you can leave this page.",
-                            es: "El vídeo se está generando: puedes salir de esta página.",
-                          })}
-                        {t.status === "analyzing" &&
-                          tx({
-                            de: "Video fertig — der Agent prüft das Ergebnis…",
-                            en: "Video finished — the agent is reviewing the result…",
-                            es: "Vídeo listo: el agente está revisando el resultado…",
-                          })}
-                        {t.status === "completed" && tx({ de: "Video fertig und geprüft.", en: "Video finished and reviewed.", es: "Vídeo listo y revisado." })}
-                        {t.status === "failed" && tx({ de: "Video fehlgeschlagen", en: "Video failed", es: "El vídeo ha fallado" })}
-                      </p>
-                      {t.status === "waiting_for_generation" && t.slow_since && (
-                        <p className="text-xs text-muted-foreground">
-                          {tx({
-                            de: "Dauert länger als üblich — läuft aber noch.",
-                            en: "Taking longer than usual — still running.",
-                            es: "Tarda más de lo habitual, pero sigue en marcha.",
-                          })}
-                        </p>
-                      )}
-                      {t.status === "failed" && t.error && <p className="text-xs text-destructive">{t.error}</p>}
-                      {t.result?.video_url && (
-                        <div className="mt-2 max-w-md">
-                          <video src={t.result.video_url} controls preload="metadata" className="h-[240px] w-full rounded-md bg-muted object-contain" />
-                          <a href={t.result.video_url} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-xs text-primary hover:underline">
-                            <ExternalLink className="h-3 w-3" />
-                            {tx({ de: "Video öffnen", en: "Open video", es: "Abrir vídeo" })}
-                          </a>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
-                </div>
-              )}
+          {/* Conversation — the only scroll area for the chat */}
+          <Card className="flex h-[75vh] min-h-0 flex-col overflow-hidden border-border/60 bg-card/70 backdrop-blur lg:h-full">
+            <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4">
               {loading && messages.length === 0 && (
-                <div className="flex justify-center p-6">
-                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                </div>
+                <div className="flex justify-center p-6"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
               )}
               {!loading && messages.length === 0 && (
                 <p className="p-6 text-center text-sm text-muted-foreground">
@@ -416,111 +483,101 @@ export default function AdToolAgent() {
                   })}
                 </p>
               )}
-              <div className="space-y-4">
-                {messages.map((m) => (
-                  <div
-                    key={m.id}
-                    className={cn(
-                      "max-w-[85%] whitespace-pre-wrap rounded-2xl px-4 py-3 text-sm",
-                      m.role === "user"
-                        ? "ml-auto bg-primary/15 text-foreground"
-                        : "bg-muted/50 text-foreground"
-                    )}
-                  >
-                    {m.text}
-                  </div>
-                ))}
-                {approvals.map((a) => (
-                  <div key={a.approval_id} className="max-w-[85%] rounded-2xl border border-primary/40 bg-primary/5 p-4 text-sm">
-                    <p className="font-medium text-foreground">
-                      {tx({ de: "Kostenfreigabe", en: "Cost approval", es: "Aprobación de coste" })}
-                    </p>
-                    <p className="mt-1 text-muted-foreground">
-                      {a.model_name ?? a.model} · {a.duration}s · {a.resolution}
-                    </p>
-                    <p className="mt-2 text-lg text-foreground">
-                      {a.total_cost} {a.currency}
-                    </p>
-                    {a.retry_budget > 0 && (
-                      <p className="text-xs text-muted-foreground">
-                        {tx({
-                          de: `inkl. bis zu ${a.retry_budget} automatische Wiederholung(en) — maximal ${a.max_total_cost} ${a.currency}`,
-                          en: `incl. up to ${a.retry_budget} automatic retr${a.retry_budget === 1 ? "y" : "ies"} — at most ${a.max_total_cost} ${a.currency}`,
-                          es: `incl. hasta ${a.retry_budget} reintento(s) automático(s) — máximo ${a.max_total_cost} ${a.currency}`,
-                        })}
-                      </p>
-                    )}
-                    {a.state === "pending" && (
-                      <div className="mt-3 flex gap-2">
-                        <Button size="sm" onClick={() => void decide(a, "approve")} disabled={busy}>
-                          {tx({ de: "Bestätigen", en: "Confirm", es: "Confirmar" })}
-                        </Button>
-                        <Button size="sm" variant="outline" onClick={() => void decide(a, "reject")} disabled={busy}>
-                          {tx({ de: "Ablehnen", en: "Decline", es: "Rechazar" })}
-                        </Button>
-                      </div>
-                    )}
-                    {a.state === "approved" && (
-                      <Badge className="mt-3">{tx({ de: "Freigegeben", en: "Approved", es: "Aprobado" })}</Badge>
-                    )}
-                    {a.state === "rejected" && (
-                      <Badge variant="outline" className="mt-3">{tx({ de: "Abgelehnt", en: "Declined", es: "Rechazado" })}</Badge>
-                    )}
-                    {a.state === "expired" && (
-                      <Badge variant="outline" className="mt-3">{tx({ de: "Abgelaufen", en: "Expired", es: "Caducado" })}</Badge>
-                    )}
-                    {a.state === "error" && <p className="mt-2 text-xs text-destructive">{a.error}</p>}
-                  </div>
-                ))}
-                {campaignApprovals.map((a) => (
-                  <div key={a.approval_id} className="max-w-[85%] rounded-2xl border border-primary/40 bg-primary/5 p-4 text-sm">
-                    <p className="font-medium text-foreground">
-                      {tx({ de: "Kampagnen-Budget", en: "Campaign budget", es: "Presupuesto de campaña" })}
-                    </p>
-                    <p className="mt-1 text-muted-foreground">
-                      {a.shots.length} {tx({ de: "Shots", en: "shots", es: "tomas" })} ·{" "}
-                      {a.retry_mode === "auto_retry_within_budget"
-                        ? tx({ de: "automatische Wiederholungen im Budget", en: "automatic retries within budget", es: "reintentos automáticos dentro del presupuesto" })
-                        : tx({ de: "Wiederholungen nur nach Freigabe", en: "retries only after confirmation", es: "reintentos solo tras confirmación" })}
-                    </p>
-                    <p className="mt-2 text-lg text-foreground">
-                      {a.estimated_total} € <span className="text-sm text-muted-foreground">({tx({ de: "maximal", en: "at most", es: "máximo" })} {a.max_total} €)</span>
-                    </p>
-                    {a.sufficient_credits === false && (
-                      <p className="mt-1 text-xs text-destructive">
-                        {tx({ de: "Guthaben reicht nicht — bitte vorher aufladen.", en: "Insufficient credits — please top up first.", es: "Créditos insuficientes: recarga primero." })}
-                      </p>
-                    )}
-                    {a.state === "pending" && (
-                      <div className="mt-3 flex gap-2">
-                        <Button size="sm" onClick={() => void decideCampaign(a, "approve")} disabled={busy}>
-                          {tx({ de: "Bestätigen", en: "Confirm", es: "Confirmar" })}
-                        </Button>
-                        <Button size="sm" variant="outline" onClick={() => void decideCampaign(a, "reject")} disabled={busy}>
-                          {tx({ de: "Ablehnen", en: "Decline", es: "Rechazar" })}
-                        </Button>
-                      </div>
-                    )}
-                    {a.state === "approved" && (
-                      <Badge className="mt-3">{tx({ de: "Freigegeben", en: "Approved", es: "Aprobado" })}</Badge>
-                    )}
-                    {a.state === "rejected" && (
-                      <Badge variant="outline" className="mt-3">{tx({ de: "Abgelehnt", en: "Declined", es: "Rechazado" })}</Badge>
-                    )}
-                    {a.state === "expired" && (
-                      <Badge variant="outline" className="mt-3">{tx({ de: "Abgelaufen", en: "Expired", es: "Caducado" })}</Badge>
-                    )}
-                    {a.state === "error" && <p className="mt-2 text-xs text-destructive">{a.error}</p>}
-                  </div>
-                ))}
+              <div className="space-y-3">
+                {(byTurn.get(-1) ?? []).map(renderItem)}
+                {messages.map((m, i) => {
+                  const turn = turnEnd.get(i);
+                  const lastTurn = turn !== undefined && turn === userIdx.length - 1;
+                  const unanswered = m.role === "user" && !busy && (i === messages.length - 1 || messages[i + 1].role === "user");
+                  return (
+                    <div key={m.id} className="space-y-3">
+                      {m.status === "interrupted" ? (
+                        <div className="flex max-w-[85%] items-start gap-2 rounded-2xl border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm">
+                          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+                          <div className="min-w-0">
+                            <p className="text-foreground">
+                              {tx({ de: "Antwort unterbrochen — der Agent konnte diese Anfrage nicht beantworten. Es wurde nichts gestartet.", en: "Answer interrupted — the agent could not answer this request. Nothing was started.", es: "Respuesta interrumpida: el agente no pudo responder. No se inició nada." })}
+                            </p>
+                            {m.error && <p className="mt-1 break-words text-xs text-muted-foreground">{m.error}</p>}
+                            {lastTurn && lastUserText(i) && (
+                              <Button size="sm" variant="outline" className="mt-2 h-7" disabled={busy} onClick={() => void sendText(lastUserText(i)!)}>
+                                <RotateCcw className="mr-1 h-3.5 w-3.5" /> {tx({ de: "Erneut fragen", en: "Ask again", es: "Preguntar de nuevo" })}
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      ) : (
+                        <div
+                          className={cn(
+                            "max-w-[85%] whitespace-pre-wrap break-words rounded-2xl px-4 py-3 text-sm",
+                            m.role === "user" ? "ml-auto bg-primary/15 text-foreground" : "bg-muted/50 text-foreground"
+                          )}
+                        >
+                          {m.text}
+                        </div>
+                      )}
+                      {unanswered && (
+                        <div className="flex max-w-[85%] items-start gap-2 rounded-2xl border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm">
+                          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+                          <div>
+                            <p className="text-foreground">
+                              {tx({ de: "Für diese Nachricht wurde keine Antwort gespeichert. Es wurde nichts gestartet.", en: "No answer was saved for this message. Nothing was started.", es: "No se guardó ninguna respuesta para este mensaje. No se inició nada." })}
+                            </p>
+                            {i === messages.length - 1 && (
+                              <Button size="sm" variant="outline" className="mt-2 h-7" onClick={() => void sendText(m.text)}>
+                                <RotateCcw className="mr-1 h-3.5 w-3.5" /> {tx({ de: "Erneut fragen", en: "Ask again", es: "Preguntar de nuevo" })}
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                      {turn !== undefined && (byTurn.get(turn) ?? []).map(renderItem)}
+                    </div>
+                  );
+                })}
                 {busy && (
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Loader2 className="h-4 w-4 animate-spin" />
-                    {tx({ de: "Der Agent arbeitet…", en: "The agent is working…", es: "El agente está trabajando…" })}
+                    {operations.length > 0 && operations[operations.length - 1].status === "running"
+                      ? label(operations[operations.length - 1].name)
+                      : tx({ de: "Der Agent arbeitet…", en: "The agent is working…", es: "El agente está trabajando…" })}
                   </div>
                 )}
+                <div ref={bottomRef} />
               </div>
             </div>
+
+            <Collapsible open={activityOpen} onOpenChange={setActivityOpen} className="border-t border-border/60">
+              <CollapsibleTrigger asChild>
+                <button type="button" className="flex w-full items-center gap-2 px-4 py-2 text-xs text-muted-foreground hover:text-foreground">
+                  <Wrench className="h-3.5 w-3.5" />
+                  {tx({ de: "Aktivitätsdetails", en: "Activity details", es: "Detalles de actividad" })} ({operations.length})
+                  {usage && <span className="ml-2">· {tx({ de: "Agent-Kosten", en: "Agent cost", es: "Coste del agente" })} ${usage.costUsd.toFixed(4)}</span>}
+                  <ChevronDown className={cn("ml-auto h-3.5 w-3.5 transition-transform", activityOpen && "rotate-180")} />
+                </button>
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <ul className="max-h-48 space-y-1 overflow-y-auto px-4 pb-2 text-xs">
+                  {operations.map((op) => {
+                    const result = (op.result ?? {}) as Record<string, unknown>;
+                    return (
+                      <li key={op.id} className="flex items-center gap-2">
+                        {op.status === "running" && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
+                        {op.status === "succeeded" && <CheckCircle2 className="h-3 w-3 text-primary" />}
+                        {op.status === "failed" && <AlertTriangle className="h-3 w-3 text-destructive" />}
+                        <span>{label(op.name)}</span>
+                        {typeof result.error === "string" && <span className="truncate text-destructive">{result.error}</span>}
+                        {op.generationId && typeof result.video_url === "string" && (
+                          <button type="button" className="ml-auto text-primary hover:underline" onClick={() => viewClip(op.generationId!)}>
+                            {tx({ de: "Clip ansehen", en: "View clip", es: "Ver clip" })}
+                          </button>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </CollapsibleContent>
+            </Collapsible>
 
             <div className="border-t border-border/60 p-3">
               <div className="flex gap-2">
@@ -535,11 +592,7 @@ export default function AdToolAgent() {
                   }}
                   rows={2}
                   className="resize-none"
-                  placeholder={tx({
-                    de: "Was soll produziert werden?",
-                    en: "What should be produced?",
-                    es: "¿Qué hay que producir?",
-                  })}
+                  placeholder={tx({ de: "Was soll produziert werden?", en: "What should be produced?", es: "¿Qué hay que producir?" })}
                 />
                 <Button onClick={() => void handleSend()} disabled={busy || !input.trim()} size="icon" className="h-auto w-12">
                   {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
@@ -547,64 +600,12 @@ export default function AdToolAgent() {
               </div>
             </div>
           </Card>
-
-          {/* Operation board */}
-          <Card className="flex h-[52vh] min-h-0 flex-col overflow-hidden border-border/60 bg-card/70 backdrop-blur lg:h-full">
-            <div className="flex items-center gap-2 border-b border-border/60 px-4 py-3">
-              <Wrench className="h-4 w-4 text-primary" />
-              <span className="text-sm font-medium">
-                {tx({ de: "Arbeitsschritte", en: "Operations", es: "Operaciones" })}
-              </span>
-            </div>
-            <ScrollArea className="flex-1 p-3">
-              {operations.length === 0 ? (
-                <p className="p-4 text-center text-xs text-muted-foreground">
-                  {tx({ de: "Noch keine Schritte.", en: "No steps yet.", es: "Aún no hay pasos." })}
-                </p>
-              ) : (
-                <div className="space-y-2">
-                  {operations.map((op) => {
-                    const result = (op.result ?? {}) as Record<string, unknown>;
-                    return (
-                      <div key={op.id} className="rounded-md border border-border/60 bg-background/40 p-2.5">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-sm">{label(op.name)}</span>
-                          {op.status === "running" && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
-                          {op.status === "succeeded" && <CheckCircle2 className="h-4 w-4 text-primary" />}
-                          {op.status === "failed" && <AlertTriangle className="h-4 w-4 text-destructive" />}
-                        </div>
-                        {typeof result.total_cost === "number" && (
-                          <Badge variant="secondary" className="mt-2">
-                            {result.total_cost} {String(result.currency ?? "")}
-                          </Badge>
-                        )}
-                        {typeof result.charged_estimate === "number" && (
-                          <Badge variant="secondary" className="mt-2">
-                            {result.charged_estimate} {String(result.currency ?? "")}
-                          </Badge>
-                        )}
-                        {typeof result.video_url === "string" && (
-                          <video src={result.video_url} controls preload="metadata" className="mt-2 h-[220px] w-full rounded-md bg-muted object-contain" />
-                        )}
-                        {typeof result.error === "string" && (
-                          <p className="mt-2 text-xs text-destructive">{result.error}</p>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </ScrollArea>
-            {usage && (
-              <div className="border-t border-border/60 px-4 py-2 text-xs text-muted-foreground">
-                {tx({ de: "Agent-Kosten", en: "Agent cost", es: "Coste del agente" })}: ${usage.costUsd.toFixed(4)}
-              </div>
-            )}
-          </Card>
         </div>
         <CampaignPanel
           conversationId={conversationId}
-          refreshKey={operations.length * 1000 + operations.filter((o) => o.status !== "running").length + messages.length}
+          currency={walletCurrency}
+          focusGenerationId={focusGen}
+          refreshKey={operations.length * 1000 + operations.filter((o) => o.status !== "running").length + messages.length + tasks.length}
         />
       </div>
     </PageWrapper>

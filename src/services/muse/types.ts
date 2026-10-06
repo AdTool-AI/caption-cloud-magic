@@ -17,6 +17,10 @@ export interface AgentChatMessage {
   id: string;
   role: 'user' | 'assistant';
   text: string;
+  createdAt?: string;
+  /** Persisted outcome when the agent could not answer this turn. */
+  status?: 'interrupted';
+  error?: string;
 }
 
 export interface AgentOperation {
