@@ -10,8 +10,8 @@ import type { AgentApprovalQuote, AgentChatMessage, AgentOperation, CampaignBudg
 const db = supabase as any;
 
 export type ApprovalState = 'pending' | 'approved' | 'rejected' | 'expired' | 'error';
-export type StoredApproval = AgentApprovalQuote & { state: ApprovalState; error?: string };
-export type StoredCampaignApproval = CampaignBudgetQuote & { state: ApprovalState; error?: string };
+export type StoredApproval = AgentApprovalQuote & { state: ApprovalState; error?: string; created_at?: string };
+export type StoredCampaignApproval = CampaignBudgetQuote & { state: ApprovalState; error?: string; created_at?: string };
 
 export interface AgentTask {
   id: string;
@@ -50,7 +50,7 @@ export async function listAgentConversations(limit = 20): Promise<ConversationSu
 export async function loadAgentConversation(id: string): Promise<ConversationSnapshot | null> {
   const [convo, msgs, ops, apps, tasks, cApps] = await Promise.all([
     db.from('agent_conversations').select('id, estimated_ai_cost_usd').eq('id', id).maybeSingle(),
-    db.from('agent_messages').select('id, role, content, internal, created_at').eq('conversation_id', id).order('created_at'),
+    db.from('agent_messages').select('id, role, content, internal, tool_calls, created_at').eq('conversation_id', id).order('created_at'),
     db.from('agent_operations').select('id, tool_name, status, arguments, result, generation_id, created_at').eq('conversation_id', id).order('created_at'),
     db.from('agent_generation_approvals').select('*').eq('conversation_id', id).order('created_at'),
     db.from('agent_tasks').select('id, generation_id, status, error, slow_since, result, created_at').eq('conversation_id', id).order('created_at'),
@@ -63,7 +63,13 @@ export async function loadAgentConversation(id: string): Promise<ConversationSna
     costUsd: Number(convo.data.estimated_ai_cost_usd ?? 0),
     messages: (msgs.data ?? [])
       .filter((m: { internal?: boolean; role: string }) => !m.internal && (m.role === 'user' || m.role === 'assistant'))
-      .map((m: { id: string; role: 'user' | 'assistant'; content: string }) => ({ id: m.id, role: m.role, text: m.content })),
+      .map((m: { id: string; role: 'user' | 'assistant'; content: string; created_at: string; tool_calls?: { turn_status?: string; error?: string } | null }) => ({
+        id: m.id,
+        role: m.role,
+        text: m.content,
+        createdAt: m.created_at,
+        ...(m.tool_calls?.turn_status === 'interrupted' ? { status: 'interrupted' as const, error: m.tool_calls.error } : {}),
+      })),
     operations: (ops.data ?? []).map((o: Record<string, unknown>) => ({
       id: String(o.id),
       name: String(o.tool_name),
@@ -91,6 +97,7 @@ export async function loadAgentConversation(id: string): Promise<ConversationSna
         retry_budget: Number(a.retry_budget ?? 0),
         currency: String(a.currency),
         approval_expires_at: String(a.expires_at),
+        created_at: String(a.created_at),
         state,
       } satisfies StoredApproval;
     }),
@@ -112,9 +119,10 @@ export async function loadAgentConversation(id: string): Promise<ConversationSna
         max_total: Number(a.max_total),
         retry_budget_per_shot: Number(a.retry_budget_per_shot ?? 0),
         retry_mode: (a.retry_mode as CampaignBudgetQuote['retry_mode']) ?? 'manual_retry',
-        currency: 'EUR',
+        currency: '',
         start_expires_at: String(a.start_expires_at),
         execution_expires_at: String(a.execution_expires_at),
+        created_at: String(a.created_at),
         state,
       } satisfies StoredCampaignApproval;
     }),

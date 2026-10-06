@@ -153,6 +153,7 @@ export async function runAgentTurn(params: RunAgentParams): Promise<void> {
   let hasUndelivered = recoveredOutputs.length > 0;
   let faultPending = !!params.faultInjectAfterTools;
   let toolBatches = 0;
+  let turnError: string | null = null;
 
   const persistPending = async (items: MuseInputItem[], responseId: string | null) => {
     const outputs: PendingOutput[] = [];
@@ -197,7 +198,8 @@ export async function runAgentTurn(params: RunAgentParams): Promise<void> {
       });
     } catch (err) {
       if (hasUndelivered) log('meta_failed_will_resume', { conversationId, responseId: previousResponseId, error: err instanceof Error ? err.message : String(err) });
-      emit({ type: 'error', message: err instanceof Error ? err.message : 'Muse request failed.' });
+      turnError = err instanceof Error ? err.message : 'Muse request failed.';
+      emit({ type: 'error', message: turnError });
       break;
     }
 
@@ -334,7 +336,8 @@ export async function runAgentTurn(params: RunAgentParams): Promise<void> {
       }
     } catch (err) {
       log('meta_failed_will_resume', { conversationId, responseId: previousResponseId, error: err instanceof Error ? err.message : String(err) });
-      emit({ type: 'error', message: err instanceof Error ? err.message : 'Muse request failed.' });
+      turnError = err instanceof Error ? err.message : 'Muse request failed.';
+      emit({ type: 'error', message: turnError });
     }
   }
 
@@ -347,6 +350,19 @@ export async function runAgentTurn(params: RunAgentParams): Promise<void> {
       user_id: userId,
       role: 'assistant',
       content: finalText,
+      response_id: previousResponseId,
+      resume_task_id: params.resumeTaskId ?? null,
+    });
+  } else if (!params.internal) {
+    // Every processed user request gets a persisted, visible outcome. No
+    // fabricated answer: an explicit "interrupted" status the UI renders with
+    // a recovery action, so a reload never shows an unanswered question.
+    await admin.from('agent_messages').insert({
+      conversation_id: conversationId,
+      user_id: userId,
+      role: 'assistant',
+      content: 'The agent could not finish answering this request.',
+      tool_calls: { turn_status: 'interrupted', error: (turnError ?? 'No answer was produced.').slice(0, 500) },
       response_id: previousResponseId,
       resume_task_id: params.resumeTaskId ?? null,
     });
