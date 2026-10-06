@@ -81,6 +81,7 @@ export default function AdToolAgent() {
   const [focusGen, setFocusGen] = useState<{ id: string; nonce: number } | null>(null);
   const [activityOpen, setActivityOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
 
   const setConversationId = useCallback(
     (id: string | null) => {
@@ -331,6 +332,13 @@ export default function AdToolAgent() {
     return null;
   };
 
+  // Keep the latest turn in view (scrolls only the chat pane, not the page).
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [messages.length, busy, conversationId]);
+
   const viewClip = (generationId: string) => setFocusGen({ id: generationId, nonce: Date.now() });
 
   const renderItem = (it: Item) => {
@@ -462,7 +470,7 @@ export default function AdToolAgent() {
 
           {/* Conversation — the only scroll area for the chat */}
           <Card className="flex h-[75vh] min-h-0 flex-col overflow-hidden border-border/60 bg-card/70 backdrop-blur lg:h-full">
-            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4">
+            <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4">
               {loading && messages.length === 0 && (
                 <div className="flex justify-center p-6"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
               )}
