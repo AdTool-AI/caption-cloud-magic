@@ -194,7 +194,7 @@ export function CampaignPanel({
     const pendingScope = new Set<string>(actionable.flatMap((a) => (a.scope ?? []).map((i: Row) => i.shot_id)));
     const latestScope = new Set<string>((snap.budgetApproval?.scope ?? []).map((i: Row) => i.shot_id));
     const statusOf = new Map<string, ShotStatusKey>(
-      snap.shots.map((shot) => [shot.id, deriveShotStatus(shot as { id: string }, generationById.get(shot.current_generation_id), pendingScope.has(shot.id), now)]),
+      snap.shots.map((shot) => [shot.id, deriveShotStatus(shot as { id: string }, generationById.get(shot.current_generation_id) as { id: string } | undefined, pendingScope.has(shot.id), now)]),
     );
     const routed = snap.shots.filter((shot) => shot.selected_model);
     const scoped = latestScope.size > 0 ? routed.filter((shot) => latestScope.has(shot.id) || pendingScope.has(shot.id)) : routed;
