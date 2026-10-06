@@ -488,7 +488,7 @@ export default function AdToolAgent() {
                 {messages.map((m, i) => {
                   const turn = turnEnd.get(i);
                   const lastTurn = turn !== undefined && turn === userIdx.length - 1;
-                  const unanswered = m.role === "user" && i === messages.length - 1 && !busy;
+                  const unanswered = m.role === "user" && !busy && (i === messages.length - 1 || messages[i + 1].role === "user");
                   return (
                     <div key={m.id} className="space-y-3">
                       {m.status === "interrupted" ? (
