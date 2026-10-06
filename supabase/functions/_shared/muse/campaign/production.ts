@@ -544,10 +544,13 @@ export async function retryShot(ctx: ToolContext, a: Args, opts: { fromWorker?: 
 export async function productionStatus(ctx: ToolContext, a: Args): Promise<ToolResult> {
   const c = await loadCampaign(ctx, a.campaign_id);
   if (!c) return err('NOT_FOUND', 'Campaign not found.');
+  // Ledger rows carry no campaign id; scope them to this campaign's shots.
+  const { data: shotIdRows } = await ctx.admin.from('campaign_shots').select('id').eq('campaign_id', c.id);
+  const shotIds = (shotIdRows ?? []).map((r: { id: string }) => r.id);
   const [shots, approvals, ledger] = await Promise.all([
     ctx.admin.from('campaign_shots').select('id, video_id, shot_index, status, selected_model, estimated_cost, client_ready, attempt_count, qa_summary, current_generation_id, retry_plan').eq('campaign_id', c.id).order('shot_index'),
     ctx.admin.from('campaign_budget_approvals').select('id, status, estimated_total, max_total, spent_total, retry_mode, retry_budget_per_shot, start_expires_at, execution_expires_at').eq('campaign_id', c.id).order('created_at', { ascending: false }).limit(3),
-    ctx.admin.from('campaign_spend_ledger').select('entry_type, amount, shot_id, created_at').eq('campaign_id', c.id).order('created_at', { ascending: false }).limit(50),
+    ctx.admin.from('campaign_spend_ledger').select('entry_type, amount, shot_id, approval_id, created_at').in('shot_id', shotIds.length ? shotIds : ['00000000-0000-0000-0000-000000000000']).order('created_at', { ascending: false }).limit(50),
   ]);
   const { data: wallet } = await ctx.admin.from('ai_video_wallets').select('currency').eq('user_id', ctx.userId).maybeSingle();
   const byStatus: Record<string, number> = {};
