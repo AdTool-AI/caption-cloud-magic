@@ -545,10 +545,11 @@ export async function productionStatus(ctx: ToolContext, a: Args): Promise<ToolR
   const c = await loadCampaign(ctx, a.campaign_id);
   if (!c) return err('NOT_FOUND', 'Campaign not found.');
   const [shots, approvals, ledger] = await Promise.all([
-    ctx.admin.from('campaign_shots').select('id, video_id, shot_index, status, selected_model, estimated_cost, client_ready, attempt_count, qa_summary, current_generation_id').eq('campaign_id', c.id).order('shot_index'),
+    ctx.admin.from('campaign_shots').select('id, video_id, shot_index, status, selected_model, estimated_cost, client_ready, attempt_count, qa_summary, current_generation_id, retry_plan').eq('campaign_id', c.id).order('shot_index'),
     ctx.admin.from('campaign_budget_approvals').select('id, status, estimated_total, max_total, spent_total, retry_mode, retry_budget_per_shot, start_expires_at, execution_expires_at').eq('campaign_id', c.id).order('created_at', { ascending: false }).limit(3),
-    ctx.admin.from('campaign_spend_ledger').select('entry_type, amount, shot_id, created_at').order('created_at', { ascending: false }).limit(50),
+    ctx.admin.from('campaign_spend_ledger').select('entry_type, amount, shot_id, created_at').eq('campaign_id', c.id).order('created_at', { ascending: false }).limit(50),
   ]);
+  const { data: wallet } = await ctx.admin.from('ai_video_wallets').select('currency').eq('user_id', ctx.userId).maybeSingle();
   const byStatus: Record<string, number> = {};
   for (const s of shots.data ?? []) byStatus[s.status] = (byStatus[s.status] ?? 0) + 1;
   return {
@@ -556,6 +557,7 @@ export async function productionStatus(ctx: ToolContext, a: Args): Promise<ToolR
       campaign_id: c.id, stage: c.stage,
       shots_total: shots.data?.length ?? 0, by_status: byStatus,
       shots: shots.data, approvals: approvals.data, recent_ledger: ledger.data,
+      currency: wallet?.currency ?? null, // campaign amounts are in the funding wallet's currency
     },
   };
 }
