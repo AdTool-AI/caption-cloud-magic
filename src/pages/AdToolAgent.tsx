@@ -523,9 +523,11 @@ export default function AdToolAgent() {
                             <p className="text-foreground">
                               {tx({ de: "Für diese Nachricht wurde keine Antwort gespeichert. Es wurde nichts gestartet.", en: "No answer was saved for this message. Nothing was started.", es: "No se guardó ninguna respuesta para este mensaje. No se inició nada." })}
                             </p>
-                            <Button size="sm" variant="outline" className="mt-2 h-7" onClick={() => void sendText(m.text)}>
-                              <RotateCcw className="mr-1 h-3.5 w-3.5" /> {tx({ de: "Erneut fragen", en: "Ask again", es: "Preguntar de nuevo" })}
-                            </Button>
+                            {i === messages.length - 1 && (
+                              <Button size="sm" variant="outline" className="mt-2 h-7" onClick={() => void sendText(m.text)}>
+                                <RotateCcw className="mr-1 h-3.5 w-3.5" /> {tx({ de: "Erneut fragen", en: "Ask again", es: "Preguntar de nuevo" })}
+                              </Button>
+                            )}
                           </div>
                         </div>
                       )}
