@@ -234,7 +234,7 @@ export function CampaignPanel({
       <div className="flex flex-wrap items-center gap-2">
         <Target className="h-4 w-4 text-primary" />
         <h2 className="font-serif text-lg text-foreground">{c.company_name}</h2>
-        <Badge variant="outline">{lbl(STAGE_LABEL, c.stage)}</Badge>
+        {STAGE_LABEL[c.stage] && <Badge variant="outline">{lbl(STAGE_LABEL, c.stage)}</Badge>}
         <Badge variant="secondary">
           {c.requested_video_count} × {c.video_duration_s}s · {String(c.language).toUpperCase()}
         </Badge>
