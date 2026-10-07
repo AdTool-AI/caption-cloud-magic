@@ -157,6 +157,25 @@ async function collectAssets(ctx: ToolContext, a: Args): Promise<ToolResult> {
     if (!m.file_url) continue;
     own.push({ campaign_id: c.id, user_id: ctx.userId, url: m.file_url, kind: 'adtool_media', media_library_id: m.id, source_url: null, reuse_status: 'reuse_ok', owner_note: `User's own Media Library item: ${m.file_name ?? ''}` });
   }
+  // Explicit public references (logo / product photos): always reference_only, only from a saved source domain.
+  const refs = Array.isArray(a.references) ? a.references.slice(0, 10) : [];
+  const rejected: Array<{ url: string; reason: string }> = [];
+  if (refs.length) {
+    const { data: srcs } = await ctx.admin.from('campaign_sources').select('url').eq('campaign_id', c.id);
+    const host = (u: string) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return null; } };
+    const known = new Set((srcs ?? []).map((x: { url: string }) => host(x.url)).filter(Boolean));
+    for (const r of refs) {
+      const url = String(r?.url ?? '');
+      const h = host(url);
+      if (!h || !url.startsWith('https://')) { rejected.push({ url, reason: 'invalid https URL' }); continue; }
+      if (!known.has(h)) { rejected.push({ url, reason: 'domain not among saved research sources' }); continue; }
+      own.push({
+        campaign_id: c.id, user_id: ctx.userId, url, kind: r?.kind === 'logo' ? 'logo' : 'website_image',
+        source_url: typeof r?.source_url === 'string' ? r.source_url : null, reuse_status: 'reference_only',
+        owner_note: `Public reference (${r?.kind === 'logo' ? 'logo' : 'product image'}): ${String(r?.note ?? '').slice(0, 200)} — usage rights NOT cleared; never in a final deliverable.`,
+      });
+    }
+  }
   if (own.length) await ctx.admin.from('campaign_assets').upsert(own, { onConflict: 'campaign_id,url', ignoreDuplicates: true });
   const { data: assets } = await ctx.admin.from('campaign_assets').select('id, url, kind, source_url, reuse_status, owner_note').eq('campaign_id', c.id).order('created_at');
   await setStage(ctx, c.id, advance(c.stage, 'asset_collection'));
@@ -167,6 +186,7 @@ async function collectAssets(ctx: ToolContext, a: Args): Promise<ToolResult> {
         reuse_ok: (assets ?? []).filter((x: { reuse_status: string }) => x.reuse_status === 'reuse_ok').length,
         reference_only: (assets ?? []).filter((x: { reuse_status: string }) => x.reuse_status === 'reference_only').length,
       },
+      rejected_references: rejected,
       rule: 'Public web images are reference_only and must not appear in a final deliverable. User Media Library items are the user\'s own; check they fit this business before using them.',
     },
   };
