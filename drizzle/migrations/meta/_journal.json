@@ -15,6 +15,13 @@
       "when": 1791404566758,
       "tag": "0001_agent_request_mode",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791406610840,
+      "tag": "0002_campaign_shots_routing_stale",
+      "breakpoints": true
     }
   ]
 }
