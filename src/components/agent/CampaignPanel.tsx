@@ -232,7 +232,7 @@ export function CampaignPanel({
   const historicalApprovals = snap.approvals.filter((a) => !derived.actionable.includes(a));
   const activity = ACTIVITY_LABEL[derived.activity];
   return (
-    <Card className="mt-4 border-border/60 bg-card/70 p-4 backdrop-blur">
+    <Card className="mt-4 min-w-0 max-w-full overflow-hidden border-border/60 bg-card/70 p-4 backdrop-blur">
       <div className="flex flex-wrap items-center gap-2">
         <Target className="h-4 w-4 text-primary" />
         <h2 className="font-serif text-lg text-foreground">{c.company_name}</h2>
@@ -526,7 +526,7 @@ export function CampaignPanel({
       </Collapsible>
 
       {derived.routed.length > 0 && (
-        <div className="mt-4 rounded-md border border-border/60 bg-background/40 p-3">
+        <div className="mt-4 min-w-0 rounded-md border border-border/60 bg-background/40 p-3">
           <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
             <h3 className="font-medium uppercase tracking-wide text-muted-foreground">{tx({ de: "Produktion", en: "Production", es: "Producción" })}</h3>
             {snap.budgetApproval && (
@@ -548,7 +548,7 @@ export function CampaignPanel({
               </Button>
             )}
           </div>
-          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid min-w-0 gap-2 md:grid-cols-2 xl:grid-cols-3">
             {visibleProductionShots.map((shot) => {
               const status = derived.statusOf.get(shot.id)!;
               const attempts = derived.attemptsByShot.get(shot.id) ?? [];
@@ -559,7 +559,7 @@ export function CampaignPanel({
                 <div
                   key={shot.id}
                   id={`shot-${shot.id}`}
-                  className={`rounded-md border bg-card/40 p-2 text-xs transition-colors ${highlight === shot.id ? "border-primary" : "border-border/60"}`}
+                  className={`min-w-0 rounded-md border bg-card/40 p-2 text-xs transition-colors ${highlight === shot.id ? "border-primary" : "border-border/60"}`}
                 >
                   <div className="flex gap-2">
                     <button
@@ -651,11 +651,11 @@ export function CampaignPanel({
       )}
 
       <Dialog open={!!player} onOpenChange={(o) => !o && setPlayer(null)}>
-        <DialogContent className="max-w-3xl">
+        <DialogContent className="max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-3xl overflow-y-auto p-4 sm:p-6">
           <DialogHeader>
-            <DialogTitle>{player?.title || tx({ de: "Clip", en: "Clip", es: "Clip" })}</DialogTitle>
+            <DialogTitle className="pr-8 text-left leading-snug">{player?.title || tx({ de: "Clip", en: "Clip", es: "Clip" })}</DialogTitle>
           </DialogHeader>
-          {player && <video src={player.url} controls autoPlay className="max-h-[70vh] w-full rounded-md bg-muted object-contain" />}
+          {player && <video src={player.url} controls autoPlay className="max-h-[calc(100dvh-9rem)] w-full rounded-md bg-muted object-contain" />}
           {player && (
             <a href={player.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
               <ExternalLink className="h-3 w-3" /> {tx({ de: "In neuem Tab öffnen", en: "Open in new tab", es: "Abrir en nueva pestaña" })}

@@ -9,4 +9,4 @@
 - [ ] Phase C (not started): compose Video 1 — German TTS voiceover, music/SFX, deterministic overlays/CTA from saved post_production, final QA → final_client_ready
 
 - [x] Open points before more paid runs (2026-10-07): S2 read-only answer, interrupted/Ask-again, durable request idempotency, server read-only mode, single-shot retry approvals bound + atomic, View-clip UI — deployed and checked
-- [ ] Phone layout: the global top bar overflows sideways by ~143px (not the agent page)
+- [ ] Remaining Agent UI polish: fix mobile header overflow, keyboard-safe composer, safe Markdown, and verify clip titles on desktop/mobile without sending messages or triggering paid actions
