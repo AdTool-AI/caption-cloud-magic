@@ -25,6 +25,8 @@ export interface SendAgentMessageParams {
   message: string;
   conversationId?: string | null;
   language?: string;
+  /** Durable idempotency key: the server processes each (user, requestId) at most once. */
+  requestId?: string;
   signal?: AbortSignal;
   onEvent: (event: AgentEvent) => void;
 }
@@ -48,19 +50,22 @@ export async function sendAgentMessage(params: SendAgentMessageParams): Promise<
       message: params.message,
       conversationId: params.conversationId ?? null,
       language: params.language,
+      requestId: params.requestId,
     }),
     signal: params.signal,
   });
 
   if (!res.ok || !res.body) {
     let message = `Request failed (${res.status}).`;
+    let code: string | undefined;
     try {
       const body = await res.json();
       if (body?.error) message = body.error;
+      if (typeof body?.code === 'string') code = body.code;
     } catch {
       /* keep default */
     }
-    params.onEvent({ type: 'error', message });
+    params.onEvent({ type: 'error', message, code });
     params.onEvent({ type: 'done' });
     return;
   }

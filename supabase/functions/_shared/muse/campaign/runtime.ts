@@ -13,7 +13,7 @@ import {
   validateShape, validateShots, type PlannedVideo,
 } from './diversity.ts';
 import {
-  estimateCampaignBudget, prepareShotRetry, productionStatus, retryShot,
+  estimateCampaignBudget, prepareShotRetry, productionStatus, requestShotRetryApproval, retryShot,
   reviewShot, routeCampaignShots, startCampaignProduction,
 } from './production.ts';
 
@@ -502,6 +502,7 @@ export async function executeCampaignTool(ctx: ToolContext, name: string, args: 
     case 'start_campaign_production': return await startCampaignProduction(ctx, args ?? {});
     case 'review_shot': return await reviewShot(ctx, args ?? {});
     case 'prepare_shot_retry': return await prepareShotRetry(ctx, args ?? {});
+    case 'request_retry_approval': return await requestShotRetryApproval(ctx, args ?? {});
     case 'retry_shot': return await retryShot(ctx, args ?? {});
     case 'get_campaign_production_status': return await productionStatus(ctx, args ?? {});
     default: return null;

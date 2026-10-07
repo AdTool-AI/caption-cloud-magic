@@ -10,6 +10,7 @@ import { MUSE_TOOL_DEFINITIONS, MUSE_PAID_TOOLS } from './tools.ts';
 import { buildSystemPrompt } from './systemPrompt.ts';
 import { executeMuseTool, type ToolContext } from './toolRuntime.ts';
 import { estimateMuseCostUsd, type MuseConfig } from './config.ts';
+import { guardToolCall, READ_ONLY_INSTRUCTION, READ_ONLY_TOOLS, type TurnMode } from './turnPolicy.ts';
 
 export type AgentEvent =
   | { type: 'conversation'; conversationId: string }
@@ -45,6 +46,10 @@ export interface RunAgentParams {
   internalAuthUserId?: string;
   /** Test-only (admin-gated by caller): rename the first tool call Muse makes, to exercise the allow-list. */
   testRewriteFirstToolCallTo?: string;
+  /** Server-decided turn mode. read_only = only reading tools exist and execute. */
+  mode?: TurnMode;
+  /** Test-only (admin-gated by caller): fail before the first model call — no Muse, no provider. */
+  faultInjectBeforeModel?: boolean;
 }
 
 interface PendingOutput {
@@ -136,10 +141,14 @@ export async function runAgentTurn(params: RunAgentParams): Promise<void> {
     maxTurnSpend: config.maxTurnSpend,
     spentThisTurn: 0,
     internalAuthUserId: params.internalAuthUserId,
+    turnMode: params.mode ?? 'normal',
   };
-  const toolDefs = params.allowedTools
-    ? MUSE_TOOL_DEFINITIONS.filter((t) => params.allowedTools!.has(t.name))
-    : MUSE_TOOL_DEFINITIONS;
+  const readOnly = params.mode === 'read_only';
+  const toolDefs = MUSE_TOOL_DEFINITIONS
+    .filter((t) => !params.allowedTools || params.allowedTools.has(t.name))
+    .filter((t) => !readOnly || READ_ONLY_TOOLS.has(t.name));
+  const instructions = buildSystemPrompt({ language: params.language }) + (readOnly ? `\n\n${READ_ONLY_INSTRUCTION}` : '');
+  if (readOnly) log('read_only_turn', { conversationId, tools: toolDefs.map((t) => t.name) });
 
   let input: MuseInputItem[] = [
     ...recoveredOutputs.map((p) => ({ type: 'function_call_output' as const, call_id: p.call_id, output: p.output })),
@@ -186,13 +195,16 @@ export async function runAgentTurn(params: RunAgentParams): Promise<void> {
   for (let iteration = 0; iteration < config.maxToolIterations; iteration++) {
     let response;
     try {
+      if (params.faultInjectBeforeModel && iteration === 0) {
+        throw new Error('Simulated agent failure before the model call (test fault injection). Nothing was started.');
+      }
       if (faultPending && (toolBatches > 0 || recoveredOutputs.length > 0)) {
         faultPending = false;
         throw new Error('Simulated Meta Model API error 503 (fault injection).');
       }
       response = await createMuseResponse(config, {
         input,
-        instructions: buildSystemPrompt({ language: params.language }),
+        instructions,
         tools: toolDefs,
         previousResponseId,
       });
@@ -245,7 +257,11 @@ export async function runAgentTurn(params: RunAgentParams): Promise<void> {
 
       let result;
       try {
-        if (params.allowedTools && !params.allowedTools.has(call.name)) {
+        const blocked = guardToolCall(params.mode ?? 'normal', call.name);
+        if (blocked) {
+          result = { output: blocked };
+          log('read_only_blocked', { conversationId, tool: call.name });
+        } else if (params.allowedTools && !params.allowedTools.has(call.name)) {
           result = { output: { error: `Tool "${call.name}" is not available in a background turn. Paid generation needs a new user approval in the foreground.`, code: 'TOOL_NOT_ALLOWED' } };
         } else {
           result = await executeMuseTool(ctx, call.name, args);
@@ -297,7 +313,7 @@ export async function runAgentTurn(params: RunAgentParams): Promise<void> {
       if (call.name === 'estimate_video_cost' && result.output?.approval_required) {
         emit({ type: 'approval_required', approval: result.output });
       }
-      if (call.name === 'estimate_campaign_budget' && result.output?.campaign_approval_required) {
+      if ((call.name === 'estimate_campaign_budget' || call.name === 'request_retry_approval') && result.output?.campaign_approval_required) {
         emit({ type: 'approval_required', approval: { ...result.output, kind: 'campaign_budget' } });
       }
 
@@ -323,7 +339,7 @@ export async function runAgentTurn(params: RunAgentParams): Promise<void> {
           ...input,
           { role: 'user', content: 'Tool step limit for this turn reached. Summarize the current state briefly; the user can continue in the next message.' },
         ],
-        instructions: buildSystemPrompt({ language: params.language }),
+        instructions,
         previousResponseId,
       });
       totalIn += closing.usage.input;

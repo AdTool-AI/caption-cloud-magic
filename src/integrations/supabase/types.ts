@@ -798,6 +798,36 @@ export type Database = {
           },
         ]
       }
+      agent_request_ids: {
+        Row: {
+          conversation_id: string | null
+          created_at: string
+          fingerprint: string
+          request_id: string
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          conversation_id?: string | null
+          created_at?: string
+          fingerprint: string
+          request_id: string
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          conversation_id?: string | null
+          created_at?: string
+          fingerprint?: string
+          request_id?: string
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       agent_tasks: {
         Row: {
           approval_id: string | null
@@ -4949,13 +4979,17 @@ export type Database = {
       campaign_budget_approvals: {
         Row: {
           campaign_id: string
+          consumed_at: string | null
+          consumed_attempt_no: number | null
           conversation_id: string | null
           created_at: string
           estimated_total: number
           execution_expires_at: string
           id: string
+          kind: string
           max_total: number
           pricing_version: string
+          retry_binding: Json | null
           retry_budget_per_shot: number
           retry_mode: string
           scope: Json
@@ -4968,13 +5002,17 @@ export type Database = {
         }
         Insert: {
           campaign_id: string
+          consumed_at?: string | null
+          consumed_attempt_no?: number | null
           conversation_id?: string | null
           created_at?: string
           estimated_total: number
           execution_expires_at: string
           id?: string
+          kind?: string
           max_total: number
           pricing_version: string
+          retry_binding?: Json | null
           retry_budget_per_shot?: number
           retry_mode?: string
           scope: Json
@@ -4987,13 +5025,17 @@ export type Database = {
         }
         Update: {
           campaign_id?: string
+          consumed_at?: string | null
+          consumed_attempt_no?: number | null
           conversation_id?: string | null
           created_at?: string
           estimated_total?: number
           execution_expires_at?: string
           id?: string
+          kind?: string
           max_total?: number
           pricing_version?: string
+          retry_binding?: Json | null
           retry_budget_per_shot?: number
           retry_mode?: string
           scope?: Json
@@ -22718,6 +22760,16 @@ export type Database = {
           p_platforms: string[]
         }
         Returns: string
+      }
+      consume_retry_approval: {
+        Args: {
+          _approval_id: string
+          _attempt_no: number
+          _plan_fingerprint: string
+          _shot_id: string
+          _user_id: string
+        }
+        Returns: boolean
       }
       count_founders_claimed: { Args: never; Returns: number }
       decrement_model_qa_stats: {
