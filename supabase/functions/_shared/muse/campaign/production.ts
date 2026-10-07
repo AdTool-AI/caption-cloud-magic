@@ -21,6 +21,7 @@ import {
   type ModelQaStatsRow, type RouteCandidate, type ShotInput,
 } from './routing.ts';
 import { approvedShotIds, budgetTotals, buildScope, filterDispatchable, scopeShotsToVideos } from './scope.ts';
+import { routingFingerprint } from './shotPersistence.ts';
 import { runShotQa } from './shotQa.ts';
 import { budgetFit, materialChanges, planRetry, predictImprovement } from './retryPlan.ts';
 import { buildPostProduction } from './postProduction.ts';
@@ -167,6 +168,12 @@ export async function estimateCampaignBudget(ctx: ToolContext, a: Args): Promise
     .from('campaign_shots').select('id, video_id, shot_index, selected_model, duration_s, resolution, estimated_cost, status')
     .eq('campaign_id', c.id).eq('status', 'quoted').order('shot_index');
   if (!shots?.length) return err('PREREQUISITE', 'Call route_campaign_shots first.');
+  {
+    const { data: stale } = await ctx.admin.from('campaign_shots').select('id, video_id').eq('campaign_id', c.id).eq('routing_stale', true);
+    const wantedVids = Array.isArray(a.video_ids) ? new Set(a.video_ids) : null;
+    const hit = (stale ?? []).filter((s: { video_id: string }) => !wantedVids || wantedVids.has(s.video_id));
+    if (hit.length) return err('ROUTING_STALE', `${hit.length} shot(s) changed after routing. Re-run route_campaign_shots before estimating a budget.`);
+  }
 
   // Optional video scoping: the approval scope (shot IDs) is what production
   // dispatches, so a scoped approval can never start other videos.
