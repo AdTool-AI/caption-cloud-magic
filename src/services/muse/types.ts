@@ -5,7 +5,7 @@
 
 export type AgentEvent =
   | { type: 'conversation'; conversationId: string }
-  | { type: 'turn_mode'; mode: 'read_only' | 'normal' }
+  | { type: 'turn_mode'; mode: 'read_only' | 'planning' | 'normal'; reason?: string }
   | { type: 'tool_started'; name: string; arguments: unknown }
   | { type: 'tool_result'; name: string; result: unknown; generationId?: string }
   | { type: 'approval_required'; approval: AgentApprovalQuote }

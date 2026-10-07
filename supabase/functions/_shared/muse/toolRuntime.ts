@@ -35,7 +35,7 @@ export interface ToolContext {
   /** Set only by the background resume worker (service key + user id header). */
   internalAuthUserId?: string;
   /** Server-decided turn mode; read_only refuses every non-read tool at execution. */
-  turnMode?: 'read_only' | 'normal';
+  turnMode?: 'read_only' | 'planning' | 'normal';
   /** Test seam: provider transport (defaults to global fetch). */
   fetchImpl?: typeof fetch;
 }
@@ -173,6 +173,8 @@ async function getAvailableVideoModels(ctx: ToolContext, args: { family?: string
       id: m.id,
       name: m.displayName,
       provider: m.provider,
+      manufacturer: m.provider,
+      api_provider: m.edgeFunction === 'generate-seedance25-video' ? 'BytePlus ModelArk' : 'Replicate',
       family: m.family,
       tier: m.uiGroup,
       modes,

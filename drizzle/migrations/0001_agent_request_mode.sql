@@ -1,0 +1,1 @@
+ALTER TABLE public.agent_request_ids ADD COLUMN IF NOT EXISTS mode text, ADD COLUMN IF NOT EXISTS mode_reason text;

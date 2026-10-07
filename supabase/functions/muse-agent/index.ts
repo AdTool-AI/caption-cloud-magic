@@ -9,7 +9,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 import { loadMuseConfig } from '../_shared/muse/config.ts';
 import { runAgentTurn, type AgentEvent } from '../_shared/muse/agentLoop.ts';
 import { prepareShotRetry } from '../_shared/muse/campaign/production.ts';
-import { requestFingerprint, resolveTurnMode } from '../_shared/muse/turnPolicy.ts';
+import { decideTurnMode, requestFingerprint } from '../_shared/muse/turnPolicy.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -195,7 +195,23 @@ Deno.serve(async (req) => {
   }
 
   // ---- Server-decided turn mode. The client flag can only turn read-only ON.
-  const mode = resolveTurnMode({ message, clientReadOnly: raw.readOnly });
+  // Continuations ("weiter") are judged against the previous user requests of the
+  // SAME conversation as stored on the server — never against client state.
+  let priorUserMessages: string[] = [];
+  if (body.conversationId) {
+    const { data: prior } = await admin.from('agent_messages').select('content, tool_calls')
+      .eq('conversation_id', body.conversationId).eq('user_id', userId).eq('role', 'user')
+      .order('created_at', { ascending: false }).limit(12);
+    priorUserMessages = (prior ?? [])
+      // deno-lint-ignore no-explicit-any
+      .filter((m: any) => !m.tool_calls?.internal)
+      // deno-lint-ignore no-explicit-any
+      .map((m: any) => String(m.content ?? ''));
+  }
+  const decision = decideTurnMode({ message, clientReadOnly: raw.readOnly, priorUserMessages });
+  const mode = decision.mode;
+  console.log('[muse-agent] turn_mode', JSON.stringify({ conversationId: body.conversationId ?? null, mode, reason: decision.reason }));
+  if (requestId) await admin.from('agent_request_ids').update({ mode, mode_reason: decision.reason }).eq('user_id', userId).eq('request_id', requestId);
 
   // Admin-only test hooks (no paid calls): fault injection and tool-call rewrite.
   let isAdmin = false;
@@ -217,7 +233,7 @@ Deno.serve(async (req) => {
           /* client disconnected */
         }
       };
-      emit({ type: 'turn_mode', mode } as unknown as AgentEvent);
+      emit({ type: 'turn_mode', mode, reason: decision.reason } as unknown as AgentEvent);
       try {
         await runAgentTurn({
           admin,
@@ -234,6 +250,7 @@ Deno.serve(async (req) => {
           faultInjectBeforeModel,
           testRewriteFirstToolCallTo,
           mode,
+          needsClarification: decision.needsClarification,
         });
         if (requestId) await admin.from('agent_request_ids').update({ status: 'done', updated_at: new Date().toISOString() }).eq('user_id', userId).eq('request_id', requestId);
       } catch (err) {

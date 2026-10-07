@@ -8,6 +8,13 @@
       "when": 1791398608469,
       "tag": "0000_retry_binding_idempotency",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1791404566758,
+      "tag": "0001_agent_request_mode",
+      "breakpoints": true
     }
   ]
 }
