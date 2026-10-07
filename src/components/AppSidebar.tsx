@@ -42,7 +42,7 @@ export function AppSidebar() {
 
   return (
     <TooltipProvider delayDuration={0}>
-      <Sidebar className="w-[68px] min-w-[68px] max-w-[68px] sticky top-0 h-screen max-h-screen self-start overflow-hidden" collapsible="none">
+      <Sidebar className="hidden w-[68px] min-w-[68px] max-w-[68px] sticky top-0 h-screen max-h-screen self-start overflow-hidden md:flex" collapsible="none">
         {/* Brand icon */}
         <div className="flex items-center justify-center h-14 border-b border-border bg-card">
           <Brand compact showText={false} />

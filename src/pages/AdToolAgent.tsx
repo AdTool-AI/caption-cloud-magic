@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { CampaignPanel } from "@/components/agent/CampaignPanel";
+import { AgentMarkdown } from "@/components/agent/AgentMarkdown";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useAIVideoWallet } from "@/hooks/useAIVideoWallet";
 import { formatMoney, groupByTurn, isApprovalActionable } from "@/lib/agentStatus";
@@ -82,6 +83,36 @@ export default function AdToolAgent() {
   const [activityOpen, setActivityOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const composerRef = useRef<HTMLDivElement | null>(null);
+  const [mobileChatHeight, setMobileChatHeight] = useState<number | null>(null);
+
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    let settleTimer: number | undefined;
+    const updateHeight = () => {
+      if (window.innerWidth >= 1024) {
+        setMobileChatHeight(null);
+        return;
+      }
+      const visibleHeight = viewport?.height ?? window.innerHeight;
+      const top = composerRef.current?.getBoundingClientRect().top ?? 0;
+      setMobileChatHeight(Math.max(320, Math.floor(visibleHeight - Math.max(top, 0) - 12)));
+      if (document.activeElement instanceof HTMLTextAreaElement) {
+        window.clearTimeout(settleTimer);
+        settleTimer = window.setTimeout(() => composerRef.current?.scrollIntoView({ block: "end" }), 50);
+      }
+    };
+    updateHeight();
+    viewport?.addEventListener("resize", updateHeight);
+    viewport?.addEventListener("scroll", updateHeight);
+    window.addEventListener("resize", updateHeight);
+    return () => {
+      viewport?.removeEventListener("resize", updateHeight);
+      viewport?.removeEventListener("scroll", updateHeight);
+      window.removeEventListener("resize", updateHeight);
+      window.clearTimeout(settleTimer);
+    };
+  }, [conversationId, loading]);
 
   const setConversationId = useCallback(
     (id: string | null) => {
@@ -437,7 +468,7 @@ export default function AdToolAgent() {
 
   return (
     <PageWrapper className="min-h-0">
-      <div className="mx-auto flex min-h-0 w-full max-w-7xl flex-col px-4 py-6">
+      <div className="mx-auto flex min-h-0 min-w-0 w-full max-w-7xl flex-col px-4 py-6">
         <div className="mb-4 flex items-center gap-3">
           <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/15 text-primary">
             <Bot className="h-5 w-5" />
@@ -489,7 +520,11 @@ export default function AdToolAgent() {
           </Card>
 
           {/* Conversation — the only scroll area for the chat */}
-          <Card className="flex h-[75vh] min-h-0 flex-col overflow-hidden border-border/60 bg-card/70 backdrop-blur lg:h-full">
+          <Card
+            ref={composerRef}
+            style={mobileChatHeight ? { height: `${mobileChatHeight}px` } : undefined}
+            className="flex h-[calc(100dvh-5rem)] min-h-[320px] flex-col overflow-hidden border-border/60 bg-card/70 backdrop-blur lg:h-full lg:min-h-0"
+          >
             <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4">
               {loading && messages.length === 0 && (
                 <div className="flex justify-center p-6"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
@@ -533,7 +568,7 @@ export default function AdToolAgent() {
                             m.role === "user" ? "ml-auto bg-primary/15 text-foreground" : "bg-muted/50 text-foreground"
                           )}
                         >
-                          {m.text}
+                          {m.role === "assistant" ? <AgentMarkdown>{m.text}</AgentMarkdown> : m.text}
                         </div>
                       )}
                       {unanswered && (
@@ -599,7 +634,7 @@ export default function AdToolAgent() {
               </CollapsibleContent>
             </Collapsible>
 
-            <div className="border-t border-border/60 p-3">
+            <div className="shrink-0 border-t border-border/60 bg-card/95 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
               <div className="flex gap-2">
                 <Textarea
                   value={input}
@@ -612,6 +647,12 @@ export default function AdToolAgent() {
                   }}
                   rows={2}
                   className="resize-none"
+                  onFocus={() => {
+                    window.setTimeout(() => {
+                      window.dispatchEvent(new Event("resize"));
+                      composerRef.current?.scrollIntoView({ block: "end" });
+                    }, 50);
+                  }}
                   placeholder={tx({ de: "Was soll produziert werden?", en: "What should be produced?", es: "¿Qué hay que producir?" })}
                 />
                 <Button onClick={() => void handleSend()} disabled={busy || !input.trim()} size="icon" className="h-auto w-12">

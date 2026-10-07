@@ -174,11 +174,11 @@ function AppLayout() {
   const isSetupRoute = location.pathname.startsWith('/onboarding');
 
   return (
-    <div className="flex w-full">
+    <div className="flex min-w-0 w-full">
       <ScrollToTop />
       {user && !isSetupRoute && <FounderExperience />}
       {user && !isLandingRoute && !isSetupRoute && <AppSidebar />}
-      <div className="min-w-0 flex-1 flex flex-col">
+      <div className="min-w-0 max-w-full flex-1 flex flex-col">
         {!isSetupRoute && (isLandingRoute ? <Header /> : <AppHeader />)}
         {user && !isLandingRoute && !isSetupRoute && <TrialBanner />}
         {user && !isSetupRoute && <NewsTicker />}

@@ -82,8 +82,8 @@ export const NewsTicker = () => {
             </div>
 
             {/* Scrolling news */}
-            <div className="overflow-hidden flex-1 min-w-0 h-full flex items-center">
-              <div className="flex whitespace-nowrap animate-[marquee_120s_linear_infinite] group-hover:[animation-play-state:paused]">
+            <div className="relative h-full w-0 min-w-0 flex-1 overflow-hidden">
+              <div className="absolute inset-y-0 left-0 flex whitespace-nowrap animate-[marquee_120s_linear_infinite] group-hover:[animation-play-state:paused]">
                 <div className="flex items-center">
                   {renderScrollContent()}
                 </div>
