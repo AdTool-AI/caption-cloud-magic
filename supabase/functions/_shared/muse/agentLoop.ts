@@ -10,7 +10,7 @@ import { MUSE_TOOL_DEFINITIONS, MUSE_PAID_TOOLS } from './tools.ts';
 import { buildSystemPrompt } from './systemPrompt.ts';
 import { executeMuseTool, type ToolContext } from './toolRuntime.ts';
 import { estimateMuseCostUsd, type MuseConfig } from './config.ts';
-import { CLARIFY_CONTINUATION_INSTRUCTION, guardToolCall, PLANNING_INSTRUCTION, READ_ONLY_INSTRUCTION, toolAllowedInMode, type TurnMode } from './turnPolicy.ts';
+import { CLARIFY_CONTINUATION_INSTRUCTION, guardToolCall, PLANNING_INSTRUCTION, PLANNING_MAX_TOOL_ITERATIONS, READ_ONLY_INSTRUCTION, toolAllowedInMode, type TurnMode } from './turnPolicy.ts';
 
 export type AgentEvent =
   | { type: 'conversation'; conversationId: string }
@@ -197,7 +197,10 @@ export async function runAgentTurn(params: RunAgentParams): Promise<void> {
     hasUndelivered = false;
   };
 
-  for (let iteration = 0; iteration < config.maxToolIterations; iteration++) {
+  // Planning jobs finish in one authorized turn (no repeated "weiter"), with a hard step cap.
+  const maxIterations = mode === 'planning' ? Math.max(config.maxToolIterations, PLANNING_MAX_TOOL_ITERATIONS) : config.maxToolIterations;
+  let stepLimitHit = false;
+  for (let iteration = 0; iteration < maxIterations; iteration++) {
     let response;
     try {
       if (params.faultInjectBeforeModel && iteration === 0) {
@@ -332,7 +335,7 @@ export async function runAgentTurn(params: RunAgentParams): Promise<void> {
     log('tools_executed', { conversationId, responseId: previousResponseId, count: input.length });
     await persistPending(input, previousResponseId);
     hasUndelivered = true;
-    if (iteration === config.maxToolIterations - 1) pendingOutputs = true;
+    if (iteration === maxIterations - 1) { pendingOutputs = true; stepLimitHit = true; }
   }
 
   // Iteration cap hit with tool outputs not yet delivered: close the pending
@@ -373,6 +376,8 @@ export async function runAgentTurn(params: RunAgentParams): Promise<void> {
       content: finalText,
       response_id: previousResponseId,
       resume_task_id: params.resumeTaskId ?? null,
+      // Real obstacle: the server step cap ended the job — stored, not hidden.
+      tool_calls: stepLimitHit ? { turn_status: 'step_limit', max_steps: maxIterations } : null,
     });
   } else if (!params.internal) {
     // Every processed user request gets a persisted, visible outcome. No

@@ -75,7 +75,7 @@ export const PLANNING_TOOL_AUDIT: Readonly<Record<string, { writes: string; inte
   identify_content_pillars: { writes: 'campaign_pillars — replaces the set', internalCost: 'none' },
   identify_business_areas: { writes: 'campaign_business_areas — replaces the set', internalCost: 'none' },
   plan_campaign_videos: { writes: 'campaign_videos — upsert by (campaign_id,video_index); campaign_similarity_checks', internalCost: 'embeddings API' },
-  write_video_scripts: { writes: 'campaign_videos.script, campaign_shots — replaces shots per video', internalCost: 'none' },
+  write_video_scripts: { writes: 'campaign_videos.script, campaign_shots — updates in place by shot_index (ids/routing kept, changed shots marked routing_stale)', internalCost: 'none' },
   discover_social_profiles: { writes: 'campaign_social_profiles — upsert by (campaign_id,platform)', internalCost: 'Firecrawl API' },
   record_social_analysis: { writes: 'campaign_social_profiles', internalCost: 'none' },
   route_campaign_shots: { writes: 'campaign_shots routing fields + estimated_cost (no approval, no reservation)', internalCost: 'none' },
@@ -180,7 +180,11 @@ export const READ_ONLY_INSTRUCTION =
 export const CLARIFY_CONTINUATION_INSTRUCTION =
   'The user sent a short continuation ("weiter", "continue", …) but the server found no earlier request in this chat it could continue. Do not guess: ask in one short sentence what exactly should be continued (e.g. research, saving the plan, or a status check). Nothing is started in this turn.';
 
+/** Hard step cap for one planning job (never an endless loop). */
+export const PLANNING_MAX_TOOL_ITERATIONS = 20;
+
 export const PLANNING_INSTRUCTION = [
+  'Finish the WHOLE authorized planning job in this turn without asking the user to say "weiter": continue from what get_campaign shows is already stored (research → pillars/areas → videos → scripts/shots → route_campaign_shots → get_campaign). Only stop early for a real obstacle (missing input only the user can give, tool error) and name it plainly.',
   'THIS IS A PLANNING TURN (enforced by the server). You may research and SAVE the campaign plan with the planning tools: research, facts, pillars, business areas, assets (reference_only), video concept, script and shots, routing. Generation, production, budget approvals, retries and wallet charges are blocked — do not offer to start them in this turn.',
   'Work on the existing campaign of this chat (get_campaign first). Never create a second campaign for the same company. Saving is repeatable: calling the same tool again replaces/updates the stored objects, it never duplicates them.',
   'After saving, call get_campaign again and report what is actually stored (counts of facts, pillars, areas, assets, videos, shots, script present, total shot seconds). Never claim something is saved that get_campaign does not show.',
