@@ -8,6 +8,7 @@ import { createMuseResponse } from '../museClient.ts';
 import { researchBusiness } from './research.ts';
 import { embedTexts } from './embeddings.ts';
 import { computeSocialCompleteness, discoverSocialProfiles } from './social.ts';
+import { planShotSave, type ExistingShot, type ShotPlanFields } from './shotPersistence.ts';
 import {
   assessPairs, coverageScore, dimensionText, exactDiversityRules, norm, SIMILARITY_DIMENSIONS,
   validateShape, validateShots, type PlannedVideo,
