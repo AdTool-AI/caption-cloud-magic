@@ -91,7 +91,7 @@ export async function routeCampaignShots(ctx: ToolContext, a: Args): Promise<Too
         });
         continue;
       }
-      const asset = s.asset_id ? assetById.get(s.asset_id) : null;
+      const asset = (s.asset_id ? assetById.get(s.asset_id) : null) as { reuse_status?: string } | null | undefined;
       // reference_only assets may guide the prompt but are never sent as a first frame.
       const mode: 't2v' | 'i2v' = asset && asset.reuse_status === 'reuse_ok' ? 'i2v' : 't2v';
       const risk = assessRisk(s);
