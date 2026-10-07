@@ -183,6 +183,15 @@ export const CLARIFY_CONTINUATION_INSTRUCTION =
 /** Hard step cap for one planning job (never an endless loop). */
 export const PLANNING_MAX_TOOL_ITERATIONS = 20;
 
+/** Server-side auto continuations of one planning job (bounded, no endless loop). */
+export const PLANNING_MAX_AUTO_CONTINUES = 3;
+export const PLANNING_CONTINUE_INPUT = 'INTERNAL SERVER CONTINUATION (not written by the user): the user already authorized this whole planning job. Continue with the next open step now using the planning tools; do not ask the user to say "weiter". If a real obstacle blocks you, name it and stop.';
+
+/** True when an answer hands the job back ("bitte mit weiter fortfahren", "say continue"). */
+export function asksToContinue(text: string): boolean {
+  return /(„|"|')?\b(weiter|continue|continuar|sigue)\b("|“|'|”)?[^.\n]{0,40}\b(fortfahren|fahren|schreib\w*|sag\w*|antwort\w*|to\s+proceed|to\s+continue|para\s+seguir)|\b(mit|with|con)\s+[„"']?(weiter|continue|continuar)\b|\boffen:.*\bweiter\b/i.test(text);
+}
+
 export const PLANNING_INSTRUCTION = [
   'Finish the WHOLE authorized planning job in this turn without asking the user to say "weiter": continue from what get_campaign shows is already stored (research → pillars/areas → videos → scripts/shots → route_campaign_shots → get_campaign). Only stop early for a real obstacle (missing input only the user can give, tool error) and name it plainly.',
   'THIS IS A PLANNING TURN (enforced by the server). You may research and SAVE the campaign plan with the planning tools: research, facts, pillars, business areas, assets (reference_only), video concept, script and shots, routing. Generation, production, budget approvals, retries and wallet charges are blocked — do not offer to start them in this turn.',

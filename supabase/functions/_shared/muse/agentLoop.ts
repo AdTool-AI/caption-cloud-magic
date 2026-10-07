@@ -10,7 +10,7 @@ import { MUSE_TOOL_DEFINITIONS, MUSE_PAID_TOOLS } from './tools.ts';
 import { buildSystemPrompt } from './systemPrompt.ts';
 import { executeMuseTool, type ToolContext } from './toolRuntime.ts';
 import { estimateMuseCostUsd, type MuseConfig } from './config.ts';
-import { CLARIFY_CONTINUATION_INSTRUCTION, guardToolCall, PLANNING_INSTRUCTION, PLANNING_MAX_TOOL_ITERATIONS, READ_ONLY_INSTRUCTION, toolAllowedInMode, type TurnMode } from './turnPolicy.ts';
+import { CLARIFY_CONTINUATION_INSTRUCTION, guardToolCall, PLANNING_INSTRUCTION, PLANNING_MAX_TOOL_ITERATIONS, PLANNING_MAX_AUTO_CONTINUES, PLANNING_CONTINUE_INPUT, asksToContinue, READ_ONLY_INSTRUCTION, toolAllowedInMode, type TurnMode } from './turnPolicy.ts';
 
 export type AgentEvent =
   | { type: 'conversation'; conversationId: string }
@@ -200,6 +200,7 @@ export async function runAgentTurn(params: RunAgentParams): Promise<void> {
   // Planning jobs finish in one authorized turn (no repeated "weiter"), with a hard step cap.
   const maxIterations = mode === 'planning' ? Math.max(config.maxToolIterations, PLANNING_MAX_TOOL_ITERATIONS) : config.maxToolIterations;
   let stepLimitHit = false;
+  let autoContinues = 0;
   for (let iteration = 0; iteration < maxIterations; iteration++) {
     let response;
     try {
@@ -233,7 +234,16 @@ export async function runAgentTurn(params: RunAgentParams): Promise<void> {
       emit({ type: 'message', text: response.outputText });
     }
 
-    if (response.toolCalls.length === 0) break;
+    if (response.toolCalls.length === 0) {
+      // Planning job: never hand the job back with "say weiter" while steps remain.
+      if (mode === 'planning' && autoContinues < PLANNING_MAX_AUTO_CONTINUES && iteration < maxIterations - 1 && asksToContinue(response.outputText ?? '')) {
+        autoContinues += 1;
+        log('planning_auto_continue', { conversationId, autoContinues });
+        input = [{ role: 'user', content: PLANNING_CONTINUE_INPUT }];
+        continue;
+      }
+      break;
+    }
     if (params.testRewriteFirstToolCallTo && toolBatches === 0) {
       response.toolCalls[0] = { ...response.toolCalls[0], name: params.testRewriteFirstToolCallTo };
       log('test_rewrite_tool_call', { conversationId, to: params.testRewriteFirstToolCallTo });
