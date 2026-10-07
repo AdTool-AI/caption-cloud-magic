@@ -30,8 +30,15 @@ Vorher und nachher erfassen: Wallet-Stand, Anzahl Videos, Spend-Records, Freigab
 - Testnachricht mit Clip-Ergebnis nur in einer Testunterhaltung (verweist auf ein bestehendes Video, keine Generierung), danach entfernt bzw. als Test markiert.
 - Screenshots Desktop und Mobil: Scrollen, Nachrichtenfeld, Freigaben, Shot-Karten, Clip-Player, „Clip ansehen“ springt zum Shot.
 
+## Ergänzungen (verbindlich)
+- **Lesemodus serverseitig erzwungen:** Der Server entscheidet selbst, ob eine Anfrage eine Statusfrage ist (eigene Einstufung vor dem Modellaufruf). Ein Client-Kennzeichen kann den Lesemodus nur einschalten, nie ausschalten. Ein fehlendes oder manipuliertes Kennzeichen umgeht die Sperre nicht. Das wird ausdrücklich getestet.
+- **Dauerhafte Idempotenz:** Request-IDs werden in der Datenbank gespeichert, eindeutig pro Nutzer, zusammen mit einem Inhalts-Fingerabdruck. Das wirkt auch bei parallelen Anfragen, nach Neuladen und nach einem Neustart der Funktion. Gleiche ID mit anderem Inhalt wird abgelehnt. Getestet wird mit parallelen Anfragen.
+- **Atomare Freigabe-Reservierung:** Der Start einer Freigabe wird in einem einzigen Datenbankschritt geprüft und als verbraucht markiert. Zwei gleichzeitige Starts können dieselbe Freigabe nicht beide nutzen. Das wird mit einem Parallelitätstest und gemocktem Provider geprüft. Das Kostenlimit kann nach der Freigabe nicht mehr geändert werden; die tatsächlichen Kosten dürfen darunter liegen.
+- **Vollständige Bindung:** Gebunden werden auch Provider, Referenzdateien und die freigegebene Version des Retry-Plans (Fingerabdruck). Ein Test prüft die Werte, die tatsächlich an den gemockten Provider übergeben werden. Ändert sich der gebundene Plan, wird die alte Freigabe abgelehnt.
+- **Deploy und Nachprüfung:** Erst nach den lokalen Tests werden nur die geänderten Funktionen und die Migration bereitgestellt. Danach wird die bereitgestellte Version noch einmal rein lesend geprüft.
+
 ## Bericht
-Getrennt: umgesetzt / tatsächlich getestet mit Ergebnis / offen oder nur per Code geprüft; Vorher-Nachher-Vergleich der Zahlen.
+Getrennt nach: umgesetzt / lokal getestet / an der bereitgestellten Version geprüft / nur per Code geprüft / offen. Im Vorher-Nachher-Vergleich werden die erwarteten neuen Testnachrichten separat aufgeführt. Wallet, Videos, Spend-Records, Produktionsversuche und Freigaben bleiben unverändert. Bestehende Nachrichten werden nicht gelöscht.
 
 ## Technische Details
 - `supabase/functions/muse-agent/index.ts`: `readOnly`-Flag, Test-Fehler-Hook (Admin-only, vor Modellaufruf), Idempotenz per Client-Request-ID.
