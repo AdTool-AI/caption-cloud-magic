@@ -18,7 +18,7 @@
 - Änderungen der sichtbaren Browserfläche über `visualViewport` berücksichtigen, mit `dvh`-Fallback für Browser ohne diese API.
 - Nachrichtenliste und Eingabebereich als stabiles Flex-Layout führen: nur die Nachrichten scrollen, das Eingabefeld bleibt innerhalb der sichtbaren Agentenfläche am unteren Rand.
 - Beim Fokus und bei Größenänderungen sicherstellen, dass das Eingabefeld sichtbar bleibt, ohne den Chat doppelt zu scrollen.
-- Mit einer verkleinerten mobilen Sichtfläche als Tastatur-Simulation testen: Feld, Senden-Schaltfläche und letzte Nachricht bleiben erreichbar.
+- Mit einer verkleinerten mobilen Sichtfläche als Tastatur-Simulation testen: Feld, Senden-Schaltfläche und letzte Nachricht bleiben erreichbar. Falls keine echte mobile Bildschirmtastatur testbar ist, wird diese Einschränkung ausdrücklich berichtet.
 
 ## 3. Chat-Markdown korrekt und sicher darstellen
 - Nur Assistentenantworten mit dem bereits vorhandenen Markdown-Renderer und GFM-Unterstützung ausgeben; Nutzernachrichten bleiben unveränderter Klartext.
@@ -33,12 +33,14 @@
 
 ## 5. Prüfung der bereitgestellten Vorschau
 - Relevante Oberflächentests ausführen und den aktuellen Fehlerstatus der Vorschau kontrollieren.
-- Authentifiziert mit den vorhandenen Café-Buur-Daten prüfen, ohne Nachrichten zu senden oder Aktionen auszulösen.
+- Authentifiziert mit den vorhandenen Café-Buur-Daten prüfen. Vorhandene Clips dürfen geöffnet und Eingabefelder fokussiert werden; es wird keine Nachricht gesendet und keine Produktions- oder Freigabeaktion ausgelöst.
 - Screenshots anfertigen:
   - Desktop: Agentenchat mit gerendertem Markdown und geöffneter Clip-Ansicht samt Shot-Titel.
   - Mobil: vollständige Kopfzeile ohne Überlauf, erreichbares Nachrichtenfeld bei verkleinerter sichtbarer Höhe und Clip-Ansicht samt Shot-Titel.
 - Vorher/Nachher kontrollieren, dass Wallet, Videos, Spend-Records, Produktionsversuche und Freigaben unverändert sind.
-- Abschlussbericht klar trennen in: umgesetzt, automatisiert geprüft, in der bereitgestellten Vorschau visuell geprüft, verbleibende Einschränkungen.
+- Die eindeutig identifizierte geprüfte Vorschau-Version im Bericht nennen.
+- Falls anschließend live veröffentlicht wird, die wichtigsten Darstellungsprüfungen dort wiederholen und die veröffentlichte Version ebenfalls eindeutig nennen.
+- Abschlussbericht klar trennen in: umgesetzt, automatisiert geprüft, in der bereitgestellten Vorschau visuell geprüft, gegebenenfalls live nachgeprüft, verbleibende Einschränkungen.
 
 ## Technische Details
 - Voraussichtlich betroffen: `src/components/layout/AppHeader.tsx`, einzelne vorhandene Kopfzeilen-Statuskomponenten, `src/pages/AdToolAgent.tsx`, optional eine kleine sichere Markdown-Komponente und fokussierte UI-/Playwright-Tests.
