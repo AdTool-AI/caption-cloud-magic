@@ -17,7 +17,7 @@ import { getMuseModel } from '../videoModelCatalog.ts';
 import { resolveCostPerSecond, CATALOG_VERSION } from '../../videoPricingCatalog.ts';
 import { resolveAccountDiscountFactor, resolveWalletCurrency } from '../../accountVideoPricing.ts';
 import {
-  assessRisk, blendedQuality, buildShotPrompt, categorizeShot, negativeConstraints, routeShot, staticPrior,
+  assessRisk, blendedQuality, buildShotPrompt, categorizeShot, explainExclusions, negativeConstraints, requiredTier, routeShot, staticPrior,
   type ModelQaStatsRow, type RouteCandidate, type ShotInput,
 } from './routing.ts';
 import { approvedShotIds, budgetTotals, buildScope, filterDispatchable, scopeShotsToVideos } from './scope.ts';
@@ -80,6 +80,16 @@ export async function routeCampaignShots(ctx: ToolContext, a: Args): Promise<Too
     const neighborModels: string[] = [];
     for (const s of vShots) {
       if (s.status && !['planned', 'quoted'].includes(s.status)) { skipped.push({ shot_id: s.id, reason: `status ${s.status}` }); continue; }
+      // Keep routing of unchanged shots (same id, model, cost) unless forced.
+      const fp = routingFingerprint(s);
+      if (s.status === 'quoted' && s.selected_model && !s.routing_stale && s.routing_fingerprint === fp && a.force !== true) {
+        neighborModels.push(s.selected_model);
+        routed.push({
+          shot_id: s.id, video_index: v.video_index, shot_index: s.shot_index, model: s.selected_model, preserved: true,
+          cut_duration_s: Number(s.end_s) - Number(s.start_s), generation_duration_s: s.duration_s, resolution: s.resolution, estimated_cost: s.estimated_cost,
+        });
+        continue;
+      }
       const asset = s.asset_id ? assetById.get(s.asset_id) : null;
       // reference_only assets may guide the prompt but are never sent as a first frame.
       const mode: 't2v' | 'i2v' = asset && asset.reuse_status === 'reuse_ok' ? 'i2v' : 't2v';
@@ -101,6 +111,7 @@ export async function routeCampaignShots(ctx: ToolContext, a: Args): Promise<Too
       const prompt = buildShotPrompt(s as ShotInput, { company: c.company_name, visualStyle: v.visual_style });
       const discount = await resolveAccountDiscountFactor(ctx.admin, ctx.userId);
       const est = best.estimated_cost == null ? null : Math.round(best.estimated_cost * discount * 100) / 100;
+      const cut = Number(s.end_s) - Number(s.start_s);
       await ctx.admin.from('campaign_shots').update({
         content_category: category,
         generation_mode: mode,
@@ -112,13 +123,22 @@ export async function routeCampaignShots(ctx: ToolContext, a: Args): Promise<Too
         duration_s: best.duration,
         aspect_ratio: aspect,
         routing_rationale: {
-          candidates: candidates.slice(0, 5),
+          candidates: candidates.slice(0, 8),
+          excluded: explainExclusions(s as ShotInput, risk, { aspectRatio: aspect, mode }),
           chosen: best.model,
-          reason: `Best total score for ${category}/${mode} at risk tier ${best.quality_tier}; confidence ${best.confidence}.`,
+          weights: { quality: 0.5, fit: 0.25, price: 0.15, consistency: 0.1 },
+          required_tier: requiredTier(risk),
+          cut_duration_s: cut,
+          generation_duration_s: best.duration,
+          billed_seconds: best.duration,
+          currency,
+          reason: `Best total score for ${category}/${mode} at risk tier ${best.quality_tier}; confidence ${best.confidence}. Billed for the full ${best.duration}s clip; ${cut}s used in the cut.`,
           confidence: best.confidence,
         },
         estimated_cost: est,
         status: 'quoted',
+        routing_fingerprint: fp,
+        routing_stale: false,
         motion_complexity: risk.motion_complexity,
         human_anatomy_risk: risk.human_anatomy_risk,
         physics_risk: risk.physics_risk,
@@ -128,7 +148,8 @@ export async function routeCampaignShots(ctx: ToolContext, a: Args): Promise<Too
       }).eq('id', s.id);
       routed.push({
         shot_id: s.id, video_index: v.video_index, shot_index: s.shot_index, category, mode, model: best.model,
-        resolution: best.resolution, duration_s: best.duration, estimated_cost: est, confidence: best.confidence, risk,
+        resolution: best.resolution, cut_duration_s: cut, generation_duration_s: best.duration, estimated_cost: est, currency,
+        confidence: best.confidence, risk, runner_up: candidates[1] ? { model: candidates[1].model, total: candidates[1].scores.total, estimated_cost: candidates[1].estimated_cost } : null,
       });
     }
   }
