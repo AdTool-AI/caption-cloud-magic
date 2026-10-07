@@ -315,9 +315,15 @@ export const CAMPAIGN_TOOL_DEFINITIONS: MuseFunctionTool[] = [
   },
   {
     type: 'function',
-    name: 'retry_shot',
-    description: 'PAID. Executes one prepared retry within the approved campaign budget. Foreground only unless the approval is auto_retry_within_budget.',
+    name: 'request_retry_approval',
+    description: 'Free. Creates ONE pending approval bound to exactly one shot, its next attempt number, the stored retry plan version and the exact provider request (model, provider, mode, duration, resolution, aspect ratio, prompt, negative prompt, reference files), in the wallet currency with an immutable cost limit. The user must confirm it in the UI. Call prepare_shot_retry first.',
     parameters: { type: 'object', properties: { shot_id: str }, required: ['shot_id'], additionalProperties: false },
+  },
+  {
+    type: 'function',
+    name: 'retry_shot',
+    description: 'PAID, foreground only. Executes the prepared retry of one shot. Requires a CONFIRMED retry approval from request_retry_approval that matches this exact shot, attempt, request and plan version; it is consumed atomically (single use). Earlier campaign budget approvals never cover a retry.',
+    parameters: { type: 'object', properties: { shot_id: str, approval_id: str }, required: ['shot_id'], additionalProperties: false },
   },
   {
     type: 'function',

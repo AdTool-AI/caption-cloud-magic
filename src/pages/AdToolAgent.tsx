@@ -204,7 +204,10 @@ export default function AdToolAgent() {
     );
   };
 
-  const sendText = async (text: string) => {
+  const inFlight = useRef<Set<string>>(new Set());
+  const sendText = async (text: string, requestId: string = crypto.randomUUID()) => {
+    if (busyRef.current || inFlight.current.has(requestId)) return; // double-click guard; the server is the real guard
+    inFlight.current.add(requestId);
     setBusy(true);
     busyRef.current = true;
     let activeId = conversationId;
@@ -218,6 +221,7 @@ export default function AdToolAgent() {
         message: text,
         conversationId,
         language,
+        requestId,
         signal: controller.signal,
         onEvent: (event) => {
           switch (event.type) {
@@ -253,6 +257,8 @@ export default function AdToolAgent() {
             case "approval_required": {
               const ap = event.approval as AgentApprovalQuote & { kind?: string; campaign_approval_id?: string };
               if (ap.kind === "campaign_budget") {
+                const raw = ap as unknown as Record<string, unknown>;
+                const isRetry = raw.shot_id !== undefined && raw.attempt_no !== undefined;
                 setCampaignApprovals((prev) => [
                   ...prev,
                   {
@@ -271,6 +277,9 @@ export default function AdToolAgent() {
                     execution_expires_at: String((ap as unknown as { execution_expires_at?: string }).execution_expires_at ?? ""),
                     state: "pending",
                     created_at: new Date().toISOString(),
+                    ...(isRetry
+                      ? { kind: "retry" as const, retry: { shot_id: String(raw.shot_id), attempt_no: Number(raw.attempt_no), model: String(raw.model ?? ""), provider: String(raw.provider ?? ""), duration_s: Number(raw.duration_s ?? 0), resolution: String(raw.resolution ?? ""), mode: String(raw.mode ?? "") } }
+                      : {}),
                   },
                 ]);
               } else {
@@ -285,6 +294,7 @@ export default function AdToolAgent() {
               setUsage({ costUsd: event.costUsd });
               break;
             case "error":
+              if (event.code === "DUPLICATE_REQUEST" || event.code === "REQUEST_ID_REUSED") break; // already handled server-side; reload shows the real state
               setMessages((prev) => [
                 ...prev,
                 { id: crypto.randomUUID(), role: "assistant", text: event.message, status: "interrupted", error: event.message, createdAt: new Date().toISOString() },
@@ -392,13 +402,23 @@ export default function AdToolAgent() {
     const a = it.a;
     return (
       <div key={a.approval_id} className="max-w-[85%] rounded-2xl border border-primary/40 bg-primary/5 p-3 text-sm">
-        <p className="font-medium text-foreground">{tx({ de: "Kampagnen-Budget", en: "Campaign budget", es: "Presupuesto de campaña" })}</p>
+        <p className="font-medium text-foreground">
+          {a.kind === "retry"
+            ? tx({ de: "Retry-Freigabe für einen Shot", en: "Single-shot retry approval", es: "Aprobación de reintento de una toma" })
+            : tx({ de: "Kampagnen-Budget", en: "Campaign budget", es: "Presupuesto de campaña" })}
+        </p>
+        {a.kind === "retry" && a.retry ? (
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {tx({ de: "Shot", en: "Shot", es: "Toma" })} {a.retry.shot_id.slice(0, 8)} · {tx({ de: "Versuch", en: "attempt", es: "intento" })} {a.retry.attempt_no} · {a.retry.model} · {a.retry.duration_s}s · {a.retry.resolution} · {a.retry.mode}
+          </p>
+        ) : (
         <p className="mt-0.5 text-xs text-muted-foreground">
           {a.shots.length} {tx({ de: "Shots — Details im Kampagnenbereich", en: "shots — details in the campaign workspace", es: "tomas: detalles en la campaña" })} ·{" "}
           {a.retry_mode === "auto_retry_within_budget"
             ? tx({ de: "automatische Wiederholungen im Budget", en: "automatic retries within budget", es: "reintentos automáticos dentro del presupuesto" })
             : tx({ de: "Wiederholungen nur nach Freigabe", en: "retries only after confirmation", es: "reintentos solo tras confirmación" })}
         </p>
+        )}
         <p className="mt-1 text-foreground">
           {formatMoney(a.estimated_total, walletCurrency)}
           <span className="text-xs text-muted-foreground"> · {tx({ de: "maximal", en: "at most", es: "máximo" })} {formatMoney(a.max_total, walletCurrency)}</span>
@@ -500,7 +520,7 @@ export default function AdToolAgent() {
                             </p>
                             {m.error && <p className="mt-1 break-words text-xs text-muted-foreground">{m.error}</p>}
                             {lastTurn && lastUserText(i) && (
-                              <Button size="sm" variant="outline" className="mt-2 h-7" disabled={busy} onClick={() => void sendText(lastUserText(i)!)}>
+                              <Button size="sm" variant="outline" className="mt-2 h-7" disabled={busy} onClick={() => void sendText(lastUserText(i)!, `ask-again-${m.id}`)}>
                                 <RotateCcw className="mr-1 h-3.5 w-3.5" /> {tx({ de: "Erneut fragen", en: "Ask again", es: "Preguntar de nuevo" })}
                               </Button>
                             )}
@@ -524,7 +544,7 @@ export default function AdToolAgent() {
                               {tx({ de: "Für diese Nachricht wurde keine Antwort gespeichert. Es wurde nichts gestartet.", en: "No answer was saved for this message. Nothing was started.", es: "No se guardó ninguna respuesta para este mensaje. No se inició nada." })}
                             </p>
                             {i === messages.length - 1 && (
-                              <Button size="sm" variant="outline" className="mt-2 h-7" onClick={() => void sendText(m.text)}>
+                              <Button size="sm" variant="outline" className="mt-2 h-7" onClick={() => void sendText(m.text, `ask-again-${m.id}`)}>
                                 <RotateCcw className="mr-1 h-3.5 w-3.5" /> {tx({ de: "Erneut fragen", en: "Ask again", es: "Preguntar de nuevo" })}
                               </Button>
                             )}

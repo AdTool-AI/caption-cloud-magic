@@ -5,6 +5,7 @@
 
 export type AgentEvent =
   | { type: 'conversation'; conversationId: string }
+  | { type: 'turn_mode'; mode: 'read_only' | 'normal' }
   | { type: 'tool_started'; name: string; arguments: unknown }
   | { type: 'tool_result'; name: string; result: unknown; generationId?: string }
   | { type: 'approval_required'; approval: AgentApprovalQuote }
@@ -59,4 +60,7 @@ export interface CampaignBudgetQuote {
   sufficient_credits?: boolean;
   start_expires_at?: string;
   execution_expires_at?: string;
+  /** 'retry' = single-shot retry approval bound to one attempt. */
+  kind?: 'production' | 'retry';
+  retry?: { shot_id: string; attempt_no: number; model: string; provider: string; duration_s: number; resolution: string; mode: string };
 }

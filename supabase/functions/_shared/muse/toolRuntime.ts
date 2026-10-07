@@ -14,6 +14,7 @@ import { resolveAccountDiscountFactor, resolveWalletCurrency } from '../accountV
 import { createMuseResponse } from './museClient.ts';
 import type { MuseConfig } from './config.ts';
 import { executeCampaignTool } from './campaign/runtime.ts';
+import { guardToolCall } from './turnPolicy.ts';
 
 export interface ToolContext {
   userId: string;
@@ -33,6 +34,10 @@ export interface ToolContext {
   spentThisTurn: number;
   /** Set only by the background resume worker (service key + user id header). */
   internalAuthUserId?: string;
+  /** Server-decided turn mode; read_only refuses every non-read tool at execution. */
+  turnMode?: 'read_only' | 'normal';
+  /** Test seam: provider transport (defaults to global fetch). */
+  fetchImpl?: typeof fetch;
 }
 
 export interface ToolResult {
@@ -651,6 +656,8 @@ export async function executeMuseTool(
   // deno-lint-ignore no-explicit-any
   args: any,
 ): Promise<ToolResult> {
+  const blocked = guardToolCall(ctx.turnMode ?? 'normal', name);
+  if (blocked) return { output: blocked };
   switch (name) {
     case 'get_user_context':
       return await getUserContext(ctx);

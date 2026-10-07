@@ -24,6 +24,7 @@ import { approvedShotIds, budgetTotals, buildScope, filterDispatchable, scopeSho
 import { runShotQa } from './shotQa.ts';
 import { budgetFit, materialChanges, planRetry, predictImprovement } from './retryPlan.ts';
 import { buildPostProduction } from './postProduction.ts';
+import { buildRetryRequest, checkRetryBinding, planFingerprint, toProviderBody, type RetryBinding, type RetryRequest } from './retryBinding.ts';
 
 // deno-lint-ignore no-explicit-any
 type Args = any;
@@ -232,7 +233,7 @@ async function dispatchShot(
   approval: Record<string, any>,
   shot: Record<string, any>,
   attemptNo: number,
-  opts: { prompt: string; model?: string; internalUserId?: string },
+  opts: { prompt: string; model?: string; internalUserId?: string; body?: Record<string, unknown> },
 ): Promise<ToolResult> {
   const modelId = opts.model ?? shot.selected_model;
   const spec = getMuseModel(modelId);
@@ -247,20 +248,20 @@ async function dispatchShot(
     return err('BUDGET_EXHAUSTED', 'The approved campaign budget is exhausted. Ask the user to approve more budget.', { max_total: approval.max_total });
   }
 
-  const body: Record<string, unknown> = {
+  const body: Record<string, unknown> = opts.body ? { ...opts.body } : {
     model: modelId,
     prompt: opts.prompt,
     duration: Number(shot.duration_s),
     aspectRatio: shot.aspect_ratio ?? ASPECT_DEFAULT,
     resolution: shot.resolution ?? RESOLUTION_DEFAULT,
   };
-  if (shot.negative_constraints) body.negativePrompt = shot.negative_constraints;
-  if (shot.generation_mode === 'i2v' && shot.input_asset_id) {
+  if (!opts.body && shot.negative_constraints) body.negativePrompt = shot.negative_constraints;
+  if (!opts.body && shot.generation_mode === 'i2v' && shot.input_asset_id) {
     const { data: asset } = await ctx.admin.from('campaign_assets').select('url, reuse_status').eq('id', shot.input_asset_id).maybeSingle();
     if (asset?.reuse_status === 'reuse_ok') body.startImageUrl = asset.url;
   }
 
-  const res = await fetch(`${ctx.supabaseUrl}/functions/v1/${spec.edgeFunction}`, {
+  const res = await (ctx.fetchImpl ?? fetch)(`${ctx.supabaseUrl}/functions/v1/${spec.edgeFunction}`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${ctx.userJwt}`,
@@ -317,6 +318,7 @@ async function dispatchShot(
 export async function startCampaignProduction(ctx: ToolContext, a: Args): Promise<ToolResult> {
   const approval = await loadBudgetApproval(ctx, a.approval_id);
   if (!approval) return err('APPROVAL_REQUIRED', 'No valid campaign budget approval. Call estimate_campaign_budget and wait for the user to confirm.');
+  if (approval.kind === 'retry') return err('WRONG_APPROVAL_KIND', 'A retry approval cannot start campaign production. Use retry_shot.');
   if (approval.status === 'pending') return err('APPROVAL_REQUIRED', 'The user has not confirmed this campaign budget yet.');
   if (approval.status !== 'approved' && approval.status !== 'started') return err('APPROVAL_REQUIRED', `Budget approval is ${approval.status} and cannot be used.`);
   const now = Date.now();
@@ -389,7 +391,7 @@ export async function prepareShotRetry(ctx: ToolContext, a: Args): Promise<ToolR
   if (!shot) return err('NOT_FOUND', 'Shot not found.');
   if (shot.status !== 'needs_retry') return err('INVALID_STATE', `Shot is ${shot.status}, not needs_retry.`);
   const { data: approval } = await ctx.admin.from('campaign_budget_approvals')
-    .select('*').eq('campaign_id', shot.campaign_id).in('status', ['approved', 'started'])
+    .select('*').eq('campaign_id', shot.campaign_id).eq('kind', 'production').in('status', ['approved', 'started'])
     .order('created_at', { ascending: false }).limit(20)
     .then((r: Args) => ({ data: (r.data ?? []).find((ap: Args) => approvedShotIds(ap.scope).has(shot.id)) ?? null }));
   if (!approval) return err('APPROVAL_REQUIRED', 'No active campaign budget approval.');
@@ -509,30 +511,119 @@ export async function prepareShotRetry(ctx: ToolContext, a: Args): Promise<ToolR
 // retry_shot (paid). Foreground for manual_retry; worker for auto mode.
 // ---------------------------------------------------------------------------
 
+async function referenceUrlsFor(ctx: ToolContext, shot: Args): Promise<string[]> {
+  const p = shot?.retry_plan?.proposed;
+  if (p?.mode !== 'i2v' || !p?.input_asset_id) return [];
+  const { data: asset } = await ctx.admin.from('campaign_assets').select('url, reuse_status').eq('id', p.input_asset_id).maybeSingle();
+  return asset?.reuse_status === 'reuse_ok' && asset.url ? [String(asset.url)] : [];
+}
+
+/** Exact request + plan fingerprint + cost for the shot's NEXT attempt, from the stored retry plan. */
+async function currentRetryTarget(ctx: ToolContext, shot: Args): Promise<
+  | { ok: true; request: RetryRequest; fingerprint: string; attemptNo: number; cost: number; currency: string }
+  | { ok: false; result: ToolResult }
+> {
+  if (shot.status !== 'needs_retry' || !shot.retry_prompt || !shot.retry_plan?.proposed) {
+    return { ok: false, result: err('INVALID_STATE', 'No prepared retry for this shot. Call prepare_shot_retry first.') };
+  }
+  const spec = getMuseModel(String(shot.retry_plan.proposed.model));
+  if (!spec) return { ok: false, result: err('UNKNOWN_MODEL', `Unknown model "${shot.retry_plan.proposed.model}".`) };
+  const request = buildRetryRequest(shot, spec.edgeFunction, await referenceUrlsFor(ctx, shot));
+  if (!request) return { ok: false, result: err('INVALID_STATE', 'The stored retry plan is incomplete.') };
+  if (request.model === shot.selected_model && request.prompt === shot.english_prompt) {
+    return { ok: false, result: err('IDENTICAL_RETRY', 'An identical re-run is refused; the retry must change the prompt or the model.') };
+  }
+  const cost = Number(shot.retry_plan?.cost?.retry_cost);
+  if (!(cost > 0)) return { ok: false, result: err('PRICING_UNAVAILABLE', 'The retry plan has no canonical cost.') };
+  const currency = (await resolveWalletCurrency(ctx.admin, ctx.userId)) ?? '';
+  if (!currency) return { ok: false, result: err('WALLET_CURRENCY_UNKNOWN', 'The wallet currency could not be determined.') };
+  return { ok: true, request, fingerprint: await planFingerprint(shot, request), attemptNo: Number(shot.attempt_count) + 1, cost, currency };
+}
+
+// ---------------------------------------------------------------------------
+// request_retry_approval (free): ONE pending approval bound to one shot attempt
+// ---------------------------------------------------------------------------
+
+export async function requestShotRetryApproval(ctx: ToolContext, a: Args): Promise<ToolResult> {
+  const { data: shot } = await ctx.admin.from('campaign_shots').select('*').eq('id', a.shot_id).eq('user_id', ctx.userId).maybeSingle();
+  if (!shot) return err('NOT_FOUND', 'Shot not found.');
+  const t = await currentRetryTarget(ctx, shot);
+  if (!t.ok) return t.result;
+  if (String(shot.retry_plan?.cost?.pricing_version ?? '') !== CATALOG_VERSION) {
+    return err('PRICE_CHANGED', 'Prices changed since this retry was planned. Run prepare_shot_retry again.');
+  }
+  const binding: RetryBinding = {
+    campaign_id: shot.campaign_id, shot_id: shot.id, attempt_no: t.attemptNo,
+    plan_prepared_at: String(shot.retry_plan.prepared_at), plan_fingerprint: t.fingerprint,
+    request: t.request, currency: t.currency, max_cost: t.cost, estimated_cost: t.cost, pricing_version: CATALOG_VERSION,
+  };
+  const now = Date.now();
+  const { data: approval, error } = await ctx.admin.from('campaign_budget_approvals').insert({
+    campaign_id: shot.campaign_id, user_id: ctx.userId, conversation_id: ctx.conversationId || null,
+    kind: 'retry', retry_binding: binding,
+    scope: [{ shot_id: shot.id, model: t.request.model, duration_s: t.request.duration_s, resolution: t.request.resolution, price: t.cost }],
+    estimated_total: t.cost, max_total: t.cost, retry_budget_per_shot: 0, retry_mode: 'manual_retry', status: 'pending',
+    pricing_version: CATALOG_VERSION,
+    start_expires_at: new Date(now + 30 * 60_000).toISOString(),
+    execution_expires_at: new Date(now + 24 * 60 * 60_000).toISOString(),
+  }).select('id, start_expires_at, execution_expires_at').single();
+  if (error || !approval) return err('DB_ERROR', error?.message ?? 'Could not create the retry approval.');
+  return {
+    output: {
+      campaign_approval_required: true, kind: 'retry', campaign_approval_id: approval.id, campaign_id: shot.campaign_id,
+      shot_id: shot.id, attempt_no: t.attemptNo, model: t.request.model, provider: t.request.provider,
+      duration_s: t.request.duration_s, resolution: t.request.resolution, mode: t.request.mode,
+      shots: [{ shot_id: shot.id, model: t.request.model, duration_s: t.request.duration_s, resolution: t.request.resolution, price: t.cost }],
+      estimated_total: t.cost, max_total: t.cost, retry_budget_per_shot: 0, retry_mode: 'manual_retry', currency: t.currency,
+      start_expires_at: approval.start_expires_at, execution_expires_at: approval.execution_expires_at,
+      next_step: 'STOP. Show this single-shot retry approval to the user. retry_shot is refused until the user confirms it in the UI.',
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// retry_shot (paid, foreground only): needs a retry approval bound to exactly
+// this campaign, shot, attempt, request and plan version. Consumed atomically.
+// ---------------------------------------------------------------------------
+
 export async function retryShot(ctx: ToolContext, a: Args, opts: { fromWorker?: boolean } = {}): Promise<ToolResult> {
   const { data: shot } = await ctx.admin.from('campaign_shots').select('*').eq('id', a.shot_id).eq('user_id', ctx.userId).maybeSingle();
   if (!shot) return err('NOT_FOUND', 'Shot not found.');
-  const { data: approval } = await ctx.admin.from('campaign_budget_approvals')
-    .select('*').eq('campaign_id', shot.campaign_id).in('status', ['approved', 'started'])
-    .order('created_at', { ascending: false }).limit(20)
-    .then((r: Args) => ({ data: (r.data ?? []).find((ap: Args) => approvedShotIds(ap.scope).has(shot.id)) ?? null }));
-  if (!approval) return err('APPROVAL_REQUIRED', 'No active campaign budget approval.');
-  if (opts.fromWorker && approval.retry_mode !== 'auto_retry_within_budget') {
-    return err('TOOL_NOT_ALLOWED', 'Automatic retry is not approved for this campaign (manual_retry).');
-  }
-  if (shot.status !== 'needs_retry' || !shot.retry_prompt) return err('INVALID_STATE', 'No prepared retry for this shot. Call prepare_shot_retry first.');
-  if (Date.now() > new Date(approval.execution_expires_at).getTime()) return err('APPROVAL_EXPIRED', 'The execution window has expired.');
-  if (shot.retry_model === shot.selected_model && shot.retry_prompt === shot.english_prompt) {
-    return err('IDENTICAL_RETRY', 'An identical re-run is refused; the retry must change the prompt or the model.');
-  }
-  const check = await validateApprovalForDispatch(ctx, approval, shot);
-  if (!check.ok) return check.result;
+  if (opts.fromWorker) return err('TOOL_NOT_ALLOWED', 'Retries need a single-shot retry approval confirmed in the foreground.');
+  const t = await currentRetryTarget(ctx, shot);
+  if (!t.ok) return t.result;
 
-  const attemptNo = Number(shot.attempt_count) + 1;
-  const patched = { ...shot, selected_model: shot.retry_model, negative_constraints: shot.retry_plan?.negative_constraints ?? shot.negative_constraints };
-  const r = await dispatchShot(ctx, approval, patched, attemptNo, { prompt: shot.retry_prompt, model: shot.retry_model, internalUserId: opts.fromWorker ? ctx.userId : undefined });
+  let approval: Args = null;
+  if (a.approval_id) approval = await loadBudgetApproval(ctx, a.approval_id);
+  else {
+    const { data } = await ctx.admin.from('campaign_budget_approvals').select('*')
+      .eq('campaign_id', shot.campaign_id).eq('user_id', ctx.userId).eq('kind', 'retry')
+      .order('created_at', { ascending: false }).limit(20);
+    approval = (data ?? []).find((ap: Args) => ap.retry_binding?.shot_id === shot.id) ?? null;
+  }
+  if (!approval) {
+    return err('UNBOUND_APPROVAL', 'No confirmed retry approval for exactly this shot attempt. Earlier campaign approvals do not cover new attempts. Call request_retry_approval and wait for the user to confirm.');
+  }
+  const check = checkRetryBinding({
+    approval, campaignId: shot.campaign_id, shotId: shot.id, attemptNo: t.attemptNo, request: t.request,
+    fingerprint: t.fingerprint, currency: t.currency, cost: t.cost, pricingVersion: CATALOG_VERSION,
+  });
+  if (!check.ok) {
+    return err(check.code, `This retry approval does not cover the current attempt (${check.code}${check.field ? `: ${check.field}` : ''}). A new approval is required.`);
+  }
+  // Atomic single use: two parallel starts can never both pass.
+  const { data: consumed, error: consumeErr } = await ctx.admin.rpc('consume_retry_approval', {
+    _approval_id: approval.id, _user_id: ctx.userId, _shot_id: shot.id, _attempt_no: t.attemptNo, _plan_fingerprint: t.fingerprint,
+  });
+  if (consumeErr) return err('DB_ERROR', consumeErr.message);
+  if (consumed !== true) return err('APPROVAL_CONSUMED', 'This retry approval was already used or is no longer valid.');
+
+  const patched = { ...shot, selected_model: t.request.model, estimated_cost: t.cost };
+  const r = await dispatchShot(ctx, { ...approval, status: 'started' }, patched, t.attemptNo, {
+    prompt: t.request.prompt, model: t.request.model, body: toProviderBody(t.request),
+  });
   if (!r.output?.error) {
-    await ctx.admin.from('campaign_shots').update({ selected_model: shot.retry_model, english_prompt: shot.retry_prompt }).eq('id', shot.id);
+    await ctx.admin.from('campaign_shots').update({ selected_model: t.request.model, english_prompt: t.request.prompt }).eq('id', shot.id);
   }
   return r;
 }
@@ -549,7 +640,7 @@ export async function productionStatus(ctx: ToolContext, a: Args): Promise<ToolR
   const shotIds = (shotIdRows ?? []).map((r: { id: string }) => r.id);
   const [shots, approvals, ledger] = await Promise.all([
     ctx.admin.from('campaign_shots').select('id, video_id, shot_index, status, selected_model, estimated_cost, client_ready, attempt_count, qa_summary, current_generation_id, retry_plan').eq('campaign_id', c.id).order('shot_index'),
-    ctx.admin.from('campaign_budget_approvals').select('id, status, estimated_total, max_total, spent_total, retry_mode, retry_budget_per_shot, start_expires_at, execution_expires_at').eq('campaign_id', c.id).order('created_at', { ascending: false }).limit(3),
+    ctx.admin.from('campaign_budget_approvals').select('id, kind, status, estimated_total, max_total, spent_total, retry_mode, retry_budget_per_shot, start_expires_at, execution_expires_at, retry_binding').eq('campaign_id', c.id).order('created_at', { ascending: false }).limit(5),
     ctx.admin.from('campaign_spend_ledger').select('entry_type, amount, shot_id, approval_id, created_at').in('shot_id', shotIds.length ? shotIds : ['00000000-0000-0000-0000-000000000000']).order('created_at', { ascending: false }).limit(50),
   ]);
   const { data: wallet } = await ctx.admin.from('ai_video_wallets').select('currency').eq('user_id', ctx.userId).maybeSingle();

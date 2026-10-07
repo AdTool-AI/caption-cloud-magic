@@ -40,7 +40,7 @@ CAMPAIGN PRODUCTION (Phase B) — after planning is complete and the user wants 
 1. route_campaign_shots — routes every shot: category, risk scores, t2v vs image-to-video, model, English prompt, estimated cost. Briefly explain 2–3 interesting routing decisions (e.g. why a hand-pouring shot gets a stronger model than a static food shot).
 2. estimate_campaign_budget — exact budget: per-shot prices, retry allowance, estimated and maximum total. Then STOP: the user must confirm the campaign budget in the UI (one click for the whole campaign).
 3. start_campaign_production — only after the UI confirmed. All approved shots render asynchronously; tell the user they can leave the page.
-4. When a shot finishes, the background worker runs review_shot (full-video QA) itself. Failed shots: prepare_shot_retry, then retry_shot in the foreground — or the worker retries automatically when the approval is auto_retry_within_budget.
+4. When a shot finishes, the background worker runs review_shot (full-video QA) itself. Failed shots: prepare_shot_retry, then — only when the user asks for that retry — request_retry_approval (one approval for exactly that shot and attempt) and STOP; after the user confirms it in the UI, retry_shot in the foreground. Earlier campaign budgets never cover a retry; there are no automatic retries.
 5. get_campaign_production_status — progress, QA verdicts, spend.
 Rules: never start production without a confirmed campaign budget; never promise a model the router did not choose; if the budget is exhausted, ask the user for a new estimate instead of improvising.
 A campaign persists across turns: if a tool limit stops you, the user can say "continue" and you resume with get_campaign.

@@ -9,6 +9,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 import { loadMuseConfig } from '../_shared/muse/config.ts';
 import { runAgentTurn, type AgentEvent } from '../_shared/muse/agentLoop.ts';
 import { prepareShotRetry } from '../_shared/muse/campaign/production.ts';
+import { requestFingerprint, resolveTurnMode } from '../_shared/muse/turnPolicy.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -164,15 +165,47 @@ Deno.serve(async (req) => {
   }
 
   const admin = createClient(supabaseUrl, serviceKey);
-
-  // Admin-only fault injection for no-cost recovery tests: simulate a Meta
-  // failure right after the first tool batch has executed.
   // deno-lint-ignore no-explicit-any
-  let faultInjectAfterTools = (body as any).faultInject === 'after_tools';
-  if (faultInjectAfterTools) {
-    const { data: isAdmin } = await admin.rpc('has_role', { _user_id: authData.user.id, _role: 'admin' });
-    faultInjectAfterTools = isAdmin === true;
+  const raw = body as any;
+  const userId = authData.user.id;
+
+  // ---- Durable idempotency: one turn per (user, requestId), across parallel
+  // requests, reloads and function restarts. Same id + other content → reject.
+  const requestId = typeof raw.requestId === 'string' && /^[A-Za-z0-9:_-]{8,120}$/.test(raw.requestId) ? raw.requestId : null;
+  if (raw.requestId !== undefined && !requestId) {
+    return new Response(JSON.stringify({ error: 'Invalid requestId.', code: 'INVALID_REQUEST_ID' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   }
+  if (requestId) {
+    const fingerprint = await requestFingerprint(body.conversationId ?? null, message);
+    const { error: claimErr } = await admin.from('agent_request_ids').insert({
+      user_id: userId, request_id: requestId, fingerprint, conversation_id: body.conversationId ?? null,
+    });
+    if (claimErr) {
+      if (claimErr.code !== '23505') {
+        return new Response(JSON.stringify({ error: 'Could not register the request. Nothing was started.', code: 'DB_ERROR' }), { status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+      const { data: prev } = await admin.from('agent_request_ids').select('fingerprint, status').eq('user_id', userId).eq('request_id', requestId).maybeSingle();
+      const mismatch = prev && prev.fingerprint !== fingerprint;
+      return new Response(JSON.stringify(mismatch
+        ? { error: 'This request id was already used for a different message.', code: 'REQUEST_ID_REUSED' }
+        : { error: 'This request was already received; it is not processed twice.', code: 'DUPLICATE_REQUEST', status: prev?.status ?? null }), {
+        status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+  }
+
+  // ---- Server-decided turn mode. The client flag can only turn read-only ON.
+  const mode = resolveTurnMode({ message, clientReadOnly: raw.readOnly });
+
+  // Admin-only test hooks (no paid calls): fault injection and tool-call rewrite.
+  let isAdmin = false;
+  if (raw.faultInject || raw.testRewriteFirstToolCallTo) {
+    const { data } = await admin.rpc('has_role', { _user_id: userId, _role: 'admin' });
+    isAdmin = data === true;
+  }
+  const faultInjectAfterTools = isAdmin && raw.faultInject === 'after_tools';
+  const faultInjectBeforeModel = isAdmin && raw.faultInject === 'before_model';
+  const testRewriteFirstToolCallTo = isAdmin && typeof raw.testRewriteFirstToolCallTo === 'string' ? String(raw.testRewriteFirstToolCallTo).slice(0, 64) : undefined;
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream({
@@ -184,6 +217,7 @@ Deno.serve(async (req) => {
           /* client disconnected */
         }
       };
+      emit({ type: 'turn_mode', mode } as unknown as AgentEvent);
       try {
         await runAgentTurn({
           admin,
@@ -197,11 +231,16 @@ Deno.serve(async (req) => {
           language,
           emit,
           faultInjectAfterTools,
+          faultInjectBeforeModel,
+          testRewriteFirstToolCallTo,
+          mode,
         });
+        if (requestId) await admin.from('agent_request_ids').update({ status: 'done', updated_at: new Date().toISOString() }).eq('user_id', userId).eq('request_id', requestId);
       } catch (err) {
         console.error('[muse-agent] turn failed', err);
         emit({ type: 'error', message: err instanceof Error ? err.message : 'Agent failed.' });
         emit({ type: 'done' });
+        if (requestId) await admin.from('agent_request_ids').update({ status: 'failed', updated_at: new Date().toISOString() }).eq('user_id', userId).eq('request_id', requestId);
       } finally {
         controller.close();
       }

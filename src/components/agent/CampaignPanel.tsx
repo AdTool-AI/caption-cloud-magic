@@ -216,8 +216,10 @@ export function CampaignPanel({
     setHighlight(shotId);
     window.setTimeout(() => document.getElementById(`shot-${shotId}`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
     const g = derived.generationById.get(focusGenerationId.id);
-    if (g?.video_url) setPlayer({ url: g.video_url, title: "" });
-  }, [focusGenerationId, derived]);
+    const shot = snap?.shots.find((s) => s.id === shotId);
+    const vIdx = snap?.videos.find((v) => v.id === shot?.video_id)?.video_index;
+    if (g?.video_url) setPlayer({ url: g.video_url, title: shot ? `V${vIdx ?? "?"}·S${Number(shot.shot_index ?? 0)}` : "" });
+  }, [focusGenerationId, derived, snap]);
 
   if (!snap || !derived) return null;
   const { campaign: c } = snap;

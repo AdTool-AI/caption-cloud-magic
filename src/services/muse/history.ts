@@ -124,6 +124,12 @@ export async function loadAgentConversation(id: string): Promise<ConversationSna
         execution_expires_at: String(a.execution_expires_at),
         created_at: String(a.created_at),
         state,
+        kind: a.kind === 'retry' ? 'retry' : 'production',
+        ...(a.kind === 'retry' && a.retry_binding ? (() => {
+          const b = a.retry_binding as { shot_id: string; attempt_no: number; request?: Record<string, unknown> };
+          const r = b.request ?? {};
+          return { retry: { shot_id: String(b.shot_id), attempt_no: Number(b.attempt_no), model: String(r.model ?? ''), provider: String(r.provider ?? ''), duration_s: Number(r.duration_s ?? 0), resolution: String(r.resolution ?? ''), mode: String(r.mode ?? '') } };
+        })() : {}),
       } satisfies StoredCampaignApproval;
     }),
   };
