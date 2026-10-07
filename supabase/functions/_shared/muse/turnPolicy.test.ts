@@ -150,3 +150,10 @@ Deno.test('save/complete/route commands are planning, not read-only', () => {
   // A save word next to a production word stays normal (approval-gated), never planning.
   assertEquals(decideTurnMode({ message: 'Speichere den Plan und starte die Produktion' }).mode, 'normal');
 });
+
+Deno.test('asksToContinue: detects hand-back, ignores normal text', async () => {
+  const { asksToContinue } = await import('./turnPolicy.ts');
+  if (!asksToContinue('Offen: 3. zweites Routing – bitte mit „weiter“ fortfahren.')) throw new Error('de');
+  if (!asksToContinue('Reply with "continue" to proceed.')) throw new Error('en');
+  if (asksToContinue('Alle 6 Shots sind gespeichert. Die Kosten liegen bei 9,10 USD.')) throw new Error('fp');
+});

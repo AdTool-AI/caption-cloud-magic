@@ -5479,7 +5479,9 @@ export type Database = {
           retry_prepared_at: string | null
           retry_prompt: string | null
           retry_reason: string | null
+          routing_fingerprint: string | null
           routing_rationale: Json | null
+          routing_stale: boolean
           selected_model: string | null
           shot_index: number
           shot_type: string
@@ -5531,7 +5533,9 @@ export type Database = {
           retry_prepared_at?: string | null
           retry_prompt?: string | null
           retry_reason?: string | null
+          routing_fingerprint?: string | null
           routing_rationale?: Json | null
+          routing_stale?: boolean
           selected_model?: string | null
           shot_index: number
           shot_type: string
@@ -5583,7 +5587,9 @@ export type Database = {
           retry_prepared_at?: string | null
           retry_prompt?: string | null
           retry_reason?: string | null
+          routing_fingerprint?: string | null
           routing_rationale?: Json | null
+          routing_stale?: boolean
           selected_model?: string | null
           shot_index?: number
           shot_type?: string

@@ -101,8 +101,8 @@ export const CAMPAIGN_TOOL_DEFINITIONS: MuseFunctionTool[] = [
   {
     type: 'function',
     name: 'collect_campaign_assets',
-    description: 'Lists campaign assets: public web images from research (reference_only), plus the user\'s own brand kit logo and Media Library items (reuse_ok). Only reuse_ok assets may appear in a final deliverable.',
-    parameters: { type: 'object', properties: { campaign_id: str }, required: ['campaign_id'], additionalProperties: false },
+    description: 'Lists and stores campaign assets. Optional `references`: concrete public logo/product image URLs from a saved source domain, always stored reference_only (rights not cleared). Also adds the user\'s own brand kit logo and Media Library items (reuse_ok). Idempotent per URL. Only reuse_ok assets may appear in a final deliverable.',
+    parameters: { type: 'object', properties: { campaign_id: str, references: { type: 'array', items: { type: 'object', properties: { url: str, kind: { type: 'string', enum: ['logo', 'product'] }, source_url: str, note: str }, required: ['url', 'kind'], additionalProperties: false } } }, required: ['campaign_id'], additionalProperties: false },
   },
   {
     type: 'function',

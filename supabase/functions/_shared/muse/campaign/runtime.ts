@@ -8,6 +8,7 @@ import { createMuseResponse } from '../museClient.ts';
 import { researchBusiness } from './research.ts';
 import { embedTexts } from './embeddings.ts';
 import { computeSocialCompleteness, discoverSocialProfiles } from './social.ts';
+import { planShotSave, type ExistingShot, type ShotPlanFields } from './shotPersistence.ts';
 import {
   assessPairs, coverageScore, dimensionText, exactDiversityRules, norm, SIMILARITY_DIMENSIONS,
   validateShape, validateShots, type PlannedVideo,
@@ -156,6 +157,25 @@ async function collectAssets(ctx: ToolContext, a: Args): Promise<ToolResult> {
     if (!m.file_url) continue;
     own.push({ campaign_id: c.id, user_id: ctx.userId, url: m.file_url, kind: 'adtool_media', media_library_id: m.id, source_url: null, reuse_status: 'reuse_ok', owner_note: `User's own Media Library item: ${m.file_name ?? ''}` });
   }
+  // Explicit public references (logo / product photos): always reference_only, only from a saved source domain.
+  const refs = Array.isArray(a.references) ? a.references.slice(0, 10) : [];
+  const rejected: Array<{ url: string; reason: string }> = [];
+  if (refs.length) {
+    const { data: srcs } = await ctx.admin.from('campaign_sources').select('url').eq('campaign_id', c.id);
+    const host = (u: string) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return null; } };
+    const known = new Set((srcs ?? []).map((x: { url: string }) => host(x.url)).filter(Boolean));
+    for (const r of refs) {
+      const url = String(r?.url ?? '');
+      const h = host(url);
+      if (!h || !url.startsWith('https://')) { rejected.push({ url, reason: 'invalid https URL' }); continue; }
+      if (!known.has(h)) { rejected.push({ url, reason: 'domain not among saved research sources' }); continue; }
+      own.push({
+        campaign_id: c.id, user_id: ctx.userId, url, kind: r?.kind === 'logo' ? 'logo' : 'website_image',
+        source_url: typeof r?.source_url === 'string' ? r.source_url : null, reuse_status: 'reference_only',
+        owner_note: `Public reference (${r?.kind === 'logo' ? 'logo' : 'product image'}): ${String(r?.note ?? '').slice(0, 200)} — usage rights NOT cleared; never in a final deliverable.`,
+      });
+    }
+  }
   if (own.length) await ctx.admin.from('campaign_assets').upsert(own, { onConflict: 'campaign_id,url', ignoreDuplicates: true });
   const { data: assets } = await ctx.admin.from('campaign_assets').select('id, url, kind, source_url, reuse_status, owner_note').eq('campaign_id', c.id).order('created_at');
   await setStage(ctx, c.id, advance(c.stage, 'asset_collection'));
@@ -166,6 +186,7 @@ async function collectAssets(ctx: ToolContext, a: Args): Promise<ToolResult> {
         reuse_ok: (assets ?? []).filter((x: { reuse_status: string }) => x.reuse_status === 'reuse_ok').length,
         reference_only: (assets ?? []).filter((x: { reuse_status: string }) => x.reuse_status === 'reference_only').length,
       },
+      rejected_references: rejected,
       rule: 'Public web images are reference_only and must not appear in a final deliverable. User Media Library items are the user\'s own; check they fit this business before using them.',
     },
   };
@@ -314,9 +335,8 @@ async function planVideos(ctx: ToolContext, a: Args): Promise<ToolResult> {
   await ctx.admin.from('campaign_videos').delete().eq('campaign_id', c.id).gt('video_index', videos.length);
   const { error } = await ctx.admin.from('campaign_videos').upsert(rows, { onConflict: 'campaign_id,video_index' });
   if (error) return err('DB_ERROR', error.message);
-  // Scripts/shots belonged to the previous version of each video.
-  const { data: vids } = await ctx.admin.from('campaign_videos').select('id').eq('campaign_id', c.id);
-  if (vids?.length) await ctx.admin.from('campaign_shots').delete().in('video_id', vids.map((v: { id: string }) => v.id));
+  // Shots are kept (stable ids); write_video_scripts updates them in place and
+  // marks only shots whose routing-relevant fields changed as routing_stale.
 
   const explanation = `${String(a.campaign_explanation ?? '').slice(0, 2000)}\n\nCovered pillars: ${cov.coveredPillars.join(', ') || '-'}; missed top pillars: ${cov.missedTopPillars.join(', ') || 'none'}. Covered business areas: ${cov.coveredAreas.join(', ') || '-'}; missed relevant areas: ${cov.missedRelevantAreas.join(', ') || 'none'}.`;
   await setStage(ctx, c.id, advance(c.stage, 'script'), {
@@ -359,14 +379,32 @@ async function writeScripts(ctx: ToolContext, a: Args): Promise<ToolResult> {
     }
     if (errors.length) { results.push({ video_index: item.video_index, stored: false, errors }); continue; }
     await ctx.admin.from('campaign_videos').update({ script: item.script }).eq('id', vid);
-    await ctx.admin.from('campaign_shots').delete().eq('video_id', vid);
-    const sorted = [...shots].sort((x: Args, y: Args) => x.start_s - y.start_s);
-    await ctx.admin.from('campaign_shots').insert(sorted.map((s: Args, i: number) => ({
-      video_id: vid, campaign_id: c.id, user_id: ctx.userId, shot_index: i + 1, start_s: s.start_s, end_s: s.end_s,
-      purpose: String(s.purpose), shot_type: String(s.shot_type), subject_emphasis: String(s.subject_emphasis), description: String(s.description),
-      on_screen_text: s.on_screen_text ?? null, voiceover: s.voiceover ?? null, asset_id: s.asset_id && assetIds.has(s.asset_id) ? s.asset_id : null,
-    })));
-    results.push({ video_index: item.video_index, stored: true, shots: sorted.length });
+    // Update in place by shot_index: ids, routing and cost of unchanged shots survive.
+    const { data: existing } = await ctx.admin.from('campaign_shots')
+      .select('id, shot_index, start_s, end_s, purpose, shot_type, subject_emphasis, description, on_screen_text, voiceover, asset_id, routing_fingerprint, selected_model, attempt_count, current_generation_id')
+      .eq('video_id', vid);
+    const incoming: ShotPlanFields[] = shots.map((s: Args) => ({
+      start_s: s.start_s, end_s: s.end_s, purpose: String(s.purpose), shot_type: String(s.shot_type),
+      subject_emphasis: String(s.subject_emphasis), description: String(s.description),
+      on_screen_text: s.on_screen_text ?? null, voiceover: s.voiceover ?? null,
+      asset_id: s.asset_id && assetIds.has(s.asset_id) ? s.asset_id : null,
+    }));
+    const save = planShotSave((existing ?? []) as ExistingShot[], incoming);
+    for (const u of save.updates) {
+      await ctx.admin.from('campaign_shots').update({
+        ...u.fields,
+        ...(u.stale ? { routing_stale: true, status: 'planned' } : {}),
+      }).eq('id', u.id);
+    }
+    if (save.inserts.length) {
+      await ctx.admin.from('campaign_shots').insert(save.inserts.map((f) => ({ ...f, video_id: vid, campaign_id: c.id, user_id: ctx.userId })));
+    }
+    if (save.deletes.length) await ctx.admin.from('campaign_shots').delete().in('id', save.deletes);
+    results.push({
+      video_index: item.video_index, stored: true, shots: incoming.length,
+      kept_ids: save.updates.filter((u) => !u.stale).length, routing_stale: save.updates.filter((u) => u.stale).map((u) => u.fields.shot_index),
+      new_shots: save.inserts.length, removed: save.deletes.length, kept_with_attempts: save.kept.length,
+    });
   }
   const { data: withScript } = await ctx.admin.from('campaign_videos').select('id, script').eq('campaign_id', c.id);
   const { data: shotVideos } = await ctx.admin.from('campaign_shots').select('video_id').eq('campaign_id', c.id);

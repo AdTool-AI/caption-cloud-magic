@@ -222,6 +222,28 @@ export function routeShot(
 
 const round3 = (n: number) => Math.round(n * 1000) / 1000;
 
+/** Why each catalog model was NOT a candidate (same rules as routeShot). */
+export function explainExclusions(
+  shot: ShotInput, risk: RiskFeatures, opts: Pick<RouteOptions, 'aspectRatio' | 'mode'>,
+): Array<{ model: string; reason: string }> {
+  const durationWanted = Math.max(2, Math.ceil(Number(shot.end_s) - Number(shot.start_s)));
+  const minTier = requiredTier(risk);
+  const effectiveTier = risk.text_requirement >= 2 ? Math.max(minTier, 2) : minTier;
+  const out: Array<{ model: string; reason: string }> = [];
+  for (const m of MUSE_VIDEO_MODELS) {
+    const spec = m.modes[opts.mode];
+    const tier = GROUP_TIER[m.uiGroup] ?? 1;
+    let reason: string | null = null;
+    if (!spec) reason = `no ${opts.mode} mode`;
+    else if (!spec.aspectRatios.includes(opts.aspectRatio)) reason = `no ${opts.aspectRatio}`;
+    else if (pickDuration(spec, durationWanted) == null) reason = `no clip length ≥ ${durationWanted}s`;
+    else if (tier < effectiveTier) reason = `quality tier ${tier} < required ${effectiveTier}`;
+    else if (!spec.resolutions.some((r) => r.pricingId)) reason = 'no priced resolution';
+    if (reason) out.push({ model: m.id, reason });
+  }
+  return out;
+}
+
 /** Build the English generation prompt for a shot. */
 export function buildShotPrompt(shot: ShotInput, ctx: { company: string; visualStyle?: string; onScreenTextNote?: boolean }): string {
   const parts = [
