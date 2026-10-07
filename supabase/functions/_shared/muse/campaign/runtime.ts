@@ -314,9 +314,8 @@ async function planVideos(ctx: ToolContext, a: Args): Promise<ToolResult> {
   await ctx.admin.from('campaign_videos').delete().eq('campaign_id', c.id).gt('video_index', videos.length);
   const { error } = await ctx.admin.from('campaign_videos').upsert(rows, { onConflict: 'campaign_id,video_index' });
   if (error) return err('DB_ERROR', error.message);
-  // Scripts/shots belonged to the previous version of each video.
-  const { data: vids } = await ctx.admin.from('campaign_videos').select('id').eq('campaign_id', c.id);
-  if (vids?.length) await ctx.admin.from('campaign_shots').delete().in('video_id', vids.map((v: { id: string }) => v.id));
+  // Shots are kept (stable ids); write_video_scripts updates them in place and
+  // marks only shots whose routing-relevant fields changed as routing_stale.
 
   const explanation = `${String(a.campaign_explanation ?? '').slice(0, 2000)}\n\nCovered pillars: ${cov.coveredPillars.join(', ') || '-'}; missed top pillars: ${cov.missedTopPillars.join(', ') || 'none'}. Covered business areas: ${cov.coveredAreas.join(', ') || '-'}; missed relevant areas: ${cov.missedRelevantAreas.join(', ') || 'none'}.`;
   await setStage(ctx, c.id, advance(c.stage, 'script'), {
@@ -359,14 +358,32 @@ async function writeScripts(ctx: ToolContext, a: Args): Promise<ToolResult> {
     }
     if (errors.length) { results.push({ video_index: item.video_index, stored: false, errors }); continue; }
     await ctx.admin.from('campaign_videos').update({ script: item.script }).eq('id', vid);
-    await ctx.admin.from('campaign_shots').delete().eq('video_id', vid);
-    const sorted = [...shots].sort((x: Args, y: Args) => x.start_s - y.start_s);
-    await ctx.admin.from('campaign_shots').insert(sorted.map((s: Args, i: number) => ({
-      video_id: vid, campaign_id: c.id, user_id: ctx.userId, shot_index: i + 1, start_s: s.start_s, end_s: s.end_s,
-      purpose: String(s.purpose), shot_type: String(s.shot_type), subject_emphasis: String(s.subject_emphasis), description: String(s.description),
-      on_screen_text: s.on_screen_text ?? null, voiceover: s.voiceover ?? null, asset_id: s.asset_id && assetIds.has(s.asset_id) ? s.asset_id : null,
-    })));
-    results.push({ video_index: item.video_index, stored: true, shots: sorted.length });
+    // Update in place by shot_index: ids, routing and cost of unchanged shots survive.
+    const { data: existing } = await ctx.admin.from('campaign_shots')
+      .select('id, shot_index, start_s, end_s, purpose, shot_type, subject_emphasis, description, on_screen_text, voiceover, asset_id, routing_fingerprint, selected_model, attempt_count, current_generation_id')
+      .eq('video_id', vid);
+    const incoming: ShotPlanFields[] = shots.map((s: Args) => ({
+      start_s: s.start_s, end_s: s.end_s, purpose: String(s.purpose), shot_type: String(s.shot_type),
+      subject_emphasis: String(s.subject_emphasis), description: String(s.description),
+      on_screen_text: s.on_screen_text ?? null, voiceover: s.voiceover ?? null,
+      asset_id: s.asset_id && assetIds.has(s.asset_id) ? s.asset_id : null,
+    }));
+    const save = planShotSave((existing ?? []) as ExistingShot[], incoming);
+    for (const u of save.updates) {
+      await ctx.admin.from('campaign_shots').update({
+        ...u.fields,
+        ...(u.stale ? { routing_stale: true, status: 'planned' } : {}),
+      }).eq('id', u.id);
+    }
+    if (save.inserts.length) {
+      await ctx.admin.from('campaign_shots').insert(save.inserts.map((f) => ({ ...f, video_id: vid, campaign_id: c.id, user_id: ctx.userId })));
+    }
+    if (save.deletes.length) await ctx.admin.from('campaign_shots').delete().in('id', save.deletes);
+    results.push({
+      video_index: item.video_index, stored: true, shots: incoming.length,
+      kept_ids: save.updates.filter((u) => !u.stale).length, routing_stale: save.updates.filter((u) => u.stale).map((u) => u.fields.shot_index),
+      new_shots: save.inserts.length, removed: save.deletes.length, kept_with_attempts: save.kept.length,
+    });
   }
   const { data: withScript } = await ctx.admin.from('campaign_videos').select('id, script').eq('campaign_id', c.id);
   const { data: shotVideos } = await ctx.admin.from('campaign_shots').select('video_id').eq('campaign_id', c.id);
