@@ -124,11 +124,18 @@ async function recordFindings(ctx: ToolContext, a: Args): Promise<ToolResult> {
   }).filter((f: { fact: string }) => f.fact);
   await ctx.admin.from('campaign_facts').delete().eq('campaign_id', c.id);
   if (facts.length) await ctx.admin.from('campaign_facts').insert(facts);
+  let website: string | undefined;
+  try {
+    const host = a.website ? new URL(String(a.website)).hostname.replace(/^www\./, '') : '';
+    const backed = host && (sources ?? []).some((s: { url: string }) => { try { return new URL(s.url).hostname.replace(/^www\./, '') === host; } catch { return false; } });
+    if (backed) website = new URL(String(a.website)).origin;
+  } catch { /* invalid url → not stored */ }
   await setStage(ctx, c.id, advance(c.stage, 'asset_collection'), {
+    ...(website ? { website } : {}),
     audience: a.audience, commercial_angle: a.commercial_angle, angle_rationale: a.angle_rationale, research_summary: a.summary ?? null,
   });
   const cited = facts.filter((f: { is_hypothesis: boolean }) => !f.is_hypothesis).length;
-  return { output: { stored_facts: facts.length, cited_facts: cited, hypotheses: facts.length - cited, note: cited < facts.length ? 'Facts without a stored source_url were saved as hypotheses.' : undefined } };
+  return { output: { stored_facts: facts.length, website: website ?? (a.website ? 'not stored: no research source on that domain' : undefined), cited_facts: cited, hypotheses: facts.length - cited, note: cited < facts.length ? 'Facts without a stored source_url were saved as hypotheses.' : undefined } };
 }
 
 async function collectAssets(ctx: ToolContext, a: Args): Promise<ToolResult> {

@@ -93,7 +93,7 @@ const PRODUCTION_RE = /\b(generier\w*|generate\w*|genera\w*|render\w*|renderiza\
 // Planning vocabulary (research, plan, script, shots, save the plan) in EN/DE/ES.
 const PLANNING_RE = /\b(plan\w*|planung\w*|plane\w*|planifica\w*|speicher\w*|sicher\w*|save\w*|guarda\w*|recherch\w*|research\w*|investiga\w*|skript\w*|script\w*|guion\w*|shots?|tomas?|konzept\w*|concept\w*|kampagne\w*|campaign\w*|campaña\w*|vervollständig\w*|complete|completa\w*|zielgruppe|audience|fakten|facts|säulen|pillars)\b/i;
 // "Save / complete the plan" as an explicit command even when phrased like a request.
-const SAVE_RE = /\b(speicher\w*|save|guarda\w*|vervollständig\w*|complete\s+the\s+plan|completa\w*)\b/i;
+const SAVE_RE = /\b(speicher\w*|save|guarda\w*|vervollst\w*|complete\s+the\s+plan|completa\w*|ergänz\w*|erganz\w*|aktualisier\w*|update\w*|actualiza\w*|füg\w*\s+.{0,40}hinzu|add|añade\w*|trag\w*\s+.{0,40}ein|rout\w*|enruta\w*)\b/i;
 const CONTINUATION_RE = /^((ok(ay)?|ja|yes|gut|passt|s[ií])[\s,.!]+)?(weiter(machen)?|mach\s+weiter|fortfahren|fahr\s+fort|continue|go\s+on|keep\s+going|carry\s+on|next|sigue|seguir|contin[uú]a|ok(ay)?|ja|yes|s[ií]|passt|gut|genau|bitte)\b[\s,.:!-]*(bitte|please|por\s+favor|so|mit\b.{0,80}|with\b.{0,80}|con\b.{0,80})?[\s.!]*$/i;
 
 function clauses(text: string): string[] {

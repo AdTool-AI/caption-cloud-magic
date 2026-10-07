@@ -76,6 +76,7 @@ export const CAMPAIGN_TOOL_DEFINITIONS: MuseFunctionTool[] = [
       properties: {
         campaign_id: str,
         summary: str,
+        website: { type: 'string', description: 'Official website URL. Stored only if a stored research source is on the same domain.' },
         audience: str,
         commercial_angle: str,
         angle_rationale: str,

@@ -142,3 +142,11 @@ Deno.test('planning turn refuses paid tools before touching the database or prov
   }
   assertEquals(touched, 0);
 });
+
+Deno.test('save/complete/route commands are planning, not read-only', () => {
+  for (const m of ['weiter: Website und Zielgruppe ergänzen, gespeicherte Planung per get_campaign prüfen, Shots routen und die USD-Kostenschätzung nennen', 'Speichere die Planung.', 'Bitte die Website ergänzen.', 'Update the audience and save the plan']) {
+    assertEquals(decideTurnMode({ message: m }).mode, 'planning', m);
+  }
+  // A save word next to a production word stays normal (approval-gated), never planning.
+  assertEquals(decideTurnMode({ message: 'Speichere den Plan und starte die Produktion' }).mode, 'normal');
+});
