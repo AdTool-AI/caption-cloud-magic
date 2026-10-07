@@ -72,3 +72,73 @@ Deno.test('request fingerprint differs for different content and conversation', 
   assert(a !== await requestFingerprint('c1', 'hello!'));
   assert(a !== await requestFingerprint('c2', 'hello'));
 });
+
+// ---- Planning mode + continuations ----------------------------------------
+import { decideTurnMode, isContinuation, PLANNING_FORBIDDEN, PLANNING_TOOLS, PLANNING_TOOL_AUDIT } from './turnPolicy.ts';
+
+const CORDIAL_ORDER = 'Starte eine neue, eigenständige Testkampagne für CORDIAL – we are cables. Übernimm keine Inhalte, Assets oder Freigaben aus Café Buur. Ziel: Ein hochwertiges 30-Sekunden-Video. Recherche, Planung und Speichern sind erlaubt. Keine Mediengenerierung, keine Produktionsjobs, keine Retries, keine Budgetfreigaben, keine Wallet-Abbuchungen.';
+
+Deno.test('continuations are recognized in EN/DE/ES', () => {
+  for (const m of ['weiter', 'Weiter!', 'weiter mit Planung speichern', 'continue', 'go on', 'sigue', 'continúa por favor', 'ok weiter']) assert(isContinuation(m), m);
+  for (const m of ['Was ist der Stand?', 'Starte die Produktion', 'Weiterhin keine Retries starten und den Plan bitte vollständig speichern, inklusive aller Shots und Fakten mit Quellen und der Zielgruppe für die Kampagne.']) assert(!isContinuation(m), m);
+});
+Deno.test('"weiter" after a planning order runs as planning (CORDIAL regression)', () => {
+  assertEquals(decideTurnMode({ message: CORDIAL_ORDER }).mode, 'planning');
+  assertEquals(decideTurnMode({ message: 'weiter', priorUserMessages: [CORDIAL_ORDER] }).mode, 'planning');
+  assertEquals(decideTurnMode({ message: 'weiter', priorUserMessages: ['weiter', CORDIAL_ORDER] }).mode, 'planning');
+  assertEquals(decideTurnMode({ message: 'weiter mit Planung speichern', priorUserMessages: [CORDIAL_ORDER] }).mode, 'planning');
+});
+Deno.test('"weiter" after a status question stays read-only', () => {
+  assertEquals(decideTurnMode({ message: 'weiter', priorUserMessages: ['Was ist der aktuelle Stand von S2?'] }).mode, 'read_only');
+});
+Deno.test('"weiter" after a production / retry order is capped at planning', () => {
+  for (const p of ['Starte die Produktion für Video 1.', 'Starte den Retry für S2.', 'Generiere S2 neu mit Seedance.', 'Please start production now']) {
+    const d = decideTurnMode({ message: 'weiter', priorUserMessages: [p] });
+    assertEquals(d.mode, 'planning', p);
+    assert(d.mode !== 'normal');
+  }
+});
+Deno.test('"weiter" without context stays read-only and asks', () => {
+  const d = decideTurnMode({ message: 'weiter', priorUserMessages: [] });
+  assertEquals(d.mode, 'read_only');
+  assertEquals(d.needsClarification, true);
+});
+Deno.test('explicit status question after a planning order stays read-only', () => {
+  assertEquals(decideTurnMode({ message: 'Was ist der aktuelle Stand der Kampagne?', priorUserMessages: [CORDIAL_ORDER] }).mode, 'read_only');
+  assertEquals(decideTurnMode({ message: 'Zeig mir den Status von S2.', priorUserMessages: [CORDIAL_ORDER] }).mode, 'read_only');
+});
+Deno.test('client flag can only lower the mode', () => {
+  assertEquals(decideTurnMode({ message: 'weiter', clientReadOnly: true, priorUserMessages: [CORDIAL_ORDER] }).mode, 'read_only');
+  assertEquals(decideTurnMode({ message: 'Was ist der Stand?', clientReadOnly: false, priorUserMessages: [CORDIAL_ORDER] }).mode, 'read_only');
+  assertEquals(decideTurnMode({ message: 'weiter', clientReadOnly: 'normal' as unknown, priorUserMessages: ['Starte den Retry für S2.'] }).mode, 'planning');
+});
+Deno.test('planning list is explicit and excludes every paid / approval / production tool', () => {
+  const defined = new Set(MUSE_TOOL_DEFINITIONS.map((t) => t.name));
+  for (const name of PLANNING_TOOLS) {
+    assert(defined.has(name), `unknown planning tool ${name}`);
+    assert(PLANNING_TOOL_AUDIT[name].writes.length > 0 && PLANNING_TOOL_AUDIT[name].internalCost.length > 0);
+  }
+  for (const name of PLANNING_FORBIDDEN) {
+    assert(!PLANNING_TOOLS.has(name), name);
+    assertEquals(guardToolCall('planning', name)?.code, 'PLANNING_TURN', name);
+  }
+  for (const name of defined) {
+    if (!PLANNING_TOOLS.has(name)) assertEquals(guardToolCall('planning', name)?.code, 'PLANNING_TURN', name);
+  }
+  assert(/generat|retry|approv|budget|production|regenerat/i.test(PLANNING_FORBIDDEN.join(' ')));
+});
+Deno.test('planning turn refuses paid tools before touching the database or provider', async () => {
+  let touched = 0;
+  const admin = new Proxy({}, { get: () => { touched++; throw new Error('database must not be touched'); } });
+  const ctx = {
+    userId: 'u', conversationId: 'c', admin, userJwt: 'j', supabaseUrl: 'https://mock.local', anonKey: 'a',
+    museConfig: { apiKey: '', baseUrl: '', model: '', maxToolIterations: 0, maxRegenerations: 0, maxTurnSpend: 0 },
+    regenerationsUsed: 0, maxRegenerations: 0, maxTurnSpend: 0, spentThisTurn: 0, turnMode: 'planning',
+    fetchImpl: () => { throw new Error('provider must not be called'); },
+  } as unknown as ToolContext;
+  for (const name of PLANNING_FORBIDDEN) {
+    const r = await executeMuseTool(ctx, name, { shot_id: 'x', campaign_id: 'x' });
+    assertEquals(r.output.code, 'PLANNING_TURN', name);
+  }
+  assertEquals(touched, 0);
+});

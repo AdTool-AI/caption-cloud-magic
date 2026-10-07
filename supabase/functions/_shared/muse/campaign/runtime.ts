@@ -224,9 +224,17 @@ function toVideo(v: Args): PlannedVideo {
   };
 }
 
+/** Plans with production attempts are frozen: re-planning would delete shots that already have outputs. */
+async function productionLocked(ctx: ToolContext, campaignId: string): Promise<boolean> {
+  const { count } = await ctx.admin.from('campaign_shot_attempts').select('id', { count: 'exact', head: true }).eq('campaign_id', campaignId);
+  return (count ?? 0) > 0;
+}
+const LOCKED = () => err('PLAN_LOCKED', 'This campaign already has production attempts. Its videos and shots are not replanned so existing outputs stay intact.');
+
 async function planVideos(ctx: ToolContext, a: Args): Promise<ToolResult> {
   const c = await loadCampaign(ctx, a.campaign_id);
   if (!c) return err('NOT_FOUND', 'Campaign not found.');
+  if (await productionLocked(ctx, c.id)) return LOCKED();
   const videos: PlannedVideo[] = (Array.isArray(a.videos) ? a.videos : []).map(toVideo);
   const [{ data: pillars }, { data: areas }] = await Promise.all([
     ctx.admin.from('campaign_pillars').select('name, rank').eq('campaign_id', c.id),
@@ -323,6 +331,7 @@ async function planVideos(ctx: ToolContext, a: Args): Promise<ToolResult> {
 async function writeScripts(ctx: ToolContext, a: Args): Promise<ToolResult> {
   const c = await loadCampaign(ctx, a.campaign_id);
   if (!c) return err('NOT_FOUND', 'Campaign not found.');
+  if (await productionLocked(ctx, c.id)) return LOCKED();
   const { data: vids } = await ctx.admin.from('campaign_videos').select('id, video_index').eq('campaign_id', c.id);
   if (!vids?.length) return err('PREREQUISITE', 'Call plan_campaign_videos first.');
   const { data: assetRows } = await ctx.admin.from('campaign_assets').select('id').eq('campaign_id', c.id);

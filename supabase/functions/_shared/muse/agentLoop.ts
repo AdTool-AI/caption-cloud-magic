@@ -10,7 +10,7 @@ import { MUSE_TOOL_DEFINITIONS, MUSE_PAID_TOOLS } from './tools.ts';
 import { buildSystemPrompt } from './systemPrompt.ts';
 import { executeMuseTool, type ToolContext } from './toolRuntime.ts';
 import { estimateMuseCostUsd, type MuseConfig } from './config.ts';
-import { guardToolCall, READ_ONLY_INSTRUCTION, READ_ONLY_TOOLS, type TurnMode } from './turnPolicy.ts';
+import { CLARIFY_CONTINUATION_INSTRUCTION, guardToolCall, PLANNING_INSTRUCTION, READ_ONLY_INSTRUCTION, toolAllowedInMode, type TurnMode } from './turnPolicy.ts';
 
 export type AgentEvent =
   | { type: 'conversation'; conversationId: string }
@@ -48,6 +48,8 @@ export interface RunAgentParams {
   testRewriteFirstToolCallTo?: string;
   /** Server-decided turn mode. read_only = only reading tools exist and execute. */
   mode?: TurnMode;
+  /** Server decided this continuation has no clear context: ask instead of acting. */
+  needsClarification?: boolean;
   /** Test-only (admin-gated by caller): fail before the first model call — no Muse, no provider. */
   faultInjectBeforeModel?: boolean;
 }
@@ -143,12 +145,15 @@ export async function runAgentTurn(params: RunAgentParams): Promise<void> {
     internalAuthUserId: params.internalAuthUserId,
     turnMode: params.mode ?? 'normal',
   };
-  const readOnly = params.mode === 'read_only';
+  const mode: TurnMode = params.mode ?? 'normal';
   const toolDefs = MUSE_TOOL_DEFINITIONS
     .filter((t) => !params.allowedTools || params.allowedTools.has(t.name))
-    .filter((t) => !readOnly || READ_ONLY_TOOLS.has(t.name));
-  const instructions = buildSystemPrompt({ language: params.language }) + (readOnly ? `\n\n${READ_ONLY_INSTRUCTION}` : '');
-  if (readOnly) log('read_only_turn', { conversationId, tools: toolDefs.map((t) => t.name) });
+    .filter((t) => toolAllowedInMode(mode, t.name));
+  const modeInstruction = mode === 'read_only'
+    ? `\n\n${READ_ONLY_INSTRUCTION}${params.needsClarification ? `\n${CLARIFY_CONTINUATION_INSTRUCTION}` : ''}`
+    : mode === 'planning' ? `\n\n${PLANNING_INSTRUCTION}` : '';
+  const instructions = buildSystemPrompt({ language: params.language }) + modeInstruction;
+  if (mode !== 'normal') log(`${mode}_turn`, { conversationId, tools: toolDefs.map((t) => t.name) });
 
   let input: MuseInputItem[] = [
     ...recoveredOutputs.map((p) => ({ type: 'function_call_output' as const, call_id: p.call_id, output: p.output })),

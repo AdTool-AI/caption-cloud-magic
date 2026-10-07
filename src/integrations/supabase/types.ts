@@ -803,6 +803,8 @@ export type Database = {
           conversation_id: string | null
           created_at: string
           fingerprint: string
+          mode: string | null
+          mode_reason: string | null
           request_id: string
           status: string
           updated_at: string
@@ -812,6 +814,8 @@ export type Database = {
           conversation_id?: string | null
           created_at?: string
           fingerprint: string
+          mode?: string | null
+          mode_reason?: string | null
           request_id: string
           status?: string
           updated_at?: string
@@ -821,6 +825,8 @@ export type Database = {
           conversation_id?: string | null
           created_at?: string
           fingerprint?: string
+          mode?: string | null
+          mode_reason?: string | null
           request_id?: string
           status?: string
           updated_at?: string
