@@ -165,27 +165,55 @@ export function buildRenderPayload(e: SpotEdit, revision: number) {
     return s;
   });
   const total = round(t);
+  const pct = (v: number) => Math.round(Math.max(0, Math.min(1, v)) * 100);
   const tracks: Row[] = [];
-  if (e.voiceover) tracks.push({ id: 'vo', type: 'voiceover', volume: e.voiceover.volume, clips: [{ id: 'vo-1', url: e.voiceover.url, startTime: e.voiceover.start, duration: e.voiceover.duration }] });
-  if (e.music) tracks.push({ id: 'music', type: 'background-music', volume: e.music.volume, clips: [{ id: 'music-1', url: e.music.url, startTime: 0, duration: total, fadeOut: 1 }] });
-  if (e.sfx.length) tracks.push({ id: 'sfx', type: 'sound-effect', volume: 1, clips: e.sfx.map((s, i) => ({ id: `sfx-${i + 1}`, url: s.url, startTime: s.start, duration: s.duration, volume: s.volume })) });
-  const overlays: Row[] = e.overlays.map((o) => ({ id: o.id, text: o.text, startTime: o.start, endTime: o.end, position: o.role === 'cta' ? 'bottom' : 'top', kind: 'text' }));
+  if (e.voiceover) tracks.push({ id: 'vo', type: 'voiceover', volume: pct(e.voiceover.volume), clips: [{ id: 'vo-1', url: e.voiceover.url, startTime: e.voiceover.start, duration: e.voiceover.duration }] });
+  if (e.music) tracks.push({ id: 'music', type: 'background-music', volume: pct(e.music.volume), clips: musicSegments(e, total) });
+  if (e.sfx.length) tracks.push({ id: 'sfx', type: 'sound-effect', volume: 100, clips: e.sfx.map((s, i) => ({ id: `sfx-${i + 1}`, url: s.url, startTime: s.start, duration: s.duration, volume: pct(s.volume) })) });
+  const style = (big: boolean) => ({ fontSize: big ? 'xl' : 'lg', color: '#FFFFFF', backgroundColor: 'transparent', shadow: true, fontFamily: 'Inter', align: 'center' });
+  const overlays: Row[] = e.overlays.map((o) => ({
+    id: o.id, text: o.text, kind: o.role === 'cta' ? 'cta' : 'text', animation: 'fade', position: o.role === 'cta' ? 'bottom' : 'top',
+    startTime: o.start, endTime: o.end, style: style(o.role === 'product_name'),
+  }));
   if (e.endcard) {
-    overlays.push({ id: 'endcard', text: [e.endcard.headline, e.endcard.cta].filter(Boolean).join('\n'), startTime: round(total - e.endcard.duration), endTime: total, position: 'center', kind: 'text' });
+    const from = round(total - e.endcard.duration);
+    overlays.push({ id: 'endcard', kind: 'cta', text: e.endcard.cta, animation: 'fade', position: 'bottom', startTime: from, endTime: total, style: style(true), slots: { title: e.endcard.headline } });
   }
-  if (e.logo) overlays.push({ id: 'logo', kind: 'image', imageUrl: e.logo.url, startTime: e.endcard ? round(total - e.endcard.duration) : 0, endTime: total, position: 'center' });
+  if (e.logo) {
+    const from = e.endcard ? round(total - e.endcard.duration) : 0;
+    overlays.push({ id: 'logo', kind: 'logo', text: '', animation: 'fade', position: 'center', startTime: from, endTime: total, style: style(false), slots: { imageUrl: e.logo.url }, box: { x: 0.25, y: 0.3, w: 0.5, h: 0.2 } });
+  }
   return {
     source_video_url: e.clips[0]?.url,
     duration_seconds: total,
     scenes,
     transitions: [],
     audio_tracks: tracks,
-    audio_settings: { music_duck_factor: e.music?.duck ?? DEFAULT_DUCK },
     subtitle_track: e.subtitles ? { visible: true, clips: e.subtitles.segments.map((s, i) => ({ id: `sub-${i + 1}`, text: s.text, startTime: s.start, endTime: s.end })) } : undefined,
     text_overlays: overlays,
     export_settings: { aspect_ratio: e.aspect, quality: 'hd', format: 'mp4' },
     spot_revision: revision,
   };
+}
+
+/**
+ * Music ducking baked into the payload: the renderer only ducks when the legacy
+ * voiceover_url is set (fixed 0.35), so the music is split into segments with
+ * the chosen duck factor during the voiceover span.
+ */
+export function musicSegments(e: SpotEdit, total: number): Row[] {
+  const m = e.music!;
+  const vo = e.voiceover;
+  if (!vo) return [{ id: 'music-1', url: m.url, startTime: 0, duration: total, volume: 100 }];
+  const a = Math.max(0, vo.start), b = Math.min(total, vo.start + vo.duration);
+  const seg: Row[] = [];
+  const push = (from: number, to: number, vol: number) => {
+    if (to - from > 0.01) seg.push({ id: `music-${seg.length + 1}`, url: m.url, startTime: round(from), duration: round(to - from), trimStart: round(from), trimEnd: round(to), volume: vol });
+  };
+  push(0, a, 100);
+  push(a, b, Math.round(Math.max(0, Math.min(1, m.duck)) * 100));
+  push(b, total, 100);
+  return seg;
 }
 
 /** Scan an MP4 buffer for track handler boxes. Proves the container lists the tracks — not that they decode or are audible. */
