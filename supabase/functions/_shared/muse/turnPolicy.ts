@@ -52,7 +52,7 @@ export function splitClauses(message: string): Array<{ text: string; negated: bo
       else if (/\b(dann|then|aber|but|pero|danach|anschließend)\b/i.test(t)) negated = false;
       // Compound nouns ("Generierungsdauer", "Produktionskosten", "Planungsdaten")
       // name a quantity, not a command — drop them before verb matching.
-      out.push({ text: t.replace(NOUN_COMPOUND_RE, ' ').trim() || t, negated });
+      out.push({ text: t.replace(NOUN_COMPOUND_RE, ' ').trim(), negated });
     }
   }
   return out;

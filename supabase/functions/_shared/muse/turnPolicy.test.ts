@@ -184,3 +184,9 @@ Deno.test('planning job tools: production, approvals and charges stay blocked on
     assert(guardToolCall('planning', t) !== null, t);
   }
 });
+
+Deno.test('compound nouns ("Generierungsdauer", "Planungsdaten") are not commands', () => {
+  const m = 'Bitte das Routing neu berechnen und als Planungsdaten speichern – ohne Budgetfreigabe, Freigabekarte, Reservierung oder Abbuchung. Danach Schnittdauer, Generierungsdauer und USD-Kosten nennen.';
+  assertEquals(decideTurnMode({ message: m }).mode, 'planning');
+  assertEquals(decideTurnMode({ message: 'Generiere jetzt Shot 1' }).mode, 'normal');
+});
