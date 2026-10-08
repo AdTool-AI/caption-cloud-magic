@@ -50,6 +50,8 @@ export interface RunAgentParams {
   mode?: TurnMode;
   /** Server decided this continuation has no clear context: ask instead of acting. */
   needsClarification?: boolean;
+  /** Set when this turn is a stored background planning job (no further job is queued from it). */
+  planningJobId?: string;
   /** Test-only (admin-gated by caller): fail before the first model call — no Muse, no provider. */
   faultInjectBeforeModel?: boolean;
 }
@@ -63,7 +65,9 @@ function log(stage: string, data: Record<string, unknown>) {
   console.log(`[muse-recovery] ${stage}`, JSON.stringify(data));
 }
 
-export async function runAgentTurn(params: RunAgentParams): Promise<void> {
+export interface AgentTurnOutcome { conversationId: string | null; stepLimitHit: boolean; costUsd: number; answered: boolean; error: string | null }
+
+export async function runAgentTurn(params: RunAgentParams): Promise<AgentTurnOutcome> {
   const { admin, config, userId, emit } = params;
 
   // ---- conversation record -------------------------------------------------
@@ -355,7 +359,9 @@ export async function runAgentTurn(params: RunAgentParams): Promise<void> {
       const closing = await createMuseResponse(config, {
         input: [
           ...input,
-          { role: 'user', content: 'Tool step limit for this turn reached. Summarize the current state briefly; the user can continue in the next message.' },
+          { role: 'user', content: mode === 'planning'
+            ? 'Tool step limit for this run reached. Summarize briefly what is stored and what is still open; the server continues the authorized planning job automatically within its fixed limits — do not ask the user to say "weiter".'
+            : 'Tool step limit for this turn reached. Summarize the current state briefly; the user can continue in the next message.' },
         ],
         instructions,
         previousResponseId,
@@ -423,6 +429,16 @@ export async function runAgentTurn(params: RunAgentParams): Promise<void> {
     })
     .eq('id', conversationId);
 
+  // Planning job hit its step cap: queue ONE bounded server-side continuation
+  // (planning mode stored on the job; never more than one active per chat).
+  if (mode === 'planning' && stepLimitHit && !params.planningJobId && conversationId) {
+    await admin.from('agent_planning_jobs').insert({
+      user_id: userId, conversation_id: conversationId, language: params.language ?? null,
+      cost_usd: costUsd, steps_done: maxIterations,
+    }).then(({ error }) => { if (error && !/duplicate|unique/i.test(error.message)) console.error('[muse-plan-job] queue failed', error.message); });
+  }
+
   emit({ type: 'usage', inputTokens: totalIn, outputTokens: totalOut, costUsd });
   emit({ type: 'done' });
+  return { conversationId, stepLimitHit, costUsd, answered: !!finalText, error: turnError };
 }
