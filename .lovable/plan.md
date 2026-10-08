@@ -36,20 +36,29 @@ Vor dem ersten bezahlten Lauf: unbekannte Kosten messen und zeigen; Preisregeln 
 
 ## Plan
 
-### Stufe 1 – ein durchgehender, funktionierender Ablauf
+### Stufe 1 – ein durchgehender Ablauf vom Kampagnen-Clip zum fertigen Spot
 
-1. **Kampagne → Schnitt:** Kampagnen-Video als Schnittprojekt öffnen. Pro Shot wird der gewählte Versuch mit Schnittdauer übernommen. Vorhandene Clips werden wiederverwendet, nichts neu generiert.
-2. **Versuch auswählen:** im Kampagnenbereich pro Shot festlegen, welcher Clip in den Schnitt kommt. Alte Versuche bleiben erhalten.
-3. **Agent-Werkzeuge** (je mit Kostenanzeige, bei Kosten mit Freigabe): Schnitt anlegen, Voiceover erzeugen oder Upload nutzen, Musik wählen/erzeugen, Untertitel aus dem tatsächlichen Voiceover, Overlays/Logo/Endcard setzen, Export starten. Sie rufen nur die bestehenden Funktionen auf.
-4. **Endcard und Logo:** einfache Endcard-Vorlage mit hochgeladenem Original-Logo. Ohne Logo-Datei mit Rechten bleibt die Endcard blockiert, kein Ersatzlogo.
-5. **Musikabsenkung:** einstellbarer Wert statt fest 35 %, Standard unverändert.
-6. **Status-Stufen:** Planung fertig → Einzelclips fertig → Schnitt fertig → finaler Spot geprüft. „Fertig“ erst, wenn Voiceover, Musik, Untertitel, Pflichttexte und Export vorhanden sind und die Abschlussprüfung bestanden ist (Dauer genau 30 s, 9:16, Tonspur vorhanden).
-7. **Ergebnis:** fertige Datei im Kampagnenbereich abspielbar und herunterladbar.
+Anbieteraufrufe, die nur im Code vorhanden sind, heißen im Bericht „implementiert, noch nicht getestet“.
+
+0. **Offene Pfade zuerst nachvollziehen (nur lesen):** Soundeffekte, Export bis zur herunterladbaren Datei (Render-Abschluss, Speicherort, Download-Link), deutsche Ausgabe pro Stimme und Übergabe der Untertitel in den Render. Lücken werden behoben, bevor die Kampagne angebunden wird.
+1. **Versuch pro Shot auswählen:** Im Kampagnenbereich wird pro Shot ein vorhandener Versuch für den Schnitt gewählt. Alte Clips und Versuche bleiben erhalten.
+2. **Schnittprojekt zur Kampagne:** genau ein Schnittprojekt pro Kampagnen-Video. Auswahl, Reihenfolge und Schnittpunkte werden dauerhaft gespeichert. Erneutes Öffnen lädt dasselbe Projekt und erzeugt keine Duplikate. Clips ersetzen, umsortieren oder kürzen nutzt vorhandene Dateien und generiert nie neu.
+3. **Ton- und Textebene in Director's Cut:** Voiceover erzeugen oder hochladen, Musik, Soundeffekte, Lautstärken, einstellbare Musikabsenkung (Standard wie bisher 35 %), Untertitel aus dem tatsächlichen Voiceover, Original-Logo, Textoverlays und Endcard. Alles bleibt manuell bearbeitbar. Ohne Logo-Datei bleibt die Endcard blockiert, es gibt kein Ersatzlogo.
+4. **Agent nutzt dieselben Funktionen:** Neue Werkzeuge rufen die bestehenden Funktionen auf und schreiben in dasselbe Schnittprojekt. Werkzeuge, die Anbieter aufrufen, sind im Lese- und Planungsmodus gesperrt und brauchen eine Freigabe. Das gilt auch ohne bisherige Wallet-Abbuchung, weil intern Kosten entstehen können.
+5. **Kosten dokumentieren:** Interne Kosten und aktuelle Nutzerpreise werden pro Bestandteil getrennt dokumentiert. Unbekannte Werte stehen ausdrücklich als „unbekannt“ da. Preisregeln bleiben unverändert.
+6. **Export im Kampagnenbereich:** Die fertige Datei wird dort abgespielt und kann heruntergeladen werden.
+7. **Abschlussprüfung, zweigeteilt:**
+   - *Technisch:* Dauer, 9:16, Auflösung, decodierbare Bild- und Tonspur, Pflichttexte vorhanden und zeitlich passend zu den Untertiteln und dem Voiceover.
+   - *Inhaltlich:* Ist das Voiceover hörbar und korrekt? Das wird separat geprüft und ausgewiesen, denn eine vorhandene Tonspur allein beweist das nicht.
+8. **Statusstufen:** Planung fertig → Einzelclips fertig → Schnitt fertig → Export fertig → finaler Spot geprüft. Jede Änderung an Schnitt, Ton oder Overlays markiert den vorherigen Export sichtbar als veraltet. Clips werden nie automatisch neu generiert.
+
+**Tests:** nur mit gemockten Anbietern und vorhandenen geeigneten Testdateien. Keine bezahlten Video-, Audio-, Analyse- oder Render-Aufrufe, keine Freigaben, Reservierungen oder Buchungen. Die CORDIAL-Kampagne bleibt erhalten.
+
+**Abschlussbericht:** Er zeigt getrennt, was durchgehend funktioniert, was nur mit Mocks geprüft wurde und welche echten Tests noch fehlen. Außerdem nennt er das konkrete Budget für den CORDIAL-Abnahmetest.
 
 ### Stufe 2 – Komfort und Qualität
 
 - Ton-Fähigkeit der Modelle im Router berücksichtigen.
-- Soundeffekte prüfen und ggf. nachrüsten.
 - Abweichungen zwischen Vorschau und Export messen.
 - KI-Prüfung des fertigen Spots (Bild, Ton, Text).
 - Kosten für Voiceover, Untertitel und Render messen und anzeigen.
