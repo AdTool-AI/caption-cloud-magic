@@ -103,12 +103,16 @@ export async function routeCampaignShots(ctx: ToolContext, a: Args): Promise<Too
           return list == null ? null : Math.round(list * 100) / 100;
         },
         stats,
+        requiredResolution: s.required_resolution ?? (typeof a.required_resolution === 'string' ? a.required_resolution : null),
         neighborModels,
       });
       if (!candidates.length) { skipped.push({ shot_id: s.id, reason: `No model supports ${mode} ${aspect} for ${Math.ceil(s.end_s - s.start_s)}s at the required quality tier.` }); continue; }
       const best = candidates[0];
       neighborModels.push(best.model);
       const prompt = buildShotPrompt(s as ShotInput, { company: c.company_name, visualStyle: v.visual_style });
+      const negatives = negativeConstraints(risk);
+      // Fingerprint of exactly what this routing was computed for (incl. prompt/negatives/aspect).
+      const fp = routingFingerprint({ ...s, english_prompt: prompt, negative_constraints: negatives, aspect_ratio: aspect });
       const discount = await resolveAccountDiscountFactor(ctx.admin, ctx.userId);
       const est = best.estimated_cost == null ? null : Math.round(best.estimated_cost * discount * 100) / 100;
       const cut = Number(s.end_s) - Number(s.start_s);
@@ -117,10 +121,12 @@ export async function routeCampaignShots(ctx: ToolContext, a: Args): Promise<Too
         generation_mode: mode,
         input_asset_id: mode === 'i2v' ? s.asset_id : null,
         english_prompt: prompt,
-        negative_constraints: negativeConstraints(risk),
+        negative_constraints: negatives,
         selected_model: best.model,
         resolution: best.resolution,
         duration_s: best.duration,
+        cut_duration_s: cut,
+        generation_duration_s: best.duration,
         aspect_ratio: aspect,
         routing_rationale: {
           candidates: candidates.slice(0, 8),
@@ -128,10 +134,12 @@ export async function routeCampaignShots(ctx: ToolContext, a: Args): Promise<Too
           chosen: best.model,
           weights: { quality: 0.5, fit: 0.25, price: 0.15, consistency: 0.1 },
           required_tier: requiredTier(risk),
+          required_resolution: s.required_resolution ?? a.required_resolution ?? null,
           cut_duration_s: cut,
           generation_duration_s: best.duration,
           billed_seconds: best.duration,
           currency,
+          estimate_kind: 'non_binding_planning_estimate',
           reason: `Best total score for ${category}/${mode} at risk tier ${best.quality_tier}; confidence ${best.confidence}. Billed for the full ${best.duration}s clip; ${cut}s used in the cut.`,
           confidence: best.confidence,
         },
@@ -153,7 +161,7 @@ export async function routeCampaignShots(ctx: ToolContext, a: Args): Promise<Too
       });
     }
   }
-  return { output: { campaign_id: c.id, routed, skipped, next: 'estimate_campaign_budget' } };
+  return { output: { campaign_id: c.id, routed, skipped, note: 'Routing and non-binding estimate saved as planning data only — no approval, reservation or charge.' } };
 }
 
 // ---------------------------------------------------------------------------
