@@ -436,7 +436,7 @@ export async function runAgentTurn(params: RunAgentParams): Promise<AgentTurnOut
       user_id: userId, conversation_id: conversationId, language: params.language ?? null,
       cost_usd: costUsd, steps_done: 1,
       max_continuations: PLANNING_JOB_MAX_CONTINUATIONS, max_cost_usd: PLANNING_JOB_MAX_COST_USD,
-    }).then(({ error }) => { if (error && !/duplicate|unique/i.test(error.message)) console.error('[muse-plan-job] queue failed', error.message); });
+    }).then(({ error }: { error: { message: string } | null }) => { if (error && !/duplicate|unique/i.test(error.message)) console.error('[muse-plan-job] queue failed', error.message); });
   }
 
   emit({ type: 'usage', inputTokens: totalIn, outputTokens: totalOut, costUsd });
