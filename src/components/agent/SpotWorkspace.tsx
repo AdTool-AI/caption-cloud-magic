@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowDown, ArrowUp, Download, Loader2, RefreshCw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -61,9 +61,11 @@ export function SpotWorkspace({ videoId, title }: { videoId: string; title: stri
   const [sfxStart, setSfxStart] = useState("0");
   const [checks, setChecks] = useState({ voiceover_audible_correct: false, texts_readable: false, picture_ok: false });
 
+  const spotRef = useRef<Row | null>(null);
+  const queue = useRef<Promise<unknown>>(Promise.resolve());
   const run = useCallback(async (body: Row) => {
     setBusy(true);
-    try { const r = await call({ video_id: videoId, ...body }); if (r?.video_id) setSpot(r); else setSpot(await call({ action: "get", video_id: videoId })); return r; }
+    try { const r = await call({ video_id: videoId, ...body }); const next = r?.video_id ? r : await call({ action: "get", video_id: videoId }); spotRef.current = next; setSpot(next); return r; }
     catch (e) { toast.error((e as Error).message); }
     finally { setBusy(false); }
   }, [videoId]);
@@ -77,12 +79,19 @@ export function SpotWorkspace({ videoId, title }: { videoId: string; title: stri
 
   if (!spot) return <div className="p-3 text-xs text-muted-foreground"><Loader2 className="inline h-3 w-3 animate-spin" /> {title}</div>;
   const edit: Row = spot.edit ?? {};
-  const save = (patch: Row) => run({ action: "save_edit", patch, expected_revision: spot.revision });
+  // Saves are serialized and built from the latest saved state, so quick successive edits never overwrite each other.
+  const save = (patch: Row | ((ed: Row) => Row)) => {
+    queue.current = queue.current.then(() => {
+      const cur = spotRef.current ?? spot;
+      return run({ action: "save_edit", patch: typeof patch === "function" ? patch(cur.edit ?? {}) : patch, expected_revision: cur.revision });
+    });
+    return queue.current;
+  };
   const prepare = (kind: string, params: Row = {}) => run({ action: "prepare", kind, params });
   const approveRun = async (id: string) => { await run({ action: "approve", action_id: id }); await run({ action: "run", action_id: id }); };
   const stageIdx = STAGES.findIndex((s) => s.key === spot.stage);
   const clips: Row[] = edit.clips ?? [];
-  const move = (i: number, d: number) => { const c = [...clips]; const [x] = c.splice(i, 1); c.splice(i + d, 0, x); save({ clips: c }); };
+  const move = (i: number, d: number) => save((ed) => { const c = [...ed.clips]; const [x] = c.splice(i, 1); c.splice(i + d, 0, x); return { clips: c }; });
   const pending = (spot.actions ?? []).filter((a: Row) => a.status === "pending");
 
   return (
@@ -112,9 +121,9 @@ export function SpotWorkspace({ videoId, title }: { videoId: string; title: stri
                   onChange={(e) => run({ action: "select_attempt", shot_id: c.shot_id, attempt_id: e.target.value })}>
                   {(shot?.attempts ?? []).map((a: Row) => <option key={a.id} value={a.id} disabled={!a.has_clip}>#{a.attempt_no} · {a.model} · {a.qa_verdict ?? "QA –"}</option>)}
                 </select>
-                <Input className="h-7 w-16" type="number" step="0.1" defaultValue={c.trim_in} onBlur={(e) => save({ clips: clips.map((x) => x.shot_id === c.shot_id ? { ...x, trim_in: Number(e.target.value) } : x) })} />
+                <Input className="h-7 w-16" type="number" step="0.1" defaultValue={c.trim_in} onBlur={(e) => { const v = Number(e.target.value); save((ed) => ({ clips: ed.clips.map((x: Row) => x.shot_id === c.shot_id ? { ...x, trim_in: v } : x) })); }} />
                 <span>–</span>
-                <Input className="h-7 w-16" type="number" step="0.1" defaultValue={c.trim_out} onBlur={(e) => save({ clips: clips.map((x) => x.shot_id === c.shot_id ? { ...x, trim_out: Number(e.target.value) } : x) })} />
+                <Input className="h-7 w-16" type="number" step="0.1" defaultValue={c.trim_out} onBlur={(e) => { const v = Number(e.target.value); save((ed) => ({ clips: ed.clips.map((x: Row) => x.shot_id === c.shot_id ? { ...x, trim_out: v } : x) })); }} />
                 <span className="text-muted-foreground">/ {c.source_duration}s</span>
                 <Button size="icon" variant="ghost" className="h-6 w-6" disabled={busy || i === 0} onClick={() => move(i, -1)} aria-label="up"><ArrowUp className="h-3 w-3" /></Button>
                 <Button size="icon" variant="ghost" className="h-6 w-6" disabled={busy || i === clips.length - 1} onClick={() => move(i, 1)} aria-label="down"><ArrowDown className="h-3 w-3" /></Button>
@@ -170,12 +179,12 @@ export function SpotWorkspace({ videoId, title }: { videoId: string; title: stri
         <h4 className="font-medium uppercase tracking-wide text-muted-foreground">{tx({ de: "Texte, Logo, Endcard", en: "Texts, logo, endcard", es: "Textos, logo, cierre" })}</h4>
         {(edit.overlays ?? []).map((o: Row, i: number) => (
           <div key={o.id} className="flex flex-wrap items-center gap-1.5">
-            <Input className="h-7 flex-1" defaultValue={o.text} onBlur={(e) => save({ overlays: edit.overlays.map((x: Row, j: number) => j === i ? { ...x, text: e.target.value } : x) })} />
-            <Input className="h-7 w-14" type="number" step="0.1" defaultValue={o.start} onBlur={(e) => save({ overlays: edit.overlays.map((x: Row, j: number) => j === i ? { ...x, start: Number(e.target.value) } : x) })} />
-            <Input className="h-7 w-14" type="number" step="0.1" defaultValue={o.end} onBlur={(e) => save({ overlays: edit.overlays.map((x: Row, j: number) => j === i ? { ...x, end: Number(e.target.value) } : x) })} />
+            <Input className="h-7 flex-1" defaultValue={o.text} onBlur={(e) => { const v = e.target.value; save((ed) => ({ overlays: ed.overlays.map((x: Row, j: number) => j === i ? { ...x, text: v } : x) })); }} />
+            <Input className="h-7 w-14" type="number" step="0.1" defaultValue={o.start} onBlur={(e) => { const v = Number(e.target.value); save((ed) => ({ overlays: ed.overlays.map((x: Row, j: number) => j === i ? { ...x, start: v } : x) })); }} />
+            <Input className="h-7 w-14" type="number" step="0.1" defaultValue={o.end} onBlur={(e) => { const v = Number(e.target.value); save((ed) => ({ overlays: ed.overlays.map((x: Row, j: number) => j === i ? { ...x, end: v } : x) })); }} />
           </div>
         ))}
-        <Button size="sm" variant="ghost" disabled={busy} onClick={() => save({ overlays: [...(edit.overlays ?? []), { id: `ov-${Date.now()}`, text: "CORDIAL", start: 0, end: 2, role: "product_name" }] })}>+ {tx({ de: "Text", en: "Text", es: "Texto" })}</Button>
+        <Button size="sm" variant="ghost" disabled={busy} onClick={() => save((ed) => ({ overlays: [...(ed.overlays ?? []), { id: `ov-${Date.now()}`, text: "CORDIAL", start: 0, end: 2, role: "product_name" }] }))}>+ {tx({ de: "Text", en: "Text", es: "Texto" })}</Button>
         <div className="flex flex-wrap items-center gap-2">
           {edit.logo ? <img src={edit.logo.url} alt="logo" className="h-8 rounded bg-foreground/80 p-1" /> : <span className="text-muted-foreground">{tx({ de: "Kein Logo — es wird kein Ersatz erzeugt", en: "No logo — no substitute is generated", es: "Sin logo — no se genera sustituto" })}</span>}
           {(spot.logo_candidates ?? []).map((l: Row) => (
@@ -197,9 +206,9 @@ export function SpotWorkspace({ videoId, title }: { videoId: string; title: stri
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
           <span>{tx({ de: "Endcard", en: "Endcard", es: "Cierre" })}</span>
-          <Input className="h-7 w-32" defaultValue={edit.endcard?.headline ?? ""} placeholder="Headline" onBlur={(e) => save({ endcard: { ...(edit.endcard ?? { cta: "", duration: 3 }), headline: e.target.value } })} />
-          <Input className="h-7 w-40" defaultValue={edit.endcard?.cta ?? ""} placeholder="CTA" onBlur={(e) => save({ endcard: { ...(edit.endcard ?? { headline: "", duration: 3 }), cta: e.target.value } })} />
-          <Input className="h-7 w-14" type="number" step="0.5" defaultValue={edit.endcard?.duration ?? 3} onBlur={(e) => save({ endcard: { ...(edit.endcard ?? { headline: "", cta: "" }), duration: Number(e.target.value) } })} />
+          <Input className="h-7 w-32" defaultValue={edit.endcard?.headline ?? ""} placeholder="Headline" onBlur={(e) => { const v = e.target.value; save((ed) => ({ endcard: { ...(ed.endcard ?? { cta: "", duration: 3 }), headline: v } })); }} />
+          <Input className="h-7 w-40" defaultValue={edit.endcard?.cta ?? ""} placeholder="CTA" onBlur={(e) => { const v = e.target.value; save((ed) => ({ endcard: { ...(ed.endcard ?? { headline: "", duration: 3 }), cta: v } })); }} />
+          <Input className="h-7 w-14" type="number" step="0.5" defaultValue={edit.endcard?.duration ?? 3} onBlur={(e) => { const v = Number(e.target.value); save((ed) => ({ endcard: { ...(ed.endcard ?? { headline: "", cta: "" }), duration: v } })); }} />
         </div>
       </section>
 

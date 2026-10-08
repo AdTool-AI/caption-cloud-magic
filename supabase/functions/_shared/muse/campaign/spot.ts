@@ -79,7 +79,7 @@ export function defaultEdit(video: Row, clips: EditClip[], targetDuration: numbe
   return {
     aspect: '9:16', target_duration: targetDuration, clips,
     voiceover: null, music: null, sfx: [], subtitles: null,
-    overlays: (pp.overlay_text ?? []).map((t: string, i: number) => ({ id: `ov-${i}`, text: t, start: 0, end: 2, role: 'text' as const })),
+    overlays: (pp.overlay_text ?? []).map((t: string, i: number) => ({ id: `ov-${i}`, text: t, start: i * 3, end: i * 3 + 2.5, role: 'text' as const })),
     logo: null,
     endcard: pp.cta_text ? { headline: pp.brand_name_overlay ?? '', cta: pp.cta_text, duration: 3 } : null,
   };
