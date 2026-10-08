@@ -173,10 +173,10 @@ export async function estimateCampaignBudget(ctx: ToolContext, a: Args): Promise
   if (!c) return err('NOT_FOUND', 'Campaign not found.');
   const { data: shots } = await ctx.admin
     .from('campaign_shots').select('id, video_id, shot_index, selected_model, duration_s, resolution, estimated_cost, status')
-    .eq('campaign_id', c.id).eq('status', 'quoted').order('shot_index');
+    .eq('campaign_id', c.id).eq('status', 'quoted').is('archived_at', null).order('shot_index');
   if (!shots?.length) return err('PREREQUISITE', 'Call route_campaign_shots first.');
   {
-    const { data: stale } = await ctx.admin.from('campaign_shots').select('id, video_id').eq('campaign_id', c.id).eq('routing_stale', true);
+    const { data: stale } = await ctx.admin.from('campaign_shots').select('id, video_id').eq('campaign_id', c.id).eq('routing_stale', true).is('archived_at', null);
     const wantedVids = Array.isArray(a.video_ids) ? new Set(a.video_ids) : null;
     const hit = (stale ?? []).filter((s: { video_id: string }) => !wantedVids || wantedVids.has(s.video_id));
     if (hit.length) return err('ROUTING_STALE', `${hit.length} shot(s) changed after routing. Re-run route_campaign_shots before estimating a budget.`);
@@ -372,7 +372,7 @@ export async function startCampaignProduction(ctx: ToolContext, a: Args): Promis
   }
 
   const scopeIds = [...approvedShotIds(approval.scope)];
-  const { data: shots } = await ctx.admin.from('campaign_shots').select('*').in('id', scopeIds).eq('campaign_id', approval.campaign_id).eq('user_id', ctx.userId);
+  const { data: shots } = await ctx.admin.from('campaign_shots').select('*').in('id', scopeIds).eq('campaign_id', approval.campaign_id).eq('user_id', ctx.userId).is('archived_at', null);
   const results: Record<string, unknown>[] = [];
   for (const shot of filterDispatchable(approval as { scope: unknown; campaign_id: string }, (shots ?? []) as Args[])) {
     if (shot.status !== 'quoted') { results.push({ shot_id: shot.id, skipped: true, status: shot.status }); continue; }
@@ -674,7 +674,7 @@ export async function productionStatus(ctx: ToolContext, a: Args): Promise<ToolR
   const { data: shotIdRows } = await ctx.admin.from('campaign_shots').select('id').eq('campaign_id', c.id);
   const shotIds = (shotIdRows ?? []).map((r: { id: string }) => r.id);
   const [shots, approvals, ledger] = await Promise.all([
-    ctx.admin.from('campaign_shots').select('id, video_id, shot_index, status, selected_model, estimated_cost, client_ready, attempt_count, qa_summary, current_generation_id, retry_plan').eq('campaign_id', c.id).order('shot_index'),
+    ctx.admin.from('campaign_shots').select('id, video_id, shot_index, status, selected_model, estimated_cost, client_ready, attempt_count, qa_summary, current_generation_id, retry_plan').eq('campaign_id', c.id).is('archived_at', null).order('shot_index'),
     ctx.admin.from('campaign_budget_approvals').select('id, kind, status, estimated_total, max_total, spent_total, retry_mode, retry_budget_per_shot, start_expires_at, execution_expires_at, retry_binding').eq('campaign_id', c.id).order('created_at', { ascending: false }).limit(5),
     ctx.admin.from('campaign_spend_ledger').select('entry_type, amount, shot_id, approval_id, created_at').in('shot_id', shotIds.length ? shotIds : ['00000000-0000-0000-0000-000000000000']).order('created_at', { ascending: false }).limit(50),
   ]);
