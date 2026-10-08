@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowDown, ArrowUp, Download, Loader2, RefreshCw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -206,9 +206,9 @@ export function SpotWorkspace({ videoId, title }: { videoId: string; title: stri
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
           <span>{tx({ de: "Endcard", en: "Endcard", es: "Cierre" })}</span>
-          <Input className="h-7 w-32" defaultValue={edit.endcard?.headline ?? ""} placeholder="Headline" onBlur={(e) => save({ endcard: { ...(edit.endcard ?? { cta: "", duration: 3 }), headline: e.target.value } })} />
-          <Input className="h-7 w-40" defaultValue={edit.endcard?.cta ?? ""} placeholder="CTA" onBlur={(e) => save({ endcard: { ...(edit.endcard ?? { headline: "", duration: 3 }), cta: e.target.value } })} />
-          <Input className="h-7 w-14" type="number" step="0.5" defaultValue={edit.endcard?.duration ?? 3} onBlur={(e) => save({ endcard: { ...(edit.endcard ?? { headline: "", cta: "" }), duration: Number(e.target.value) } })} />
+          <Input className="h-7 w-32" defaultValue={edit.endcard?.headline ?? ""} placeholder="Headline" onBlur={(e) => { const v = e.target.value; save((ed) => ({ endcard: { ...(ed.endcard ?? { cta: "", duration: 3 }), headline: v } })); }} />
+          <Input className="h-7 w-40" defaultValue={edit.endcard?.cta ?? ""} placeholder="CTA" onBlur={(e) => { const v = e.target.value; save((ed) => ({ endcard: { ...(ed.endcard ?? { headline: "", duration: 3 }), cta: v } })); }} />
+          <Input className="h-7 w-14" type="number" step="0.5" defaultValue={edit.endcard?.duration ?? 3} onBlur={(e) => { const v = Number(e.target.value); save((ed) => ({ endcard: { ...(ed.endcard ?? { headline: "", cta: "" }), duration: v } })); }} />
         </div>
       </section>
 
