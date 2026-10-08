@@ -220,3 +220,33 @@ export const PLANNING_INSTRUCTION = [
   'Model comparison: name the model manufacturer (provider field, e.g. Kuaishou, ByteDance) separately from the API provider we actually call (api_provider field, e.g. Replicate, BytePlus ModelArk). Only name models returned by get_available_video_models. Cost estimates come from route_campaign_shots / price_per_second in USD as an estimate without any approval; leave unknown prices explicitly open.',
   'Agent compute: the "agent cost" shown in the chat is the estimated language-model cost of this conversation, carried internally by the platform; it is not charged to the user wallet. Never say a turn had "no costs" — say "no wallet charge; internal agent compute only".',
 ].join('\n');
+
+/** Fixed limits for one stored background planning job. */
+export const PLANNING_JOB_MAX_CONTINUATIONS = 2;
+export const PLANNING_JOB_MAX_COST_USD = 1.0;
+
+export type PlanningJobVerdict =
+  | { status: 'queued' }
+  | { status: 'completed' }
+  | { status: 'interrupted'; reason: 'continuation_limit' | 'cost_limit' | 'error' | 'no_answer' };
+
+/**
+ * Decide what happens after one background planning run. Pure: the worker
+ * applies it with a lease-guarded update. Never loops past the fixed limits.
+ */
+export function nextPlanningJobState(j: {
+  continuations: number; maxContinuations: number; costUsd: number; maxCostUsd: number;
+  stepLimitHit: boolean; answered: boolean; error: string | null;
+}): PlanningJobVerdict {
+  if (j.error && !j.answered) return { status: 'interrupted', reason: 'error' };
+  if (!j.stepLimitHit) return j.answered ? { status: 'completed' } : { status: 'interrupted', reason: 'no_answer' };
+  if (j.costUsd >= j.maxCostUsd) return { status: 'interrupted', reason: 'cost_limit' };
+  if (j.continuations >= j.maxContinuations) return { status: 'interrupted', reason: 'continuation_limit' };
+  return { status: 'queued' };
+}
+
+export const PLANNING_JOB_INTERRUPT_TEXT: Record<string, (reason: string, done: number) => string> = {
+  de: (r, d) => `Die Planung wurde nach ${d} automatischen Fortsetzungen angehalten (${r === 'cost_limit' ? 'Obergrenze für interne Agent-/Recherchekosten erreicht' : r === 'continuation_limit' ? 'Obergrenze für automatische Fortsetzungen erreicht' : 'technischer Fehler'}). Der bisherige Stand ist gespeichert; es wurde nichts produziert, freigegeben oder abgebucht.`,
+  es: (r, d) => `La planificación se detuvo tras ${d} continuaciones automáticas (${r === 'cost_limit' ? 'límite de coste interno alcanzado' : r === 'continuation_limit' ? 'límite de continuaciones alcanzado' : 'error técnico'}). El progreso está guardado; no se produjo, aprobó ni cobró nada.`,
+  en: (r, d) => `Planning stopped after ${d} automatic continuations (${r === 'cost_limit' ? 'internal agent/research cost cap reached' : r === 'continuation_limit' ? 'continuation cap reached' : 'technical error'}). Progress is saved; nothing was produced, approved or charged.`,
+};
