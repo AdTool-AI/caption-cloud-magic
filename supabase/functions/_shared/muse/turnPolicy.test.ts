@@ -157,3 +157,30 @@ Deno.test('asksToContinue: detects hand-back, ignores normal text', async () => 
   if (!asksToContinue('Reply with "continue" to proceed.')) throw new Error('en');
   if (asksToContinue('Alle 6 Shots sind gespeichert. Die Kosten liegen bei 9,10 USD.')) throw new Error('fp');
 });
+
+import { nextPlanningJobState, splitClauses } from './turnPolicy.ts';
+
+Deno.test('negation covers listed items: "ohne Budgetfreigabe, Freigabekarte oder Abbuchung" stays planning', () => {
+  for (const m of [
+    'Bitte Routing speichern – ohne Budgetfreigabe, Freigabekarte, Reservierung oder Abbuchung.',
+    'Plan fertigstellen, ohne Produktion oder Freigabe.',
+    'Planung abschließen, weiterhin keine Generierung, Produktion, Retries, Budgetfreigaben.',
+  ]) assertEquals(decideTurnMode({ message: m }).mode, 'planning', m);
+  assertEquals(decideTurnMode({ message: 'Starte die Produktion für Video 1' }).mode, 'normal');
+  assert(splitClauses('ohne Freigabe, Abbuchung').every((c) => c.negated));
+});
+
+Deno.test('planning job: bounded continuations and cost cap, never loops', () => {
+  const base = { continuations: 1, maxContinuations: 2, costUsd: 0.2, maxCostUsd: 1, stepLimitHit: true, answered: true, error: null };
+  assertEquals(nextPlanningJobState(base).status, 'queued');
+  assertEquals(nextPlanningJobState({ ...base, continuations: 2 }), { status: 'interrupted', reason: 'continuation_limit' });
+  assertEquals(nextPlanningJobState({ ...base, costUsd: 1.01 }), { status: 'interrupted', reason: 'cost_limit' });
+  assertEquals(nextPlanningJobState({ ...base, stepLimitHit: false }).status, 'completed');
+  assertEquals(nextPlanningJobState({ ...base, answered: false, error: 'x' }), { status: 'interrupted', reason: 'error' });
+});
+
+Deno.test('planning job tools: production, approvals and charges stay blocked on resume', () => {
+  for (const t of ['start_campaign_production', 'estimate_campaign_budget', 'retry_shot', 'request_retry_approval', 'generate_video']) {
+    assert(guardToolCall('planning', t) !== null, t);
+  }
+});

@@ -10,7 +10,7 @@ import { MUSE_TOOL_DEFINITIONS, MUSE_PAID_TOOLS } from './tools.ts';
 import { buildSystemPrompt } from './systemPrompt.ts';
 import { executeMuseTool, type ToolContext } from './toolRuntime.ts';
 import { estimateMuseCostUsd, type MuseConfig } from './config.ts';
-import { CLARIFY_CONTINUATION_INSTRUCTION, guardToolCall, PLANNING_INSTRUCTION, PLANNING_MAX_TOOL_ITERATIONS, PLANNING_MAX_AUTO_CONTINUES, PLANNING_CONTINUE_INPUT, asksToContinue, READ_ONLY_INSTRUCTION, toolAllowedInMode, type TurnMode } from './turnPolicy.ts';
+import { CLARIFY_CONTINUATION_INSTRUCTION, guardToolCall, PLANNING_INSTRUCTION, PLANNING_MAX_TOOL_ITERATIONS, PLANNING_MAX_AUTO_CONTINUES, PLANNING_CONTINUE_INPUT, asksToContinue, PLANNING_JOB_MAX_CONTINUATIONS, PLANNING_JOB_MAX_COST_USD, READ_ONLY_INSTRUCTION, toolAllowedInMode, type TurnMode } from './turnPolicy.ts';
 
 export type AgentEvent =
   | { type: 'conversation'; conversationId: string }
