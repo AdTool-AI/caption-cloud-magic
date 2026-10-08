@@ -530,7 +530,8 @@ async function getCampaign(ctx: ToolContext, a: Args): Promise<ToolResult> {
     ctx.admin.from('campaign_pillars').select('name, rank, relevance').eq('campaign_id', c.id).order('rank'),
     ctx.admin.from('campaign_business_areas').select('area, relevance').eq('campaign_id', c.id),
     ctx.admin.from('campaign_videos').select('*').eq('campaign_id', c.id).order('video_index'),
-    ctx.admin.from('campaign_shots').select('video_id, shot_index, start_s, end_s, purpose, shot_type, description, on_screen_text').eq('campaign_id', c.id).order('shot_index'),
+    // Active shots only (archived ones are history); ids let re-saves keep each shot's row.
+    ctx.admin.from('campaign_shots').select('id, video_id, shot_index, start_s, end_s, purpose, shot_type, description, on_screen_text, selected_model, resolution, cut_duration_s, generation_duration_s, estimated_cost, routing_stale, status').eq('campaign_id', c.id).is('archived_at', null).order('shot_index'),
     ctx.admin.from('campaign_social_profiles').select('platform, status, profile_url, discovery_via, access_note, content_themes, visual_style, strongest_formats, content_gaps').eq('campaign_id', c.id),
   ]);
   return {
