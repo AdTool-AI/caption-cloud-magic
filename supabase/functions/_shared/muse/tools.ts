@@ -5,6 +5,7 @@
 
 import type { MuseFunctionTool } from './museClient.ts';
 import { CAMPAIGN_TOOL_DEFINITIONS } from './campaign/tools.ts';
+import { SPOT_TOOL_DEFINITIONS } from './campaign/spotTools.ts';
 
 export const MUSE_TOOL_DEFINITIONS: MuseFunctionTool[] = [
   {
@@ -123,6 +124,7 @@ export const MUSE_TOOL_DEFINITIONS: MuseFunctionTool[] = [
     },
   },
   ...CAMPAIGN_TOOL_DEFINITIONS,
+  ...SPOT_TOOL_DEFINITIONS,
 ];
 
 /** Tools that can spend the user's money — used for budget gating. */

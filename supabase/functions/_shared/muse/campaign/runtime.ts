@@ -4,6 +4,7 @@
  */
 
 import type { ToolContext, ToolResult } from '../toolRuntime.ts';
+import { executeSpotTool } from './spotTools.ts';
 import { createMuseResponse } from '../museClient.ts';
 import { researchBusiness } from './research.ts';
 import { embedTexts } from './embeddings.ts';
@@ -571,6 +572,6 @@ export async function executeCampaignTool(ctx: ToolContext, name: string, args: 
     case 'request_retry_approval': return await requestShotRetryApproval(ctx, args ?? {});
     case 'retry_shot': return await retryShot(ctx, args ?? {});
     case 'get_campaign_production_status': return await productionStatus(ctx, args ?? {});
-    default: return null;
+    default: return await executeSpotTool(ctx, name, args ?? {});
   }
 }

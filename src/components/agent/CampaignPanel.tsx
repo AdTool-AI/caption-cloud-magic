@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { supabase } from "@/integrations/supabase/client";
 import { tx } from "@/lib/i18nText";
+import { SpotWorkspace } from "./SpotWorkspace";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Row = Record<string, any>;
@@ -647,6 +648,15 @@ export function CampaignPanel({
               </CollapsibleContent>
             </Collapsible>
           )}
+        </div>
+      )}
+
+      {snap.videos.some((v) => snap.attempts.some((a) => snap.shots.find((s) => s.id === a.shot_id)?.video_id === v.id)) && (
+        <div className="space-y-2 border-t border-border/60 p-3">
+          <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{tx({ de: "Werbespot fertigstellen", en: "Finish the ad spot", es: "Terminar el spot" })}</h3>
+          {snap.videos
+            .filter((v) => snap.attempts.some((a) => snap.shots.find((s) => s.id === a.shot_id)?.video_id === v.id))
+            .map((v) => <SpotWorkspace key={v.id} videoId={v.id} title={v.title} />)}
         </div>
       )}
 

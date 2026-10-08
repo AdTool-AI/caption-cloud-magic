@@ -14,6 +14,7 @@ export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   'get_video_status',
   'get_campaign',
   'get_campaign_production_status',
+  'get_spot_edit',
 ]);
 
 

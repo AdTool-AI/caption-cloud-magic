@@ -5317,6 +5317,75 @@ export type Database = {
           },
         ]
       }
+      campaign_post_actions: {
+        Row: {
+          approved_at: string | null
+          campaign_id: string
+          cost_doc: Json
+          created_at: string
+          edit_revision: number
+          error: string | null
+          id: string
+          kind: string
+          params: Json
+          requested_by: string
+          result: Json | null
+          status: string
+          updated_at: string
+          user_id: string
+          video_id: string
+        }
+        Insert: {
+          approved_at?: string | null
+          campaign_id: string
+          cost_doc?: Json
+          created_at?: string
+          edit_revision: number
+          error?: string | null
+          id?: string
+          kind: string
+          params?: Json
+          requested_by?: string
+          result?: Json | null
+          status?: string
+          updated_at?: string
+          user_id: string
+          video_id: string
+        }
+        Update: {
+          approved_at?: string | null
+          campaign_id?: string
+          cost_doc?: Json
+          created_at?: string
+          edit_revision?: number
+          error?: string | null
+          id?: string
+          kind?: string
+          params?: Json
+          requested_by?: string
+          result?: Json | null
+          status?: string
+          updated_at?: string
+          user_id?: string
+          video_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaign_post_actions_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "agent_campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campaign_post_actions_video_id_fkey"
+            columns: ["video_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_videos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       campaign_posts: {
         Row: {
           best_time: string | null
@@ -5558,6 +5627,7 @@ export type Database = {
           routing_fingerprint: string | null
           routing_rationale: Json | null
           routing_stale: boolean
+          selected_attempt_id: string | null
           selected_model: string | null
           shot_index: number
           shot_type: string
@@ -5617,6 +5687,7 @@ export type Database = {
           routing_fingerprint?: string | null
           routing_rationale?: Json | null
           routing_stale?: boolean
+          selected_attempt_id?: string | null
           selected_model?: string | null
           shot_index: number
           shot_type: string
@@ -5676,6 +5747,7 @@ export type Database = {
           routing_fingerprint?: string | null
           routing_rationale?: Json | null
           routing_stale?: boolean
+          selected_attempt_id?: string | null
           selected_model?: string | null
           shot_index?: number
           shot_type?: string
@@ -5938,9 +6010,17 @@ export type Database = {
           campaign_id: string
           commercial_objective: string
           concept: string
+          content_check: Json | null
           created_at: string
           cta: string
+          edit: Json | null
+          edit_revision: number
           emotional_angle: string
+          export_meta: Json | null
+          export_render_id: string | null
+          export_revision: number | null
+          export_status: string | null
+          export_url: string | null
           final_client_ready: boolean
           funnel_stage: string
           hero_subject: string
@@ -5956,6 +6036,7 @@ export type Database = {
           series_key: string | null
           shot_structure: string[]
           target_audience: string
+          technical_check: Json | null
           title: string
           updated_at: string
           user_id: string
@@ -5967,9 +6048,17 @@ export type Database = {
           campaign_id: string
           commercial_objective: string
           concept: string
+          content_check?: Json | null
           created_at?: string
           cta: string
+          edit?: Json | null
+          edit_revision?: number
           emotional_angle: string
+          export_meta?: Json | null
+          export_render_id?: string | null
+          export_revision?: number | null
+          export_status?: string | null
+          export_url?: string | null
           final_client_ready?: boolean
           funnel_stage: string
           hero_subject: string
@@ -5985,6 +6074,7 @@ export type Database = {
           series_key?: string | null
           shot_structure?: string[]
           target_audience: string
+          technical_check?: Json | null
           title: string
           updated_at?: string
           user_id: string
@@ -5996,9 +6086,17 @@ export type Database = {
           campaign_id?: string
           commercial_objective?: string
           concept?: string
+          content_check?: Json | null
           created_at?: string
           cta?: string
+          edit?: Json | null
+          edit_revision?: number
           emotional_angle?: string
+          export_meta?: Json | null
+          export_render_id?: string | null
+          export_revision?: number | null
+          export_status?: string | null
+          export_url?: string | null
           final_client_ready?: boolean
           funnel_stage?: string
           hero_subject?: string
@@ -6014,6 +6112,7 @@ export type Database = {
           series_key?: string | null
           shot_structure?: string[]
           target_audience?: string
+          technical_check?: Json | null
           title?: string
           updated_at?: string
           user_id?: string
@@ -22296,6 +22395,32 @@ export type Database = {
         Args: { _job_id: string; _lease_seconds?: number }
         Returns: string
       }
+      claim_post_action: {
+        Args: { p_id: string; p_user: string }
+        Returns: {
+          approved_at: string | null
+          campaign_id: string
+          cost_doc: Json
+          created_at: string
+          edit_revision: number
+          error: string | null
+          id: string
+          kind: string
+          params: Json
+          requested_by: string
+          result: Json | null
+          status: string
+          updated_at: string
+          user_id: string
+          video_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "campaign_post_actions"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       claim_shot_qa: {
         Args: {
           _lease_minutes?: number
@@ -23208,6 +23333,15 @@ export type Database = {
       revoke_founder_status: {
         Args: { _reason: string; _user_id: string }
         Returns: boolean
+      }
+      save_campaign_edit: {
+        Args: {
+          p_edit: Json
+          p_expected: number
+          p_user: string
+          p_video: string
+        }
+        Returns: number
       }
       scene_lipsync_intentional: {
         Args: {
