@@ -85,7 +85,7 @@ export async function runAgentTurn(params: RunAgentParams): Promise<AgentTurnOut
       .maybeSingle();
     if (!data) {
       emit({ type: 'error', message: 'Conversation not found.', code: 'NOT_FOUND' });
-      return;
+      return { conversationId, stepLimitHit: false, costUsd: 0, answered: false, error: 'NOT_FOUND' };
     }
     previousResponseId = data.last_response_id ?? null;
     const pending = Array.isArray(data.pending_tool_outputs) ? data.pending_tool_outputs as PendingOutput[] : [];
@@ -117,7 +117,7 @@ export async function runAgentTurn(params: RunAgentParams): Promise<AgentTurnOut
       .single();
     if (error || !data) {
       emit({ type: 'error', message: 'Could not start a conversation.', code: 'DB_ERROR' });
-      return;
+      return { conversationId: null, stepLimitHit: false, costUsd: 0, answered: false, error: 'DB_ERROR' };
     }
     conversationId = data.id;
   }
