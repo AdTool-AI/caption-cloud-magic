@@ -15,6 +15,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { loadMuseConfig } from '../_shared/muse/config.ts';
 import { runAgentTurn } from '../_shared/muse/agentLoop.ts';
+import { nextPlanningJobState, PLANNING_CONTINUE_INPUT, PLANNING_JOB_INTERRUPT_TEXT, PLANNING_TOOLS } from '../_shared/muse/turnPolicy.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -241,6 +242,65 @@ Deno.serve(async (req) => {
     }
   }
 
-  console.log('[agent-task-resume]', JSON.stringify(summary));
-  return json(200, summary);
+  // Stored planning jobs: one bounded run per tick. The mode comes from the job
+  // row (DB CHECK: planning only) and is forced again here; only audited
+  // planning tools exist and execute. claim_planning_job takes a lease
+  // atomically and refuses jobs past their continuation/cost caps, so two
+  // workers can never run the same step.
+  const planning = { claimed: 0, requeued: 0, completed: 0, interrupted: 0 };
+  if (config) {
+    const { data: jobs } = await admin.from('agent_planning_jobs')
+      .select('id').or(`status.eq.queued,and(status.eq.running,lease_until.lt.${new Date().toISOString()})`)
+      .order('created_at').limit(1);
+    for (const j of jobs ?? []) {
+      const { data: lease } = await admin.rpc('claim_planning_job', { _job_id: j.id, _lease_seconds: 600 });
+      if (!lease) continue;
+      planning.claimed += 1;
+      const { data: job } = await admin.from('agent_planning_jobs').select('*').eq('id', j.id).single();
+      if (!job || job.mode !== 'planning') continue;
+      let outcome = { stepLimitHit: false, costUsd: 0, answered: false, error: null as string | null };
+      try {
+        outcome = await runAgentTurn({
+          admin, config,
+          userId: job.user_id, userJwt: serviceKey, internalAuthUserId: job.user_id,
+          supabaseUrl, anonKey,
+          conversationId: job.conversation_id,
+          message: PLANNING_CONTINUE_INPUT,
+          language: job.language ?? undefined,
+          internal: true,
+          mode: 'planning',
+          allowedTools: PLANNING_TOOLS as Set<string>,
+          planningJobId: job.id,
+          emit: () => undefined,
+        });
+      } catch (err) {
+        outcome.error = err instanceof Error ? err.message : 'Planning run failed';
+      }
+      const cost = Number(job.cost_usd ?? 0) + outcome.costUsd;
+      const continuations = Number(job.continuations ?? 0) + 1;
+      const verdict = nextPlanningJobState({
+        continuations, maxContinuations: Number(job.max_continuations), costUsd: cost, maxCostUsd: Number(job.max_cost_usd),
+        stepLimitHit: outcome.stepLimitHit, answered: outcome.answered, error: outcome.error,
+      });
+      const { data: applied } = await admin.from('agent_planning_jobs').update({
+        status: verdict.status, continuations, cost_usd: cost, steps_done: Number(job.steps_done ?? 0) + 1,
+        lease_id: null, lease_until: null, updated_at: new Date().toISOString(),
+        interruption_reason: verdict.status === 'interrupted' ? `${verdict.reason}${outcome.error ? `: ${outcome.error.slice(0, 300)}` : ''}` : null,
+        finished_at: verdict.status === 'queued' ? null : new Date().toISOString(),
+      }).eq('id', job.id).eq('lease_id', lease).select('id');
+      if (!applied?.length) continue; // lease lost: another worker owns the job now
+      if (verdict.status === 'interrupted') {
+        const lang = (job.language ?? 'en').slice(0, 2);
+        await admin.from('agent_messages').insert({
+          conversation_id: job.conversation_id, user_id: job.user_id, role: 'assistant',
+          content: (PLANNING_JOB_INTERRUPT_TEXT[lang] ?? PLANNING_JOB_INTERRUPT_TEXT.en)(verdict.reason, continuations),
+          tool_calls: { turn_status: 'interrupted', planning_job_id: job.id, reason: verdict.reason, cost_usd: cost },
+        });
+      }
+      planning[verdict.status === 'queued' ? 'requeued' : verdict.status] += 1;
+    }
+  }
+
+  console.log('[agent-task-resume]', JSON.stringify({ ...summary, planning }));
+  return json(200, { ...summary, planning });
 });
