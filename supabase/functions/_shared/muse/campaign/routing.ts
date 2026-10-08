@@ -153,6 +153,51 @@ export interface RouteOptions {
   pricePerSecond: (pricingId: string) => number | null; // account-adjusted
   stats: Map<string, ModelQaStatsRow>; // key: model|category|mode
   neighborModels?: string[]; // models chosen for other shots of the same video
+  requiredResolution?: string | null; // e.g. '1080p' — only models offering it natively
+}
+
+export interface PlanComparisonRow {
+  model: string;
+  supported: boolean;
+  reason?: string;
+  shots: Array<{ shot_index: number; cut_s: number; generation_s: number; resolution: string; price_per_second: number | null; cost: number | null }>;
+  cut_total_s: number;
+  generation_total_s: number;
+  total_cost: number | null;
+}
+
+/**
+ * Like-for-like comparison: every model is forced onto ALL shots with the same
+ * target requirements (mode, aspect, resolution, cut durations). Generation
+ * seconds may differ per model because of its allowed duration steps; the full
+ * billed duration and price are always reported. Pure — no I/O.
+ */
+export function comparePlans(
+  shots: Array<ShotInput & { shot_index: number }>,
+  modelIds: string[],
+  opts: { aspectRatio: string; mode: 't2v' | 'i2v'; requiredResolution: string; pricePerSecond: (pricingId: string) => number | null },
+): PlanComparisonRow[] {
+  return modelIds.map((id) => {
+    const m = MUSE_VIDEO_MODELS.find((x) => x.id === id);
+    const spec = m?.modes[opts.mode];
+    const res = spec?.resolutions.find((r) => r.pricingId && r.label === opts.requiredResolution);
+    const row: PlanComparisonRow = { model: id, supported: true, shots: [], cut_total_s: 0, generation_total_s: 0, total_cost: 0 };
+    if (!m || !spec) return { ...row, supported: false, reason: `no ${opts.mode} mode`, total_cost: null };
+    if (!spec.aspectRatios.includes(opts.aspectRatio)) return { ...row, supported: false, reason: `no ${opts.aspectRatio}`, total_cost: null };
+    if (!res) return { ...row, supported: false, reason: `no native ${opts.requiredResolution}`, total_cost: null };
+    const pps = opts.pricePerSecond(res.pricingId!);
+    for (const s of shots) {
+      const cut = Number(s.end_s) - Number(s.start_s);
+      const gen = pickDuration(spec, Math.max(2, Math.ceil(cut)));
+      if (gen == null) return { ...row, supported: false, reason: `no clip length ≥ ${Math.ceil(cut)}s (shot ${s.shot_index})`, total_cost: null };
+      const cost = pps == null ? null : Math.round(pps * gen * 100) / 100;
+      row.shots.push({ shot_index: s.shot_index, cut_s: cut, generation_s: gen, resolution: res.label, price_per_second: pps, cost });
+      row.cut_total_s += cut;
+      row.generation_total_s += gen;
+      row.total_cost = row.total_cost == null || cost == null ? null : Math.round((row.total_cost + cost) * 100) / 100;
+    }
+    return row;
+  });
 }
 
 /** Route one shot: returns ranked candidates (best first). */
@@ -179,10 +224,12 @@ export function routeShot(
     const effectiveTier = risk.text_requirement >= 2 ? Math.max(minTier, 2) : minTier;
     if (tier < effectiveTier) continue;
 
-    // Prefer the highest natively available priced resolution for the tier.
+    // Required resolution (if set) must be offered natively; otherwise the
+    // first priced resolution of the model is used.
     const priced = spec.resolutions.filter((r) => r.pricingId);
     if (!priced.length) continue;
-    const res = priced[0];
+    const res = opts.requiredResolution ? priced.find((r) => r.label === opts.requiredResolution) : priced[0];
+    if (!res) continue;
     const pps = opts.pricePerSecond(res.pricingId!);
 
     const statsKey = `${m.id}|${category}|${opts.mode}`;
