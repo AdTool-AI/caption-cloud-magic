@@ -5,17 +5,20 @@ Grenzen: keine Mediengenerierung, Produktion, Retries, Budgetfreigaben, Reservie
 ## 1. Speichern ohne Datenverlust
 - Zuordnung zuerst über vorhandene Shot-ID; der Shot-Index dient nur als Rückfall für Shots ohne ID. Beim Umsortieren wird dadurch kein Shot einem fremden Inhalt zugeordnet.
 - Nicht mehr enthaltene Shots werden archiviert (`archived_at`), nie gelöscht, wenn Versuche existieren. Archivierte Shots zählen weder zum aktiven Routing noch zur 30-Sekunden-Summe.
-- Routing-Fingerabdruck umfasst: Schnittdauer, Aktion/Beschreibung, Risiko, Format, Prompt, negativer Prompt, Referenzdateien, erforderliche Auflösung. Voiceover zählt nicht.
+- Routing-Fingerabdruck umfasst: Schnittdauer, Aktion/Beschreibung, Risiko, Format, Prompt, negativer Prompt, Referenzdateien, erforderliche Auflösung.
+- Audio: Ein separat erstelltes Voiceover zählt nicht zum Fingerabdruck. Soll das Modell Sprache oder eigenen Ton erzeugen, gehören die relevanten Audioanforderungen (Sprechtext, Sprache, Tonquelle) dazu.
 - Bei Änderung bleibt das alte Routing sichtbar, ist aber als veraltet markiert; Budgetschätzungen lehnen veraltete Shots ab.
 - Tests: identisches Speichern erhält IDs/Routing/Kosten; Umsortieren erhält die richtige Zuordnung; geänderter Prompt/Referenz/Auflösung markiert nur diesen Shot veraltet; archivierte Shots fehlen in Summe und Routing.
 
 ## 2. Anbieter-Vergleich
 - Für jeden integrierten geeigneten Anbieter dieselben Zielanforderungen (Schnittdauern 4/5/5/5/6/5 s, 9:16, Modus, Zielauflösung).
 - Generierungsdauer je Modell nach dessen erlaubten Dauerstufen; immer tatsächlich berechnete Dauer und vollständigen Preis aus dem kanonischen Preiskatalog ausweisen.
-- Erklären, warum der Router Wan 2.7 Pro wählt (Punkte, QA-Daten, Konsistenz, Ausschlüsse). 3,04 USD und 9,10 USD werden als nicht gleichwertig eingeordnet.
+- Erklären, welches Modell der Router wählt und warum (Punkte, QA-Daten, Konsistenz, Ausschlüsse).
+- 3,04 USD und 9,10 USD Einstellung für Einstellung vergleichen (Modell je Shot, Auflösung, berechnete Dauer, Preis je Sekunde, Modus). Das Ergebnis wird erst aus diesem Vergleich abgeleitet, nicht vorab festgelegt.
 
 ## 3. Schnitt- vs. Generierungsdauer
-- Pro Shot Schnittdauer und berechnete Generierungsdauer getrennt speichern; Tabelle mit Modell, API-Anbieter, Auflösung, USD-Kosten und Summe. Empfehlung nur als Planungsdaten, keine Freigabekarte.
+- Pro Shot Schnittdauer und berechnete Generierungsdauer getrennt speichern; Tabelle mit Modell, API-Anbieter, Auflösung, USD-Kosten und Summe.
+- Routing und unverbindliche USD-Kostenschätzung werden nur als Planungsdaten am Shot gespeichert: keine Budgetfreigabe, keine Freigabekarte, keine Reservierung, keine Abbuchung.
 
 ## 4. Referenzen
 - Konkrete Logo-/Produktbild-URLs aus vorhandenen Quellen als `reference_only` speichern; fehlende Dateien und ungeklärte Rechte ausdrücklich markieren. Keine Ersatzbilder.
