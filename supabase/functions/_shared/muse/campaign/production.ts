@@ -65,7 +65,7 @@ export async function routeCampaignShots(ctx: ToolContext, a: Args): Promise<Too
   const { data: videos } = await ctx.admin.from('campaign_videos').select('*').eq('campaign_id', c.id).order('video_index');
   if (!videos?.length) return err('PREREQUISITE', 'Plan the campaign videos first (Phase A).');
   const wanted = new Set(Array.isArray(a.video_ids) ? a.video_ids : videos.map((v: { id: string }) => v.id));
-  const { data: shots } = await ctx.admin.from('campaign_shots').select('*').eq('campaign_id', c.id).order('shot_index');
+  const { data: shots } = await ctx.admin.from('campaign_shots').select('*').eq('campaign_id', c.id).is('archived_at', null).order('shot_index');
   const { data: assets } = await ctx.admin.from('campaign_assets').select('id, reuse_status, url').eq('campaign_id', c.id);
   const assetById = new Map((assets ?? []).map((x: { id: string; reuse_status: string; url: string }) => [x.id, x]));
   const currency = (await resolveWalletCurrency(ctx.admin, ctx.userId)) ?? 'EUR';
@@ -82,8 +82,7 @@ export async function routeCampaignShots(ctx: ToolContext, a: Args): Promise<Too
     for (const s of vShots) {
       if (s.status && !['planned', 'quoted'].includes(s.status)) { skipped.push({ shot_id: s.id, reason: `status ${s.status}` }); continue; }
       // Keep routing of unchanged shots (same id, model, cost) unless forced.
-      const fp = routingFingerprint(s);
-      if (s.status === 'quoted' && s.selected_model && !s.routing_stale && s.routing_fingerprint === fp && a.force !== true) {
+      if (s.status === 'quoted' && s.selected_model && !s.routing_stale && s.routing_fingerprint === routingFingerprint(s) && a.force !== true) {
         neighborModels.push(s.selected_model);
         routed.push({
           shot_id: s.id, video_index: v.video_index, shot_index: s.shot_index, model: s.selected_model, preserved: true,
