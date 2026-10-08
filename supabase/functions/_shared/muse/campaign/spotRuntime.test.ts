@@ -162,12 +162,9 @@ Deno.test('end-to-end with mocked providers: cut → audio/text → export → c
   assert(!calls.some((c) => /generate-.*-video/.test(c.fn)));
 });
 
-Deno.test('export approved for an older revision does not run on a changed cut', async () => {
+Deno.test('an approved step runs exactly once even with parallel runs', async () => {
   const { ctx, calls } = setup();
   await getSpot(ctx, 'v1');
-  // make the cut exportable without providers by checking only the guard: craft minimal requirements
-  const t = (ctx.admin as Row);
-  void t;
   const vo = await prepareAction(ctx, 'v1', 'voiceover', { text: 'x' }, 'user');
   await approveAction(ctx, vo.action_id);
   // a parallel second run of the same approval: only one wins
