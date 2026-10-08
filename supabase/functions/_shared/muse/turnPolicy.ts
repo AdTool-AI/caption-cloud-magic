@@ -39,6 +39,7 @@ const NEGATED_RE = /\b(nicht|kein\w*|nichts|don'?t|do\s+not|never|without|ohne|n
  * until the sentence ends. So a verb before the negation still counts, and
  * nouns listed after it never do.
  */
+const NOUN_COMPOUND_RE = /[\p{L}-]*(?:dauer|kosten|zeit|länge|daten|modus|preis|preise|status|plan|pläne|karte|budget)\b/giu;
 export function splitClauses(message: string): Array<{ text: string; negated: boolean }> {
   const out: Array<{ text: string; negated: boolean }> = [];
   for (const sentence of String(message ?? '').replace(/[¿¡]/g, ' ').split(/[.!?;\n]+/)) {
@@ -49,7 +50,9 @@ export function splitClauses(message: string): Array<{ text: string; negated: bo
       if (!t) continue;
       if (NEGATED_RE.test(t)) negated = true;
       else if (/\b(dann|then|aber|but|pero|danach|anschließend)\b/i.test(t)) negated = false;
-      out.push({ text: t, negated });
+      // Compound nouns ("Generierungsdauer", "Produktionskosten", "Planungsdaten")
+      // name a quantity, not a command — drop them before verb matching.
+      out.push({ text: t.replace(NOUN_COMPOUND_RE, ' ').trim() || t, negated });
     }
   }
   return out;
