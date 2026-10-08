@@ -434,7 +434,8 @@ export async function runAgentTurn(params: RunAgentParams): Promise<AgentTurnOut
   if (mode === 'planning' && stepLimitHit && !params.planningJobId && conversationId) {
     await admin.from('agent_planning_jobs').insert({
       user_id: userId, conversation_id: conversationId, language: params.language ?? null,
-      cost_usd: costUsd, steps_done: maxIterations,
+      cost_usd: costUsd, steps_done: 1,
+      max_continuations: PLANNING_JOB_MAX_CONTINUATIONS, max_cost_usd: PLANNING_JOB_MAX_COST_USD,
     }).then(({ error }) => { if (error && !/duplicate|unique/i.test(error.message)) console.error('[muse-plan-job] queue failed', error.message); });
   }
 
