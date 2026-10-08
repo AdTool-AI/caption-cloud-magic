@@ -1,5 +1,5 @@
 import { assert, assertEquals } from 'jsr:@std/assert@1';
-import { classifyReadOnly, decideTurnMode, guardToolCall, READ_ONLY_TOOLS, requestFingerprint, resolveTurnMode } from './turnPolicy.ts';
+import { classifyReadOnly, guardToolCall, READ_ONLY_TOOLS, requestFingerprint, resolveTurnMode } from './turnPolicy.ts';
 import { MUSE_TOOL_DEFINITIONS } from './tools.ts';
 import { executeMuseTool, type ToolContext } from './toolRuntime.ts';
 
