@@ -26,7 +26,7 @@ Deno.test('cut keeps shot order, uses current attempt, 30 s from cut durations (
 
 Deno.test('selecting another attempt swaps only that clip, keeps order and trims', () => {
   const first = buildClips(shots, attempts, gens);
-  const reordered = [first[1], first[0], ...first.slice(2)].map((c) => (c.shot_id === 's3' ? { ...c, trim_in: 0.5, trim_out: 5.5 } : c));
+  const reordered = [first[1], first[0], ...first.slice(2)].map((c) => (c.shot_id === 's3' ? { ...c, trim_in: 0.5, trim_out: 5 } : c));
   const next = buildClips(shots.map((s) => (s.id === 's2' ? { ...s, selected_attempt_id: 'a2b' } : s)), attempts, gens, reordered);
   assertEquals(next.map((c) => c.shot_id).slice(0, 2), ['s2', 's1']);
   assertEquals(next[0].url, 'https://x/s2b.mp4');
