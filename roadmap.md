@@ -11,3 +11,4 @@
 - [x] Open points before more paid runs (2026-10-07): S2 read-only answer, interrupted/Ask-again, durable request idempotency, server read-only mode, single-shot retry approvals bound + atomic, View-clip UI — deployed and checked
 - [x] Remaining Agent UI polish (2026-10-07): mobile header overflow fixed at source, keyboard-safe composer, safe Markdown, and clip titles verified on desktop/mobile without sending messages or triggering paid actions
 - [x] CORDIAL: planning mode for continuations, plan saved in existing campaign without paid actions
+- [ ] CORDIAL planning finish (2026-10-08): id-stable shot saves + archive, full routing fingerprint (prompt/negatives/refs/resolution/model audio), like-for-like comparison, cut vs generation seconds, reference_only assets, capped background planning jobs, negation fix, routing saved as planning data only

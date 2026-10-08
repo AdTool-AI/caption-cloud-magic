@@ -798,6 +798,77 @@ export type Database = {
           },
         ]
       }
+      agent_planning_jobs: {
+        Row: {
+          campaign_id: string | null
+          continuations: number
+          conversation_id: string
+          cost_usd: number
+          created_at: string
+          finished_at: string | null
+          id: string
+          interruption_reason: string | null
+          language: string | null
+          lease_id: string | null
+          lease_until: string | null
+          max_continuations: number
+          max_cost_usd: number
+          mode: string
+          status: string
+          steps_done: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          campaign_id?: string | null
+          continuations?: number
+          conversation_id: string
+          cost_usd?: number
+          created_at?: string
+          finished_at?: string | null
+          id?: string
+          interruption_reason?: string | null
+          language?: string | null
+          lease_id?: string | null
+          lease_until?: string | null
+          max_continuations?: number
+          max_cost_usd?: number
+          mode?: string
+          status?: string
+          steps_done?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          campaign_id?: string | null
+          continuations?: number
+          conversation_id?: string
+          cost_usd?: number
+          created_at?: string
+          finished_at?: string | null
+          id?: string
+          interruption_reason?: string | null
+          language?: string | null
+          lease_id?: string | null
+          lease_until?: string | null
+          max_continuations?: number
+          max_cost_usd?: number
+          mode?: string
+          status?: string
+          steps_done?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_planning_jobs_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "agent_conversations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       agent_request_ids: {
         Row: {
           conversation_id: string | null
@@ -5442,19 +5513,23 @@ export type Database = {
       }
       campaign_shots: {
         Row: {
+          archived_at: string | null
           aspect_ratio: string | null
           asset_id: string | null
           attempt_count: number
+          audio_source: string | null
           campaign_id: string
           client_ready: boolean | null
           content_category: string | null
           created_at: string
           current_generation_id: string | null
+          cut_duration_s: number | null
           description: string
           duration_s: number | null
           end_s: number
           english_prompt: string | null
           estimated_cost: number | null
+          generation_duration_s: number | null
           generation_mode: string | null
           human_anatomy_risk: number | null
           id: string
@@ -5473,6 +5548,7 @@ export type Database = {
           qa_stats_generation_id: string | null
           qa_summary: Json | null
           reference_strength: number | null
+          required_resolution: string | null
           resolution: string | null
           retry_model: string | null
           retry_plan: Json | null
@@ -5496,19 +5572,23 @@ export type Database = {
           voiceover: string | null
         }
         Insert: {
+          archived_at?: string | null
           aspect_ratio?: string | null
           asset_id?: string | null
           attempt_count?: number
+          audio_source?: string | null
           campaign_id: string
           client_ready?: boolean | null
           content_category?: string | null
           created_at?: string
           current_generation_id?: string | null
+          cut_duration_s?: number | null
           description: string
           duration_s?: number | null
           end_s: number
           english_prompt?: string | null
           estimated_cost?: number | null
+          generation_duration_s?: number | null
           generation_mode?: string | null
           human_anatomy_risk?: number | null
           id?: string
@@ -5527,6 +5607,7 @@ export type Database = {
           qa_stats_generation_id?: string | null
           qa_summary?: Json | null
           reference_strength?: number | null
+          required_resolution?: string | null
           resolution?: string | null
           retry_model?: string | null
           retry_plan?: Json | null
@@ -5550,19 +5631,23 @@ export type Database = {
           voiceover?: string | null
         }
         Update: {
+          archived_at?: string | null
           aspect_ratio?: string | null
           asset_id?: string | null
           attempt_count?: number
+          audio_source?: string | null
           campaign_id?: string
           client_ready?: boolean | null
           content_category?: string | null
           created_at?: string
           current_generation_id?: string | null
+          cut_duration_s?: number | null
           description?: string
           duration_s?: number | null
           end_s?: number
           english_prompt?: string | null
           estimated_cost?: number | null
+          generation_duration_s?: number | null
           generation_mode?: string | null
           human_anatomy_risk?: number | null
           id?: string
@@ -5581,6 +5666,7 @@ export type Database = {
           qa_stats_generation_id?: string | null
           qa_summary?: Json | null
           reference_strength?: number | null
+          required_resolution?: string | null
           resolution?: string | null
           retry_model?: string | null
           retry_plan?: Json | null
@@ -22205,6 +22291,10 @@ export type Database = {
           _user_id: string
         }
         Returns: Json
+      }
+      claim_planning_job: {
+        Args: { _job_id: string; _lease_seconds?: number }
+        Returns: string
       }
       claim_shot_qa: {
         Args: {

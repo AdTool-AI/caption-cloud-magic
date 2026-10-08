@@ -330,7 +330,7 @@ async function planVideos(ctx: ToolContext, a: Args): Promise<ToolResult> {
     business_area: v.business_area, funnel_stage: v.funnel_stage, target_audience: v.target_audience, emotional_angle: v.emotional_angle,
     commercial_objective: v.commercial_objective, primary_goal: v.primary_goal, hook_type: v.hook_type, hook_text: v.hook_text, cta: v.cta,
     visual_style: v.visual_style, hero_subject: v.hero_subject, main_message: v.main_message, shot_structure: v.shot_structure,
-    rationale: v.rationale, series_key: v.series_key, script: null,
+    rationale: v.rationale, series_key: v.series_key,
   }));
   await ctx.admin.from('campaign_videos').delete().eq('campaign_id', c.id).gt('video_index', videos.length);
   const { error } = await ctx.admin.from('campaign_videos').upsert(rows, { onConflict: 'campaign_id,video_index' });
@@ -379,35 +379,46 @@ async function writeScripts(ctx: ToolContext, a: Args): Promise<ToolResult> {
     }
     if (errors.length) { results.push({ video_index: item.video_index, stored: false, errors }); continue; }
     await ctx.admin.from('campaign_videos').update({ script: item.script }).eq('id', vid);
-    // Update in place by shot_index: ids, routing and cost of unchanged shots survive.
+    // Match by existing shot id first, then by free shot_index: ids, routing and
+    // cost of unchanged shots survive; removed shots are archived, never deleted.
     const { data: existing } = await ctx.admin.from('campaign_shots')
-      .select('id, shot_index, start_s, end_s, purpose, shot_type, subject_emphasis, description, on_screen_text, voiceover, asset_id, routing_fingerprint, selected_model, attempt_count, current_generation_id')
+      .select('id, shot_index, start_s, end_s, purpose, shot_type, subject_emphasis, description, on_screen_text, voiceover, asset_id, english_prompt, negative_constraints, aspect_ratio, required_resolution, audio_source, routing_fingerprint, selected_model, attempt_count, current_generation_id, archived_at')
       .eq('video_id', vid);
     const incoming: ShotPlanFields[] = shots.map((s: Args) => ({
+      id: typeof s.shot_id === 'string' ? s.shot_id : typeof s.id === 'string' ? s.id : null,
       start_s: s.start_s, end_s: s.end_s, purpose: String(s.purpose), shot_type: String(s.shot_type),
       subject_emphasis: String(s.subject_emphasis), description: String(s.description),
       on_screen_text: s.on_screen_text ?? null, voiceover: s.voiceover ?? null,
       asset_id: s.asset_id && assetIds.has(s.asset_id) ? s.asset_id : null,
+      required_resolution: typeof s.required_resolution === 'string' ? s.required_resolution : null,
+      audio_source: ['provider', 'ambient', 'model_speech'].includes(s.audio_source) ? s.audio_source : 'studio',
     }));
     const save = planShotSave((existing ?? []) as ExistingShot[], incoming);
     for (const u of save.updates) {
       await ctx.admin.from('campaign_shots').update({
         ...u.fields,
+        cut_duration_s: Number(u.fields.end_s) - Number(u.fields.start_s),
+        archived_at: null,
+        // Old routing stays visible; it is only flagged as outdated.
         ...(u.stale ? { routing_stale: true, status: 'planned' } : {}),
       }).eq('id', u.id);
     }
     if (save.inserts.length) {
-      await ctx.admin.from('campaign_shots').insert(save.inserts.map((f) => ({ ...f, video_id: vid, campaign_id: c.id, user_id: ctx.userId })));
+      await ctx.admin.from('campaign_shots').insert(save.inserts.map((f) => ({
+        ...f, cut_duration_s: Number(f.end_s) - Number(f.start_s), video_id: vid, campaign_id: c.id, user_id: ctx.userId,
+      })));
     }
-    if (save.deletes.length) await ctx.admin.from('campaign_shots').delete().in('id', save.deletes);
+    if (save.archive.length) {
+      await ctx.admin.from('campaign_shots').update({ archived_at: new Date().toISOString(), routing_stale: true }).in('id', save.archive);
+    }
     results.push({
       video_index: item.video_index, stored: true, shots: incoming.length,
       kept_ids: save.updates.filter((u) => !u.stale).length, routing_stale: save.updates.filter((u) => u.stale).map((u) => u.fields.shot_index),
-      new_shots: save.inserts.length, removed: save.deletes.length, kept_with_attempts: save.kept.length,
+      new_shots: save.inserts.length, archived: save.archive.length,
     });
   }
   const { data: withScript } = await ctx.admin.from('campaign_videos').select('id, script').eq('campaign_id', c.id);
-  const { data: shotVideos } = await ctx.admin.from('campaign_shots').select('video_id').eq('campaign_id', c.id);
+  const { data: shotVideos } = await ctx.admin.from('campaign_shots').select('video_id').eq('campaign_id', c.id).is('archived_at', null);
   const shotSet = new Set((shotVideos ?? []).map((s: { video_id: string }) => s.video_id));
   const complete = (withScript ?? []).every((v: { id: string; script: unknown }) => v.script && shotSet.has(v.id));
   await setStage(ctx, c.id, advance(c.stage, complete ? 'plan_ready' : 'shot_planning'));
@@ -519,7 +530,8 @@ async function getCampaign(ctx: ToolContext, a: Args): Promise<ToolResult> {
     ctx.admin.from('campaign_pillars').select('name, rank, relevance').eq('campaign_id', c.id).order('rank'),
     ctx.admin.from('campaign_business_areas').select('area, relevance').eq('campaign_id', c.id),
     ctx.admin.from('campaign_videos').select('*').eq('campaign_id', c.id).order('video_index'),
-    ctx.admin.from('campaign_shots').select('video_id, shot_index, start_s, end_s, purpose, shot_type, description, on_screen_text').eq('campaign_id', c.id).order('shot_index'),
+    // Active shots only (archived ones are history); ids let re-saves keep each shot's row.
+    ctx.admin.from('campaign_shots').select('id, video_id, shot_index, start_s, end_s, purpose, shot_type, description, on_screen_text, selected_model, resolution, cut_duration_s, generation_duration_s, estimated_cost, routing_stale, status').eq('campaign_id', c.id).is('archived_at', null).order('shot_index'),
     ctx.admin.from('campaign_social_profiles').select('platform, status, profile_url, discovery_via, access_note, content_themes, visual_style, strongest_formats, content_gaps').eq('campaign_id', c.id),
   ]);
   return {

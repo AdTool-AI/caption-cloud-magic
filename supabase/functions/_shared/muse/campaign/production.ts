@@ -65,7 +65,7 @@ export async function routeCampaignShots(ctx: ToolContext, a: Args): Promise<Too
   const { data: videos } = await ctx.admin.from('campaign_videos').select('*').eq('campaign_id', c.id).order('video_index');
   if (!videos?.length) return err('PREREQUISITE', 'Plan the campaign videos first (Phase A).');
   const wanted = new Set(Array.isArray(a.video_ids) ? a.video_ids : videos.map((v: { id: string }) => v.id));
-  const { data: shots } = await ctx.admin.from('campaign_shots').select('*').eq('campaign_id', c.id).order('shot_index');
+  const { data: shots } = await ctx.admin.from('campaign_shots').select('*').eq('campaign_id', c.id).is('archived_at', null).order('shot_index');
   const { data: assets } = await ctx.admin.from('campaign_assets').select('id, reuse_status, url').eq('campaign_id', c.id);
   const assetById = new Map((assets ?? []).map((x: { id: string; reuse_status: string; url: string }) => [x.id, x]));
   const currency = (await resolveWalletCurrency(ctx.admin, ctx.userId)) ?? 'EUR';
@@ -82,8 +82,7 @@ export async function routeCampaignShots(ctx: ToolContext, a: Args): Promise<Too
     for (const s of vShots) {
       if (s.status && !['planned', 'quoted'].includes(s.status)) { skipped.push({ shot_id: s.id, reason: `status ${s.status}` }); continue; }
       // Keep routing of unchanged shots (same id, model, cost) unless forced.
-      const fp = routingFingerprint(s);
-      if (s.status === 'quoted' && s.selected_model && !s.routing_stale && s.routing_fingerprint === fp && a.force !== true) {
+      if (s.status === 'quoted' && s.selected_model && !s.routing_stale && s.routing_fingerprint === routingFingerprint(s) && a.force !== true) {
         neighborModels.push(s.selected_model);
         routed.push({
           shot_id: s.id, video_index: v.video_index, shot_index: s.shot_index, model: s.selected_model, preserved: true,
@@ -104,12 +103,16 @@ export async function routeCampaignShots(ctx: ToolContext, a: Args): Promise<Too
           return list == null ? null : Math.round(list * 100) / 100;
         },
         stats,
+        requiredResolution: s.required_resolution ?? (typeof a.required_resolution === 'string' ? a.required_resolution : null),
         neighborModels,
       });
       if (!candidates.length) { skipped.push({ shot_id: s.id, reason: `No model supports ${mode} ${aspect} for ${Math.ceil(s.end_s - s.start_s)}s at the required quality tier.` }); continue; }
       const best = candidates[0];
       neighborModels.push(best.model);
       const prompt = buildShotPrompt(s as ShotInput, { company: c.company_name, visualStyle: v.visual_style });
+      const negatives = negativeConstraints(risk);
+      // Fingerprint of exactly what this routing was computed for (incl. prompt/negatives/aspect).
+      const fp = routingFingerprint({ ...s, english_prompt: prompt, negative_constraints: negatives, aspect_ratio: aspect });
       const discount = await resolveAccountDiscountFactor(ctx.admin, ctx.userId);
       const est = best.estimated_cost == null ? null : Math.round(best.estimated_cost * discount * 100) / 100;
       const cut = Number(s.end_s) - Number(s.start_s);
@@ -118,10 +121,12 @@ export async function routeCampaignShots(ctx: ToolContext, a: Args): Promise<Too
         generation_mode: mode,
         input_asset_id: mode === 'i2v' ? s.asset_id : null,
         english_prompt: prompt,
-        negative_constraints: negativeConstraints(risk),
+        negative_constraints: negatives,
         selected_model: best.model,
         resolution: best.resolution,
         duration_s: best.duration,
+        cut_duration_s: cut,
+        generation_duration_s: best.duration,
         aspect_ratio: aspect,
         routing_rationale: {
           candidates: candidates.slice(0, 8),
@@ -129,10 +134,12 @@ export async function routeCampaignShots(ctx: ToolContext, a: Args): Promise<Too
           chosen: best.model,
           weights: { quality: 0.5, fit: 0.25, price: 0.15, consistency: 0.1 },
           required_tier: requiredTier(risk),
+          required_resolution: s.required_resolution ?? a.required_resolution ?? null,
           cut_duration_s: cut,
           generation_duration_s: best.duration,
           billed_seconds: best.duration,
           currency,
+          estimate_kind: 'non_binding_planning_estimate',
           reason: `Best total score for ${category}/${mode} at risk tier ${best.quality_tier}; confidence ${best.confidence}. Billed for the full ${best.duration}s clip; ${cut}s used in the cut.`,
           confidence: best.confidence,
         },
@@ -154,7 +161,7 @@ export async function routeCampaignShots(ctx: ToolContext, a: Args): Promise<Too
       });
     }
   }
-  return { output: { campaign_id: c.id, routed, skipped, next: 'estimate_campaign_budget' } };
+  return { output: { campaign_id: c.id, routed, skipped, note: 'Routing and non-binding estimate saved as planning data only — no approval, reservation or charge.' } };
 }
 
 // ---------------------------------------------------------------------------
@@ -166,10 +173,10 @@ export async function estimateCampaignBudget(ctx: ToolContext, a: Args): Promise
   if (!c) return err('NOT_FOUND', 'Campaign not found.');
   const { data: shots } = await ctx.admin
     .from('campaign_shots').select('id, video_id, shot_index, selected_model, duration_s, resolution, estimated_cost, status')
-    .eq('campaign_id', c.id).eq('status', 'quoted').order('shot_index');
+    .eq('campaign_id', c.id).eq('status', 'quoted').is('archived_at', null).order('shot_index');
   if (!shots?.length) return err('PREREQUISITE', 'Call route_campaign_shots first.');
   {
-    const { data: stale } = await ctx.admin.from('campaign_shots').select('id, video_id').eq('campaign_id', c.id).eq('routing_stale', true);
+    const { data: stale } = await ctx.admin.from('campaign_shots').select('id, video_id').eq('campaign_id', c.id).eq('routing_stale', true).is('archived_at', null);
     const wantedVids = Array.isArray(a.video_ids) ? new Set(a.video_ids) : null;
     const hit = (stale ?? []).filter((s: { video_id: string }) => !wantedVids || wantedVids.has(s.video_id));
     if (hit.length) return err('ROUTING_STALE', `${hit.length} shot(s) changed after routing. Re-run route_campaign_shots before estimating a budget.`);
@@ -365,7 +372,7 @@ export async function startCampaignProduction(ctx: ToolContext, a: Args): Promis
   }
 
   const scopeIds = [...approvedShotIds(approval.scope)];
-  const { data: shots } = await ctx.admin.from('campaign_shots').select('*').in('id', scopeIds).eq('campaign_id', approval.campaign_id).eq('user_id', ctx.userId);
+  const { data: shots } = await ctx.admin.from('campaign_shots').select('*').in('id', scopeIds).eq('campaign_id', approval.campaign_id).eq('user_id', ctx.userId).is('archived_at', null);
   const results: Record<string, unknown>[] = [];
   for (const shot of filterDispatchable(approval as { scope: unknown; campaign_id: string }, (shots ?? []) as Args[])) {
     if (shot.status !== 'quoted') { results.push({ shot_id: shot.id, skipped: true, status: shot.status }); continue; }
@@ -667,7 +674,7 @@ export async function productionStatus(ctx: ToolContext, a: Args): Promise<ToolR
   const { data: shotIdRows } = await ctx.admin.from('campaign_shots').select('id').eq('campaign_id', c.id);
   const shotIds = (shotIdRows ?? []).map((r: { id: string }) => r.id);
   const [shots, approvals, ledger] = await Promise.all([
-    ctx.admin.from('campaign_shots').select('id, video_id, shot_index, status, selected_model, estimated_cost, client_ready, attempt_count, qa_summary, current_generation_id, retry_plan').eq('campaign_id', c.id).order('shot_index'),
+    ctx.admin.from('campaign_shots').select('id, video_id, shot_index, status, selected_model, estimated_cost, client_ready, attempt_count, qa_summary, current_generation_id, retry_plan').eq('campaign_id', c.id).is('archived_at', null).order('shot_index'),
     ctx.admin.from('campaign_budget_approvals').select('id, kind, status, estimated_total, max_total, spent_total, retry_mode, retry_budget_per_shot, start_expires_at, execution_expires_at, retry_binding').eq('campaign_id', c.id).order('created_at', { ascending: false }).limit(5),
     ctx.admin.from('campaign_spend_ledger').select('entry_type, amount, shot_id, approval_id, created_at').in('shot_id', shotIds.length ? shotIds : ['00000000-0000-0000-0000-000000000000']).order('created_at', { ascending: false }).limit(50),
   ]);

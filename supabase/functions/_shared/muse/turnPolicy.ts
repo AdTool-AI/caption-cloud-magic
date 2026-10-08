@@ -33,6 +33,32 @@ const ACTION_RE = new RegExp(
 const NEGATED_RE = /\b(nicht|kein\w*|nichts|don'?t|do\s+not|never|without|ohne|no\s+(new|paid)|sin|no\s+generes|no\s+inicies)\b/i;
 
 /**
+ * Clauses of a message with negation scope: a negation ("ohne", "keine",
+ * "without", "sin", "nicht") starts a new clause and stays in force for the
+ * following list items ("ohne Budgetfreigabe, Freigabekarte oder Abbuchung")
+ * until the sentence ends. So a verb before the negation still counts, and
+ * nouns listed after it never do.
+ */
+const NOUN_COMPOUND_RE = /[\p{L}-]*(?:dauer|kosten|zeit|länge|daten|modus|preis|preise|status|plan|pläne|karte|budget)\b/giu;
+export function splitClauses(message: string): Array<{ text: string; negated: boolean }> {
+  const out: Array<{ text: string; negated: boolean }> = [];
+  for (const sentence of String(message ?? '').replace(/[¿¡]/g, ' ').split(/[.!?;\n]+/)) {
+    let negated = false;
+    const parts = sentence.split(/[,\u2013\u2014:]+|\s-\s|\b(?:and|und|y|then|dann|oder|or|sowie)\b|(?=\b(?:ohne|without|sin|kein\w*|nicht|nichts|never|no\s+(?:new|paid))\b)/i);
+    for (const raw of parts) {
+      const t = (raw ?? '').trim();
+      if (!t) continue;
+      if (NEGATED_RE.test(t)) negated = true;
+      else if (/\b(dann|then|aber|but|pero|danach|anschließend)\b/i.test(t)) negated = false;
+      // Compound nouns ("Generierungsdauer", "Produktionskosten", "Planungsdaten")
+      // name a quantity, not a command — drop them before verb matching.
+      out.push({ text: t.replace(NOUN_COMPOUND_RE, ' ').trim(), negated });
+    }
+  }
+  return out;
+}
+
+/**
  * True when the message is a status/information request without a command to
  * act. Action verbs that only appear under an explicit negation ("do not
  * generate", "nichts starten") do not count as commands.
@@ -41,9 +67,8 @@ export function classifyReadOnly(message: string): boolean {
   const text = String(message ?? '').trim();
   if (!text) return true;
   // Split into clauses; a clause with an action verb counts unless it is negated.
-  const clauses = text.replace(/[¿¡]/g, " ").split(/[.!?;\n]+|\b(?:and|und|y|then|dann)\b/i).map((c) => c.trim()).filter(Boolean);
-  for (const c of clauses) {
-    if (ACTION_RE.test(c) && !NEGATED_RE.test(c) && !isPureQuestionAboutAction(c)) return false;
+  for (const { text: c, negated } of splitClauses(text)) {
+    if (ACTION_RE.test(c) && !negated && !isPureQuestionAboutAction(c)) return false;
   }
   return true;
 }
@@ -93,14 +118,11 @@ const PRODUCTION_RE = /\b(generier\w*|generate\w*|genera\w*|render\w*|renderiza\
 // Planning vocabulary (research, plan, script, shots, save the plan) in EN/DE/ES.
 const PLANNING_RE = /\b(plan\w*|planung\w*|plane\w*|planifica\w*|speicher\w*|sicher\w*|save\w*|guarda\w*|recherch\w*|research\w*|investiga\w*|skript\w*|script\w*|guion\w*|shots?|tomas?|konzept\w*|concept\w*|kampagne\w*|campaign\w*|campaña\w*|vervollständig\w*|complete|completa\w*|zielgruppe|audience|fakten|facts|säulen|pillars)\b/i;
 // "Save / complete the plan" as an explicit command even when phrased like a request.
-const SAVE_RE = /\b(speicher\w*|save|guarda\w*|vervollst\w*|complete\s+the\s+plan|completa\w*|ergänz\w*|erganz\w*|aktualisier\w*|update\w*|actualiza\w*|füg\w*\s+.{0,40}hinzu|add|añade\w*|trag\w*\s+.{0,40}ein|rout\w*|enruta\w*)\b/i;
+const SAVE_RE = /\b(speicher\w*|fertigstell\w*|abschlie(?:ß|ss)\w*|finish\w*|finaliz\w*|termina\w*|save|guarda\w*|vervollst\w*|complete\s+the\s+plan|completa\w*|ergänz\w*|erganz\w*|aktualisier\w*|update\w*|actualiza\w*|füg\w*\s+.{0,40}hinzu|add|añade\w*|trag\w*\s+.{0,40}ein|rout\w*|enruta\w*)\b/i;
 const CONTINUATION_RE = /^((ok(ay)?|ja|yes|gut|passt|s[ií])[\s,.!]+)?(weiter(machen)?|mach\s+weiter|fortfahren|fahr\s+fort|continue|go\s+on|keep\s+going|carry\s+on|next|sigue|seguir|contin[uú]a|ok(ay)?|ja|yes|s[ií]|passt|gut|genau|bitte)\b[\s,.:!-]*(bitte|please|por\s+favor|so|mit\b.{0,80}|with\b.{0,80}|con\b.{0,80})?[\s.!]*$/i;
 
-function clauses(text: string): string[] {
-  return text.replace(/[¿¡]/g, ' ').split(/[.!?;\n]+|\b(?:and|und|y|then|dann)\b/i).map((c) => c.trim()).filter(Boolean);
-}
 function hasCommand(text: string, re: RegExp): boolean {
-  return clauses(text).some((c) => re.test(c) && !NEGATED_RE.test(c) && !isPureQuestionAboutAction(c));
+  return splitClauses(text).some(({ text: c, negated }) => re.test(c) && !negated && !isPureQuestionAboutAction(c));
 }
 
 /** Short continuation like "weiter", "continue", "sigue", "ok, weiter mit Planung speichern". */
@@ -201,3 +223,33 @@ export const PLANNING_INSTRUCTION = [
   'Model comparison: name the model manufacturer (provider field, e.g. Kuaishou, ByteDance) separately from the API provider we actually call (api_provider field, e.g. Replicate, BytePlus ModelArk). Only name models returned by get_available_video_models. Cost estimates come from route_campaign_shots / price_per_second in USD as an estimate without any approval; leave unknown prices explicitly open.',
   'Agent compute: the "agent cost" shown in the chat is the estimated language-model cost of this conversation, carried internally by the platform; it is not charged to the user wallet. Never say a turn had "no costs" — say "no wallet charge; internal agent compute only".',
 ].join('\n');
+
+/** Fixed limits for one stored background planning job. */
+export const PLANNING_JOB_MAX_CONTINUATIONS = 2;
+export const PLANNING_JOB_MAX_COST_USD = 1.0;
+
+export type PlanningJobVerdict =
+  | { status: 'queued' }
+  | { status: 'completed' }
+  | { status: 'interrupted'; reason: 'continuation_limit' | 'cost_limit' | 'error' | 'no_answer' };
+
+/**
+ * Decide what happens after one background planning run. Pure: the worker
+ * applies it with a lease-guarded update. Never loops past the fixed limits.
+ */
+export function nextPlanningJobState(j: {
+  continuations: number; maxContinuations: number; costUsd: number; maxCostUsd: number;
+  stepLimitHit: boolean; answered: boolean; error: string | null;
+}): PlanningJobVerdict {
+  if (j.error && !j.answered) return { status: 'interrupted', reason: 'error' };
+  if (!j.stepLimitHit) return j.answered ? { status: 'completed' } : { status: 'interrupted', reason: 'no_answer' };
+  if (j.costUsd >= j.maxCostUsd) return { status: 'interrupted', reason: 'cost_limit' };
+  if (j.continuations >= j.maxContinuations) return { status: 'interrupted', reason: 'continuation_limit' };
+  return { status: 'queued' };
+}
+
+export const PLANNING_JOB_INTERRUPT_TEXT: Record<string, (reason: string, done: number) => string> = {
+  de: (r, d) => `Die Planung wurde nach ${d} automatischen Fortsetzungen angehalten (${r === 'cost_limit' ? 'Obergrenze für interne Agent-/Recherchekosten erreicht' : r === 'continuation_limit' ? 'Obergrenze für automatische Fortsetzungen erreicht' : 'technischer Fehler'}). Der bisherige Stand ist gespeichert; es wurde nichts produziert, freigegeben oder abgebucht.`,
+  es: (r, d) => `La planificación se detuvo tras ${d} continuaciones automáticas (${r === 'cost_limit' ? 'límite de coste interno alcanzado' : r === 'continuation_limit' ? 'límite de continuaciones alcanzado' : 'error técnico'}). El progreso está guardado; no se produjo, aprobó ni cobró nada.`,
+  en: (r, d) => `Planning stopped after ${d} automatic continuations (${r === 'cost_limit' ? 'internal agent/research cost cap reached' : r === 'continuation_limit' ? 'continuation cap reached' : 'technical error'}). Progress is saved; nothing was produced, approved or charged.`,
+};
