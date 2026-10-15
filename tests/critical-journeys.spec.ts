@@ -96,7 +96,8 @@ test.describe('Critical Journeys', () => {
 
   test('Geschützte Routen redirecten unauth auf /auth', async ({ page }) => {
     // Nur echte ProtectedRoute-Pfade aus App.tsx
-    const protectedPaths = ['/streak', '/account/delete', '/brand-characters'];
+    // const protectedPaths = ['/streak', '/account/delete', '/brand-characters'];
+    const protectedPaths = ['/account/delete', '/settings', '/queue'];
 
     for (const path of protectedPaths) {
       const resp = await page.goto(`${BASE}${path}`, { waitUntil: 'domcontentloaded' });

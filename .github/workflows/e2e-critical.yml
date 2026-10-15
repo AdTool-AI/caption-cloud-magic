@@ -37,7 +37,7 @@ jobs:
 
       - name: Run smoke suite
         env:
-          BASE_URL: https://caption-cloud-magic.lovable.app
+          BASE_URL: ${{ github.event_name == 'pull_request' && 'https://prodtest.useadtool.ai' || 'https://caption-cloud-magic.lovable.app' }}
           CI: 'true'
           E2E_INGEST_URL: https://lbunafpxuskwmsrraqxl.functions.supabase.co/ingest-e2e-results
           E2E_INGEST_TOKEN: ${{ secrets.E2E_INGEST_TOKEN }}
