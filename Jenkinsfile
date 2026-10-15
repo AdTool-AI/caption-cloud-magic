@@ -22,7 +22,7 @@ pipeline {
         AMPLIFY_APP_ID = 'd1gryl4kp52246'
         AMPLIFY_BRANCH = 'staging'
         SITE_URL = 'https://prodtest.useadtool.ai'
-        PATH+AWSCLI = '/usr/local/bin'
+        AWS_CLI = '/usr/local/bin/aws'
     }
 
     stages {
@@ -38,7 +38,10 @@ pipeline {
             steps {
                 sh '''
                     set -eu
-                    aws sts get-caller-identity --query Arn --output text
+                    "$AWS_CLI" --version
+                    "$AWS_CLI" sts get-caller-identity \
+                        --query Arn \
+                        --output text
                 '''
             }
         }
@@ -89,7 +92,7 @@ pipeline {
                     deployment_file=$(mktemp)
                     trap 'rm -f "$deployment_file"' EXIT
 
-                    aws amplify create-deployment \
+                    "$AWS_CLI" amplify create-deployment \
                         --app-id "$AMPLIFY_APP_ID" \
                         --branch-name "$AMPLIFY_BRANCH" \
                         --output json > "$deployment_file"
@@ -107,7 +110,7 @@ pipeline {
 
                     unset upload_url
 
-                    aws amplify start-deployment \
+                    "$AWS_CLI" amplify start-deployment \
                         --app-id "$AMPLIFY_APP_ID" \
                         --branch-name "$AMPLIFY_BRANCH" \
                         --job-id "$job_id" \
@@ -115,7 +118,7 @@ pipeline {
                         --output text
 
                     for attempt in $(seq 1 120); do
-                        status=$(aws amplify get-job \
+                        status=$("$AWS_CLI" amplify get-job \
                             --app-id "$AMPLIFY_APP_ID" \
                             --branch-name "$AMPLIFY_BRANCH" \
                             --job-id "$job_id" \
