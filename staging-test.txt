@@ -1,1 +1,1 @@
-staging test successfull correctly
+Staging test successful correctly.
