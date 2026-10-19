@@ -398,9 +398,9 @@ const Pricing = () => {
                         es: "Modelos de imagen Specialist y mejora profesional Topaz",
                       }),
                       tx({
-                        de: "Motion Studio, Render-Queue, Content Command Center und Social-Verbindungen",
-                        en: "Motion Studio, render queue, Content Command Center and social connections",
-                        es: "Motion Studio, cola de renderizado, Content Command Center y conexiones sociales",
+                        de: "Motion Studio, Content Command Center und Social-Verbindungen",
+                        en: "Motion Studio, Content Command Center and social connections",
+                        es: "Motion Studio, Content Command Center y conexiones sociales",
                       }),
                       tx({
                         de: "Founders: 10 % auf bezahlte KI-Nutzung — 24 Monate",

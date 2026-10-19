@@ -36,7 +36,6 @@ Nutzer-/Export-Gate: clip_status = ready AND (requires_lip_sync = false OR lip_s
 | `lib/video-composer/sceneSnapshot.ts` | Snapshot/Persistenz | beide |
 | `hooks/useSceneGenerate.ts`, `hooks/useTwoShotAutoTrigger.ts` | Start/Trigger | beide |
 | `hooks/useComposerPersistence.ts` | Speichern/Laden | beide |
-| `hooks/useRenderQueueLive.ts`, `pages/RenderQueue.tsx` | Warteschlange | Nutzer-Gate |
 | `lib/adDirector/spawnAdCampaignChildren.ts` | Kampagnen | Nutzer-Gate |
 | `pages/MotionStudio/StudioMode.tsx` | Studio-Anzeige | beide |
 

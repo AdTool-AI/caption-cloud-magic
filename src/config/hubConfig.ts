@@ -7,7 +7,7 @@ import {
   FolderOpen, Mic2, Music2, Video, Film, Edit, Layers, Languages, User,
   Users, Palette,
   ShieldCheck, Settings,
-  Gamepad2, Radio, Scissors, Store, Coins as CoinsIcon, AudioWaveform, FileBadge2, Activity, Library,
+  Gamepad2, Radio, Scissors, Store, Coins as CoinsIcon, AudioWaveform, FileBadge2, Library,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -40,7 +40,6 @@ import coverErstUniversalVideo from "@/assets/hub-covers/erstellen/universal-vid
 import coverErstUniversalDc from "@/assets/hub-covers/erstellen/universal-directors-cut.jpg";
 import coverErstAiVideoStudio from "@/assets/hub-covers/erstellen/ai-video-studio.jpg";
 import coverErstVideoComposer from "@/assets/hub-covers/erstellen/video-composer.jpg";
-import coverErstQueue from "@/assets/hub-covers/erstellen/queue.jpg";
 import coverErstLibrary from "@/assets/hub-covers/erstellen/library.jpg";
 import coverErstCreatorLibrary from "@/assets/hub-covers/erstellen/creator-library.jpg";
 import coverErstPictureStudio from "@/assets/hub-covers/erstellen/picture-studio.jpg";
@@ -156,7 +155,6 @@ export const hubDefinitions: HubDefinition[] = [
       { route: "/universal-directors-cut", titleKey: "Universal Director's Cut", descKey: "hubItemDesc.directorsCut", icon: Edit, cover: coverErstUniversalDc },
       { route: "/ai-video-studio", titleKey: tx({ de: "AI Video Studio", en: "AI Video Studio", es: "Estudio de vídeo con IA" }), descKey: "hubItemDesc.aiVideoStudio", icon: Sparkles, cover: coverErstAiVideoStudio },
       { route: "/video-composer", titleKey: "videoComposer.title", descKey: "hubItemDesc.videoComposer", icon: Scissors, cover: coverErstVideoComposer },
-      { route: "/queue", titleKey: tx({ de: "Render-Queue", en: "Render queue", es: "Cola de renderizado" }), descKey: tx({ de: "Live-Status aller Motion-Studio-Renderjobs", en: "Live status of all Motion Studio render jobs", es: "Estado en vivo de todos los trabajos de renderizado de Motion Studio" }), icon: Activity, cover: coverErstQueue },
       { route: "/library", titleKey: "Cast & World Library", descKey: tx({ de: "Avatare, Locations, Buildings & Props — alles in einer Bibliothek, mit @-Mention überall einsetzbar", en: "Avatars, locations, buildings & props — all in one library, usable anywhere with @-mention", es: "Avatares, ubicaciones, edificios y accesorios — todo en una biblioteca, utilizable en cualquier lugar con @-mención" }), icon: Users, cover: coverErstLibrary },
       { route: "/creator-library", titleKey: "Creator Library", descKey: tx({ de: "Videos · Photos · Music · SFX — royalty-free Bundle, inklusive in allen Paid-Plans", en: "Videos · Photos · Music · SFX — royalty-free bundle, included in all paid plans", es: "Videos · Fotos · Música · SFX — paquete libre de regalías, incluido en todos los planes pagos" }), icon: Library, cover: coverErstCreatorLibrary },
       
