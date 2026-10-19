@@ -1,68 +1,173 @@
 # Claude Code GitHub Action
 
-Workflow: `.github/workflows/claude.yml` (uses `anthropics/claude-code-action@v1`).
+Workflow: `.github/workflows/claude.yml`.
 
-The workflow does nothing until it is on `main` **and** a credential secret exists.
-Issue and comment events always run the workflow file from the default branch, so
-having it on a feature branch or in an open PR does not activate it.
+This workflow is disabled unless the repository Actions variable
+`CLAUDE_ENABLED` is set to `true`. A credential secret alone does not enable it.
+The workflow is interactive: an approved maintainer must explicitly invoke it.
+It is not an automatic review of every pull request.
 
-## When Claude runs
+## Initial operator policy
 
-Only on explicit opt-in:
+Only the following GitHub usernames may invoke Claude in this initial rollout:
 
-| Event | Condition |
+- `rjavahegde`
+- `AdToolAI`
+
+These are the maintainer identities named in PR #10. Confirm that they are the
+intended Rakesh and Sam accounts before enabling. Display names and email
+addresses are not interchangeable with GitHub usernames. If a username needs to
+change, update both the job condition and the shell allowlist through a reviewed
+PR. Other collaborators are deliberately excluded for now.
+
+The job condition checks the repository, enable switch, human event sender,
+operator username, and trigger. Before checking out code or invoking the Claude
+action, an API preflight verifies that the actor is a human account and still
+has repository `write` or `admin` permission. An API error or insufficient
+permission fails closed. The action's own write-access and bot checks remain
+enabled as a second layer.
+
+| Event | Trigger |
 | --- | --- |
-| Issue opened | Title or body contains `@claude`, author is OWNER / MEMBER / COLLABORATOR |
-| Issue labeled | Label `claude` is applied (only people with triage+ can label) |
-| Issue / PR comment, PR review, review comment | Text contains `@claude`, author is OWNER / MEMBER / COLLABORATOR |
+| Issue opened | Title or body contains `@claude` |
+| Issue labeled | The `claude` label is applied |
+| Issue or PR comment created | Body contains `@claude` |
+| PR review submitted | Review body contains `@claude` |
+| PR review comment created | Comment body contains `@claude` |
 
-On top of that, the action itself refuses to run for any actor without **write**
-permission on the repo, and for every bot (`allowed_bots: ''`). Issues created by
-ChatGPT's GitHub connector under a collaborator's own account pass; issues created
-by a bot or app account do not.
+Every row is subject to the operator and permission gates. For label events, the
+authorized person is the actor applying the label, not the original issue author.
+Editing an existing comment or issue does not trigger this workflow. Use a new
+comment to make a new request.
 
-## Authentication setup (manual, by a repo admin)
+## Before enabling
 
-1. **Claude GitHub App** – must be installed on `AdTool-AI/caption-cloud-magic`
-   (https://github.com/apps/claude). The action exchanges the job's OIDC token
-   (`id-token: write`) for an App token; that token is what writes comments,
-   branches and PRs. The job's own `GITHUB_TOKEN` is read-only.
-2. **One repository secret** under Settings → Secrets and variables → Actions:
-   - `CLAUDE_CODE_OAUTH_TOKEN` – uses a Claude Pro/Max subscription; create it
-     locally with `claude setup-token`, **or**
-   - `ANTHROPIC_API_KEY` – an API key from console.anthropic.com (billed per use;
-     set a spend limit on the workspace).
+1. Obtain Rakesh's review and Sam's explicit approval for PR #10. Do not enable
+   the assistant merely because ordinary frontend CI is green.
+2. Protect `main` with a required PR, at least one independent approval, required
+   E2E Smoke Suite checks, stale-approval dismissal, resolved review threads,
+   and restrictions on force pushes and deletion. The Claude App must not bypass
+   these controls. Protect workflow changes with code-owner review where practical.
+3. Coordinate main protection with the existing Lovable editing flow. Direct
+   pushes to main may be blocked; use reviewed PRs instead of giving the Claude
+   App or a broad group a bypass. Merges to main can still trigger staging CI.
+4. Keep the existing `v*` release-tag creation and immutability rules. Check that
+   the Claude App cannot create, move or delete production release tags. The
+   assistant must not obtain AWS or Jenkins production credentials.
+5. Install the official Claude GitHub App on the intended repository only and
+   review its granted permissions. The action exchanges the workflow's OIDC token
+   for a short-lived App token. That App token can write comments and code even
+   though the workflow's own `GITHUB_TOKEN` is read-only.
+6. Confirm exactly one authentication method and its account owner, as below.
+7. Keep `CLAUDE_ENABLED` unset or set to `false` while merging and preparing tests.
 
-   Set exactly one. Never commit either value.
+Branch protection, GitHub App installation, spending controls and tag rules are
+repository/account settings. Replacing this YAML does not configure them.
 
-## Security implications
+## Authentication
 
-- **Write access via the App.** Claude can push branches and open PRs with the
-  Claude App's permissions. `main` is currently unprotected, so nothing in GitHub
-  prevents a push to `main`; the action works on `claude/…` branches, but a branch
-  protection rule on `main` (require PR + review) is the real safeguard. Remember
-  that merging to `main` deploys staging via Jenkins.
-- **Prompt injection.** Issue text, comments and repo files become part of the
-  prompt. Only trusted collaborators can trigger a run, but the content Claude
-  reads (e.g. a pasted log, a linked issue) can still contain instructions. Review
-  every Claude PR like any other contribution.
-- **Secrets in the runner.** Only the Anthropic credential and the App token are
-  present. `persist-credentials: false` keeps the checkout token out of git config.
-  No Supabase, AWS or Jenkins secrets are passed to this job — keep it that way.
-- **Cost.** Each run consumes subscription quota or API credits; `--max-turns 30`,
-  a 30-minute timeout and one-run-per-issue concurrency cap a single run.
+Configure exactly one repository Actions secret:
 
-## Testing safely
+- `CLAUDE_CODE_OAUTH_TOKEN`: an OAuth token for the intended Claude subscription,
+  generated locally with `claude setup-token`. Confirm whose subscription and
+  usage allowance it consumes.
+- `ANTHROPIC_API_KEY`: a dedicated API key from the intended Anthropic workspace.
+  Configure provider-side spending controls and notifications for that workspace.
 
-1. Merge only after review (Rakesh) and approval (Samuel). Merging does not
-   trigger Claude by itself.
-2. Add the secret.
-3. Open a throwaway issue, e.g. "@claude Explain what `src/lib/agentStatus.ts`
-   does. Do not change any files." Expect a single Claude comment, no branch.
-4. Check the run under Actions → Claude Code; confirm a comment from someone
-   without write access (or a bot) is skipped.
-5. Then try a small code task on an issue and confirm Claude opens a branch/PR
-   for review instead of touching `main`.
+The workflow rejects both missing credentials and simultaneous configuration of
+both methods. Do not rotate or delete an existing secret until its owner and
+other consumers have been checked. Never put secret values in Git, issue text,
+PR comments or logs.
 
-To disable quickly: delete the secret, or disable the "Claude Code" workflow in
-the Actions tab.
+At the 19 October 2026 review, the repository already contained a secret named
+`CLAUDE_CODE_OAUTH_TOKEN`; its value and validity were not inspected. Therefore,
+the old statement that this PR is inactive until a secret is added is incorrect.
+The explicit enable variable is the activation control in this replacement.
+
+## Enabling and disabling
+
+After the protection and authentication checks, open repository Settings > Secrets
+and variables > Actions > Variables. Add the repository variable:
+
+```text
+Name:  CLAUDE_ENABLED
+Value: true
+```
+
+Then create a new authorized test event. Previously skipped requests are not
+automatically replayed. Never use a production deployment as a test request.
+
+To disable new invocations, set `CLAUDE_ENABLED` to `false` or disable the Claude
+Code workflow in the Actions tab. Also cancel any already running or queued
+Claude jobs: changing a variable is not a kill switch for running jobs. Revoke
+credentials or App access separately if compromise is suspected.
+
+## Cost and execution limits
+
+- Claude has a limit of 10 agentic turns and the job has a 15-minute timeout.
+- One workflow concurrency group is used per issue or PR. Different issues can
+  run in parallel. GitHub concurrency is not a global spending limit or a
+  guaranteed first-in-first-out request queue.
+- These controls limit execution, not money. OAuth runs use the subscription's
+  allowance and applicable extra-usage settings; verify these with its owner.
+- For API-key operation, configure workspace spending controls. After checking
+  support in the pinned action/CLI, an additional client-side API estimate guard
+  can be added as `--max-budget-usd 2.00` in `claude_args`. It is an estimated
+  per-run guard, may overshoot, and is not a strict billing cap. Do not assume
+  this flag limits OAuth subscription quota.
+- Review usage after the first few requests before increasing turn/time limits.
+
+## Security boundaries
+
+- Both top-level actions are pinned to full commits from their official upstream
+  repositories. Review updates before changing the pins. This does not make all
+  transitive packages, downloaded components or repository content immutable.
+- Only the selected Claude credential is passed as an application secret. No AWS,
+  Jenkins or Supabase service-role credentials are passed to this job. The
+  permission preflight receives only the read-only job token.
+- `persist-credentials: false` prevents checkout from retaining its token in Git
+  configuration. The Claude action can subsequently configure its own App-token
+  Git access; this setting does not make the full job read-only.
+- `allowed_bots` and `allowed_non_write_users` remain empty. Do not change either
+  to `*`. Detailed execution output and the model-authored report are disabled.
+- Trusted invocation does not make all context trusted. Claude reads repository
+  files, issue text and comments that may contain prompt injection. Review every
+  generated change, especially dependencies, workflows, authentication and billing.
+- An instruction to use branches is not an access-control boundary. Enforced
+  main protection and release-tag rules are the safeguards against bypassing the
+  human review and production release process.
+
+## Safe acceptance tests
+
+1. Before enabling, confirm the new workflow is skipped even for an approved
+   user's `@claude` comment. Ordinary application checks may still run separately.
+2. After enabling, an approved user creates a throwaway issue such as:
+   `@claude Explain src/lib/agentStatus.ts. Do not change any files.`
+   Verify that the permission/auth preflights pass and Claude answers without
+   committing code. Do not assume its internal branch setup is read-only.
+3. Have an existing non-allowlisted user create an `@claude` comment. Confirm the
+   Claude job is skipped. Do not grant a test stranger repository access.
+4. Verify bot-originated events do not invoke the model. For the label path, test
+   an approved maintainer applying `claude` to a throwaway issue; the issue author
+   need not be an approved operator.
+5. Request a small documentation change. Verify it goes through a branch/PR,
+   ordinary CI and independent human review. Confirm protections prevent the App
+   from bypassing main review and release-tag restrictions.
+6. Inspect run logs for accidental disclosure and check subscription/API usage.
+   Record the successful test and disable the workflow if unexpected writes,
+   permission errors or spending occur.
+
+## Pinned upstream revisions
+
+Verified on 19 October 2026:
+
+- `actions/checkout@11d5960a326750d5838078e36cf38b85af677262` (v4 line).
+- `anthropics/claude-code-action@5eb090f3c3afd701a0672cd32981197ca27688f6`
+  (v1 line).
+
+## References
+
+- https://github.com/anthropics/claude-code-action/blob/5eb090f3c3afd701a0672cd32981197ca27688f6/docs/setup.md
+- https://github.com/anthropics/claude-code-action/blob/5eb090f3c3afd701a0672cd32981197ca27688f6/docs/security.md
+- https://docs.github.com/en/actions/reference/security/secure-use
+- https://code.claude.com/docs/en/cli-reference
