@@ -127,7 +127,6 @@ const AvatarDetail = lazyWithRetry(() => import("./pages/AvatarDetail"));
 const Locations = lazyWithRetry(() => import("./pages/Locations"));
 const Library = lazyWithRetry(() => import("./pages/Library"));
 const VideoComposer = lazyWithRetry(() => import("./pages/VideoComposer"));
-const RenderQueue = lazyWithRetry(() => import("./pages/RenderQueue"));
 const CreatorLibrary = lazyWithRetry(() => import("./pages/CreatorLibrary"));
 const EmailDirector = lazyWithRetry(() => import("./pages/EmailDirector"));
 const MotionStudioLibrary = lazyWithRetry(() => import("./pages/MotionStudio/Library"));
@@ -325,8 +324,6 @@ function AppLayout() {
           <Route path="/my-licenses" element={<ProtectedRoute><MyLicenses /></ProtectedRoute>} />
            <Route path="/sora-long-form" element={<Navigate to="/video-composer" replace />} />
            <Route path="/video-composer" element={<MotionStudioGate><VideoComposer /></MotionStudioGate>} />
-           <Route path="/queue" element={<ProtectedRoute><RenderQueue /></ProtectedRoute>} />
-            <Route path="/render-queue" element={<Navigate to="/queue" replace />} />
             <Route path="/creator-library" element={<ProtectedRoute><CreatorLibrary /></ProtectedRoute>} />
            <Route path="/email-director" element={<ProtectedRoute><EmailDirector /></ProtectedRoute>} />
            <Route path="/motion-studio" element={<MotionStudioHub />} />

@@ -257,7 +257,7 @@ G4  Watchdog/Recovery
     qa-watchdog, lipsync-watchdog, recover-stuck-composer-clip, qa-weekly-deep-sweep
     -> erst nachdem dieselben States durch G1-G3 sauber geschrieben werden
 G5  verbleibende Client-/Compatibility-Pfade
-    useTwoShotAutoTrigger, ClipsTab/useRenderQueueLive-Reader, autopilotComposerBridge
+    useTwoShotAutoTrigger, ClipsTab-Reader, autopilotComposerBridge
 G6  Reverse-Bridge global abschalten
 
 Eigener Track (parallel, nicht Teil von G0-G6):
