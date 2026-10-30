@@ -4,10 +4,13 @@
  * Paid/provider steps go through campaign_post_actions: prepare → (user) approve → run.
  * Approval is never exposed as an agent tool.
  */
-import {
+import { resolveClipUrls,
   buildClips, buildRenderPayload, costDoc, defaultEdit, deriveStage, requirementsFrom,
   scanMp4Tracks, technicalCheck, totalCut, validateEdit, DEFAULT_DUCK, type SpotEdit,
 } from './spot.ts';
+import { loadVideoCore, StateNotFound } from '../state/loaders.ts';
+import { judgeFrames, planFrameProbes, type FrameObservation, type FrameProbe } from './frameCheck.ts';
+import { buildSpotQaPrompt, customerReady, parseSpotQa, technicalAcceptance } from './spotQa.ts';
 
 // deno-lint-ignore no-explicit-any
 type Row = Record<string, any>;
@@ -19,26 +22,29 @@ export interface SpotCtx {
   supabaseUrl: string;
   anonKey: string;
   fetchImpl?: typeof fetch;
+  /** Background worker only: service key in userJwt + this user id header (see _shared/internalAuth.ts). */
+  internalUserId?: string;
+  /** Acceptance-check providers. Not configured = the checks refuse to run (no silent provider call). */
+  providers?: SpotProviders;
+  /** Measures an exported file (tests inject a mock). Default: ranged MP4 box parser. */
+  probeMedia?: (url: string) => Promise<import('../../mp4-probe.ts').ProbedVideoMetadata>;
 }
-export type ActionKind = 'voiceover' | 'music' | 'sfx' | 'subtitles' | 'export';
+export interface SpotProviders {
+  /** Extracts frames from the exported file and returns an observation per probe. */
+  observeFrames(videoUrl: string, probes: FrameProbe[], logoUrl: string | null): Promise<FrameObservation[]>;
+  /** Full-video analysis; returns the raw model answer. */
+  analyzeSpot(videoUrl: string, prompt: string): Promise<string>;
+  /** Internal usage metadata of real calls (tokens/cost if reported). */
+  usage?: () => unknown[];
+}
+export type ActionKind = 'voiceover' | 'music' | 'sfx' | 'subtitles' | 'export' | 'frame_check' | 'spot_ai_qa';
 export class SpotError extends Error { constructor(public code: string, msg: string) { super(msg); } }
 
-async function loadAll(ctx: SpotCtx, videoId: string) {
-  const { data: video } = await ctx.admin.from('campaign_videos').select('*').eq('id', videoId).eq('user_id', ctx.userId).maybeSingle();
-  if (!video) throw new SpotError('NOT_FOUND', 'Campaign video not found.');
-  const [{ data: shots }, { data: attempts }, { data: campaign }, { data: assets }, { data: actions }] = await Promise.all([
-    ctx.admin.from('campaign_shots').select('*').eq('video_id', videoId).is('archived_at', null).order('shot_index'),
-    ctx.admin.from('campaign_shot_attempts').select('id, shot_id, attempt_no, generation_id, model, cost_charged, qa_verdict, client_ready, created_at').eq('campaign_id', video.campaign_id),
-    ctx.admin.from('agent_campaigns').select('id, video_duration_s, language, company_name').eq('id', video.campaign_id).maybeSingle(),
-    ctx.admin.from('campaign_assets').select('id, url, kind, reuse_status, owner_note').eq('campaign_id', video.campaign_id),
-    ctx.admin.from('campaign_post_actions').select('*').eq('video_id', videoId).order('created_at', { ascending: false }).limit(30),
-  ]);
-  const genIds = (attempts ?? []).map((a: Row) => a.generation_id).filter(Boolean);
-  const { data: gens } = genIds.length
-    ? await ctx.admin.from('ai_video_generations').select('id, video_url, duration_seconds, measured_duration_seconds, status').in('id', genIds)
-    : { data: [] };
-  const genById = new Map<string, Row>((gens ?? []).map((g: Row) => [g.id, { ...g, duration_seconds: g.measured_duration_seconds ?? g.duration_seconds }]));
-  return { video, shots: shots ?? [], attempts: attempts ?? [], campaign, assets: assets ?? [], actions: actions ?? [], genById };
+export async function loadAll(ctx: SpotCtx, videoId: string) {
+  try { return await loadVideoCore(ctx, videoId); } catch (e) {
+    if (e instanceof StateNotFound) throw new SpotError('NOT_FOUND', e.message);
+    throw e;
+  }
 }
 
 async function persist(ctx: SpotCtx, videoId: string, edit: SpotEdit, expected: number | null): Promise<number> {
@@ -55,13 +61,17 @@ function view(all: Awaited<ReturnType<typeof loadAll>>) {
     video_id: video.id, title: video.title, revision: video.edit_revision, edit,
     stage: st.stage, export_stale: st.export_stale, missing: st.missing,
     cut_seconds: edit ? totalCut(edit) : null,
-    issues: edit ? validateEdit(edit, requirementsFrom(video.post_production)) : [],
-    requirements: requirementsFrom(video.post_production),
+    issues: edit ? validateEdit(edit, requirementsFrom(video.post_production, edit)) : [],
+    requirements: requirementsFrom(video.post_production, edit),
+    branding_mode: edit?.branding_mode ?? 'approved_logo',
     export: { status: video.export_status, url: video.export_url, revision: video.export_revision, meta: video.export_meta },
     technical_check: video.technical_check, content_check: video.content_check,
     final_client_ready: video.final_client_ready === true,
+    frame_check: video.frame_check, final_ai_qa: video.final_ai_qa,
+    technical_acceptance: technicalAcceptance(video),
+    customer_ready: customerReady(video, shots),
     actions: actions.map((a: Row) => ({ id: a.id, kind: a.kind, status: a.status, cost: a.cost_doc, revision: a.edit_revision, requested_by: a.requested_by, error: a.error, created_at: a.created_at })),
-    logo_candidates: assets.filter((a: Row) => /logo/i.test(`${a.kind} ${a.url}`)).map((a: Row) => ({ id: a.id, url: a.url, reuse_status: a.reuse_status })),
+    logo_candidates: assets.filter((a: Row) => /logo/i.test(`${a.kind} ${a.url}`)).map((a: Row) => ({ id: a.id, url: a.url, reuse_status: a.reuse_status, source_url: a.source_url, discovery_source: a.discovery_source, file_type: a.file_type, width: a.width, height: a.height, confidence: a.official_confidence })),
     shots: shots.map((s: Row) => ({
       id: s.id, index: s.shot_index, selected_attempt_id: s.selected_attempt_id,
       attempts: attempts.filter((a: Row) => a.shot_id === s.id).map((a: Row) => ({ id: a.id, attempt_no: a.attempt_no, model: a.model, qa_verdict: a.qa_verdict, has_clip: !!a.generation_id })),
@@ -94,6 +104,17 @@ export async function selectAttempt(ctx: SpotCtx, videoId: string, shotId: strin
   const clips = buildClips(shots, all.attempts, all.genById, base.clips);
   await persist(ctx, videoId, { ...base, clips }, all.video.edit_revision);
   return getSpot(ctx, videoId);
+}
+
+/** Repair: fill missing/stale clip URLs from the stored attempts. Timing/order untouched; fails closed. */
+export async function refreshClipUrls(ctx: SpotCtx, videoId: string) {
+  const all = await loadAll(ctx, videoId);
+  const edit: SpotEdit | null = all.video.edit;
+  if (!edit) throw new SpotError('NO_EDIT', 'This video has no cut yet.');
+  const r = resolveClipUrls(edit.clips, all.attempts, all.genById, ctx.userId);
+  if (!r.ok) throw new SpotError('CLIP_URL_MISSING', `No finished clip for: ${r.errors.map((e) => `${e.shot_id} (${e.code})`).join(', ')}. Nothing was changed.`);
+  if (r.changed > 0) await persist(ctx, videoId, { ...edit, clips: r.clips }, all.video.edit_revision);
+  return { changed: r.changed, spot: await getSpot(ctx, videoId) };
 }
 
 const isOwnStorage = (ctx: SpotCtx, url: string) => url.startsWith(`${ctx.supabaseUrl}/storage/v1/object/`) && url.includes(`/${ctx.userId}/`);
@@ -129,10 +150,16 @@ export async function saveEdit(ctx: SpotCtx, videoId: string, patch: Row, expect
   if ('logo' in patch) {
     const l = patch.logo;
     if (l) {
-      const fromAsset = all.assets.some((a: Row) => a.url === l.url);
+      const asset = all.assets.find((a: Row) => a.url === l.url);
+      const fromAsset = !!asset;
+      if (asset && asset.reuse_status !== 'reuse_ok') throw new SpotError('LOGO_NOT_CONFIRMED', 'This logo is reference only. Confirm it is the official logo and that you may use it first.');
       if (!fromAsset && !isOwnStorage(ctx, String(l.url))) throw new SpotError('BAD_LOGO', 'Logo must be a stored campaign asset or your own upload — no substitute logos.');
-      next.logo = { url: String(l.url), source: fromAsset ? 'campaign_asset' : 'upload', rights_confirmed: l.rights_confirmed === true };
+      next.logo = { url: String(l.url), source: fromAsset ? 'campaign_asset' : 'upload', rights_confirmed: l.rights_confirmed === true || (asset?.reuse_status === 'reuse_ok' && !!asset?.discovery_source), width: Number(l.width ?? asset?.width) || undefined, height: Number(l.height ?? asset?.height) || undefined, width_share: Math.min(0.8, Math.max(0.1, Number(l.width_share ?? 0.4))) };
     } else next.logo = null;
+  }
+  if ('branding_mode' in patch) {
+    if (!['approved_logo', 'text_only'].includes(patch.branding_mode)) throw new SpotError('BAD_BRANDING_MODE', 'branding_mode must be approved_logo or text_only.');
+    next.branding_mode = patch.branding_mode;
   }
   if ('endcard' in patch) next.endcard = patch.endcard ? { headline: String(patch.endcard.headline ?? ''), cta: String(patch.endcard.cta ?? ''), duration: Number(patch.endcard.duration ?? 3) } : null;
   await persist(ctx, videoId, next, expected ?? all.video.edit_revision);
@@ -146,6 +173,10 @@ export async function prepareAction(ctx: SpotCtx, videoId: string, kind: ActionK
   if (kind === 'export') {
     const blocking = spot.issues.filter((i) => i.blocking);
     if (blocking.length) throw new SpotError('NOT_EXPORTABLE', blocking.map((i) => i.detail).join(' '));
+  }
+  if (kind === 'frame_check' || kind === 'spot_ai_qa') {
+    const v = all.video;
+    if (v.export_status !== 'done' || !v.export_url || v.export_revision !== v.edit_revision) throw new SpotError('NO_CURRENT_EXPORT', 'Checks run only on the current, finished export.');
   }
   if (kind === 'voiceover' && !String(params.text ?? '').trim()) throw new SpotError('NO_TEXT', 'Voiceover text required.');
   if ((kind === 'music' || kind === 'sfx') && !String(params.prompt ?? '').trim()) throw new SpotError('NO_PROMPT', 'Prompt required.');
@@ -171,7 +202,7 @@ export async function approveAction(ctx: SpotCtx, actionId: string) {
 async function callFn(ctx: SpotCtx, name: string, body: Row) {
   const res = await (ctx.fetchImpl ?? fetch)(`${ctx.supabaseUrl}/functions/v1/${name}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${ctx.userJwt}`, apikey: ctx.anonKey },
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${ctx.userJwt}`, apikey: ctx.anonKey, ...(ctx.internalUserId ? { 'x-agent-user-id': ctx.internalUserId } : {}) },
     body: JSON.stringify(body),
   });
   const json = await res.json().catch(() => ({}));
@@ -188,12 +219,30 @@ export async function runAction(ctx: SpotCtx, actionId: string) {
     const all = await loadAll(ctx, action.video_id);
     const edit: SpotEdit = all.video.edit;
     const p = action.params ?? {};
-    let result: Row;
-    if (action.kind === 'export') {
+    let result: Row = {};
+    if (action.kind === 'frame_check' || action.kind === 'spot_ai_qa') {
+      const v = all.video;
+      if (v.export_status !== 'done' || v.export_revision !== action.edit_revision || v.edit_revision !== action.edit_revision) throw new SpotError('STALE_ACTION', 'The export changed after approval.');
+      if (!ctx.providers) throw new SpotError('PROVIDER_NOT_CONFIGURED', 'Check provider not configured.');
+      if (action.kind === 'frame_check') {
+        const probes = planFrameProbes(edit);
+        const obs = await ctx.providers.observeFrames(v.export_url, probes, edit.logo?.url ?? null);
+        const fc = judgeFrames(v.export_revision, probes, obs);
+        await ctx.admin.from('campaign_videos').update({ frame_check: { ...fc, internal_usage: ctx.providers.usage?.() ?? null }, final_client_ready: false }).eq('id', v.id);
+        result = { passed: fc.passed, items: fc.items.length };
+      } else {
+        const raw = await ctx.providers.analyzeSpot(v.export_url, buildSpotQaPrompt(edit));
+        const qa = { ...parseSpotQa(raw), revision: v.export_revision, method: 'ai_analysis', analyzed_at: new Date().toISOString(), internal_usage: ctx.providers.usage?.() ?? null };
+        await ctx.admin.from('campaign_videos').update({ final_ai_qa: qa, final_client_ready: false }).eq('id', v.id);
+        result = { score: qa.score, verdict: qa.verdict };
+      }
+      const { data: fresh } = await ctx.admin.from('campaign_videos').select('*').eq('id', v.id).maybeSingle();
+      await ctx.admin.from('campaign_videos').update({ technical_acceptance: technicalAcceptance(fresh ?? v), final_client_ready: customerReady(fresh ?? v, all.shots).ready }).eq('id', v.id);
+    } else if (action.kind === 'export') {
       if (all.video.edit_revision !== action.edit_revision) throw new SpotError('STALE_ACTION', 'The cut changed after approval — prepare the export again.');
       const payload = buildRenderPayload(edit, all.video.edit_revision);
       const r = await callFn(ctx, 'render-directors-cut', payload);
-      await ctx.admin.from('campaign_videos').update({ export_render_id: r.render_id, export_status: 'rendering', export_revision: all.video.edit_revision, export_url: null, technical_check: null, content_check: null, final_client_ready: false }).eq('id', all.video.id);
+      await ctx.admin.from('campaign_videos').update({ export_render_id: r.render_id, export_status: 'rendering', export_revision: all.video.edit_revision, export_url: null, technical_check: null, content_check: null, frame_check: null, final_ai_qa: null, technical_acceptance: null, final_client_ready: false }).eq('id', all.video.id);
       result = { render_id: r.render_id };
     } else {
       const next: SpotEdit = { ...edit };
@@ -203,7 +252,7 @@ export async function runAction(ctx: SpotCtx, actionId: string) {
         next.subtitles = null;
         result = { url: r.audioUrl, duration: r.duration };
       } else if (action.kind === 'music') {
-        const r = await callFn(ctx, 'generate-music-track', { prompt: p.prompt, tier: p.tier, durationSeconds: Math.ceil(totalCut(edit)), instrumental: true });
+        const r = await callFn(ctx, 'generate-music-track', { prompt: p.prompt, tier: p.tier, durationSeconds: Math.ceil(totalCut(edit)), instrumental: true, mode: 'instrumental' });
         next.music = { url: r.url ?? r.track?.url, start: 0, duration: totalCut(edit), volume: Number(p.volume ?? 0.6), duck: Number(p.duck ?? DEFAULT_DUCK) };
         result = { url: next.music.url };
       } else if (action.kind === 'sfx') {
@@ -260,7 +309,8 @@ export async function confirmContent(ctx: SpotCtx, videoId: string, revision: nu
   if (v.export_status !== 'done' || v.export_revision !== v.edit_revision || revision !== v.edit_revision) throw new SpotError('STALE', 'Confirm only the current export.');
   const passed = checks.voiceover_audible_correct === true && checks.texts_readable === true && checks.picture_ok === true;
   const content = { revision, passed, checks, by: 'user', checked_at: new Date().toISOString() };
-  const techOk = v.technical_check?.revision === revision && v.technical_check?.passed === true;
-  await ctx.admin.from('campaign_videos').update({ content_check: content, final_client_ready: passed && techOk }).eq('id', videoId);
+  const { data: shots } = await ctx.admin.from('campaign_shots').select('*').eq('video_id', videoId).is('archived_at', null);
+  const ready = customerReady({ ...v, content_check: content }, shots ?? []).ready;
+  await ctx.admin.from('campaign_videos').update({ content_check: content, final_client_ready: ready }).eq('id', videoId);
   return getSpot(ctx, videoId);
 }

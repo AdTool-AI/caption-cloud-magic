@@ -1,3 +1,4 @@
+import { resolveRequestUser } from "../_shared/internalAuth.ts";
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.75.0";
 import Replicate from "npm:replicate@0.25.2";
@@ -58,6 +59,8 @@ function resolveEngine(id: string): { id: string; meta: EngineMeta } | null {
 }
 
 
+import { lyricsRequirementError, minimaxInstrumentalInput } from './instrumental.ts';
+
 interface GenerateMusicRequest {
   prompt: string;
   tier: string;                     // engineId (or legacy tier)
@@ -72,6 +75,7 @@ interface GenerateMusicRequest {
   language?: string;
   languageName?: string;
   styleTags?: string;               // Suno style tags
+  mode?: 'instrumental';            // Phase C: background bed, no lyrics, no AI lyrics
 }
 
 function buildEnhancedPrompt(req: GenerateMusicRequest): string {
@@ -120,9 +124,8 @@ serve((req: Request) => withLang(req, () => (async (req) => {
         status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" }
       });
     }
-    const token = authHeader.replace("Bearer ", "");
-    const { data: { user }, error: authError } = await supabaseClient.auth.getUser(token);
-    if (authError || !user) {
+    const user = await resolveRequestUser(req, supabaseClient);
+    if (!user) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" }
       });
@@ -134,7 +137,7 @@ serve((req: Request) => withLang(req, () => (async (req) => {
     );
 
     const body = await req.json() as GenerateMusicRequest;
-    const { prompt, tier, durationSeconds = 30, genre, mood, instrumental = true, bpm, key, lyrics, loop, languageName, styleTags } = body;
+    const { prompt, tier, durationSeconds = 30, genre, mood, instrumental = true, bpm, key, lyrics, loop, languageName, styleTags, mode } = body;
 
     if (!prompt?.trim() || prompt.length > 800) {
       return new Response(JSON.stringify({ error: "Prompt is required (max 800 chars)" }), {
@@ -151,7 +154,7 @@ serve((req: Request) => withLang(req, () => (async (req) => {
     const engineId = resolved.id;
     const engine = resolved.meta;
 
-    if (engine.requiresLyrics && (!lyrics || !lyrics.trim() || lyrics.trim().length < 10)) {
+    if (lyricsRequirementError(!!engine.requiresLyrics, mode, lyrics)) {
       return new Response(JSON.stringify({
         error: tl({ de: "Lyrics zu kurz (min. 10 Zeichen). Bitte Songtext eingeben oder AI-Lyrics generieren.", en: "Lyrics too short (min. 10 characters). Please enter lyrics or generate AI lyrics.", es: "Letra demasiado corta (mín. 10 caracteres). Por favor, introduce la letra o genera letras con IA." }),
         code: "MISSING_LYRICS",
@@ -244,7 +247,7 @@ serve((req: Request) => withLang(req, () => (async (req) => {
         if (styleDesc.length > 300) styleDesc = styleDesc.slice(0, 300);
         let lyricsInput = (lyrics ?? '').trim();
         if (lyricsInput.length > 600) lyricsInput = lyricsInput.slice(0, 600);
-        input = { lyrics: lyricsInput, prompt: styleDesc };
+        input = mode === 'instrumental' ? minimaxInstrumentalInput(prompt) : { lyrics: lyricsInput, prompt: styleDesc };
       } else if (engineId === 'elevenlabs-music-v2') {
         // Replicate elevenlabs/music: prompt + music_length_ms + force_instrumental
         const promptParts = [enhancedPrompt];

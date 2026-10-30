@@ -22,6 +22,8 @@ export interface AgentChatMessage {
   /** Persisted outcome when the agent could not answer this turn. */
   status?: 'interrupted';
   error?: string;
+  /** Tools that completed successfully in this turn (persisted by the server). */
+  completedTools?: string[];
 }
 
 export interface AgentOperation {
@@ -31,6 +33,7 @@ export interface AgentOperation {
   arguments?: unknown;
   result?: unknown;
   generationId?: string;
+  createdAt?: string;
 }
 
 export interface AgentApprovalQuote {

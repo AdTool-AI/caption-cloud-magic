@@ -54,6 +54,5 @@ BEGIN
 END;
 $$;
 
-UPDATE auth.users
-SET email_confirmed_at = COALESCE(email_confirmed_at, now())
-WHERE lower(email) IN ('krishna.banofficial@gmail.com','bkblendofficial89@gmail.com');
+
+-- SOURCE EXPORT: historical customer-specific statement omitted; no schema or reusable function removed.

@@ -15,6 +15,9 @@ export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   'get_campaign',
   'get_campaign_production_status',
   'get_spot_edit',
+  'get_spot_assembly',
+  'get_video_workspace_state',
+  'list_voiceover_voices',
 ]);
 
 
@@ -98,12 +101,19 @@ export const PLANNING_TOOL_AUDIT: Readonly<Record<string, { writes: string; inte
   research_business: { writes: 'campaign_sources, campaign_assets (reference_only), agent_campaigns.website — upsert by url', internalCost: 'Perplexity / Firecrawl API' },
   record_research_findings: { writes: 'campaign_facts, agent_campaigns research fields — replaces the set', internalCost: 'none' },
   collect_campaign_assets: { writes: 'campaign_assets — upsert by (campaign_id,url)', internalCost: 'none' },
+  discover_official_logo: { writes: 'campaign_assets (kind=logo, reference_only, unconfirmed; DB trigger blocks reuse_ok without owner confirmation)', internalCost: 'none (plain HTTP fetches)' },
   identify_content_pillars: { writes: 'campaign_pillars — replaces the set', internalCost: 'none' },
   identify_business_areas: { writes: 'campaign_business_areas — replaces the set', internalCost: 'none' },
   plan_campaign_videos: { writes: 'campaign_videos — upsert by (campaign_id,video_index); campaign_similarity_checks', internalCost: 'embeddings API' },
   write_video_scripts: { writes: 'campaign_videos.script, campaign_shots — updates in place by shot_index (ids/routing kept, changed shots marked routing_stale)', internalCost: 'none' },
   discover_social_profiles: { writes: 'campaign_social_profiles — upsert by (campaign_id,platform)', internalCost: 'Firecrawl API' },
   record_social_analysis: { writes: 'campaign_social_profiles', internalCost: 'none' },
+  update_campaign_video_metadata: { writes: 'campaign_videos whitelisted copy fields of one video + campaign_planning_audit (append-only)', internalCost: 'none' },
+  override_campaign_shot_routing: { writes: 'campaign_shots routing fields of one planning-state shot + campaign_planning_audit (append-only); no approval/reservation/ledger/wallet', internalCost: 'none' },
+  refresh_campaign_edit_clip_urls: { writes: 'campaign_videos.edit clips[].url only (via save_campaign_edit); resolved from stored attempts; no generation/approval/ledger/wallet', internalCost: 'none' },
+  set_campaign_voiceover_voice: { writes: 'campaign_videos.post_production voice fields of one video (catalogue-verified) + campaign_planning_audit (append-only); no TTS/approval/wallet', internalCost: 'none' },
+  get_video_workspace_state: { writes: 'none', internalCost: 'none' },
+  list_voiceover_voices: { writes: 'none (calls list-voices catalogue only; no TTS/audio/approval/wallet)', internalCost: 'none' },
   route_campaign_shots: { writes: 'campaign_shots routing fields + estimated_cost (no approval, no reservation)', internalCost: 'none' },
 };
 export const PLANNING_TOOLS: ReadonlySet<string> = new Set(Object.keys(PLANNING_TOOL_AUDIT));
@@ -132,10 +142,54 @@ export function isContinuation(message: string): boolean {
   return t.length > 0 && t.length <= 100 && CONTINUATION_RE.test(t);
 }
 
-export interface TurnDecision { mode: TurnMode; reason: string; needsClarification?: boolean }
+export interface TurnDecision { mode: TurnMode; reason: string; needsClarification?: boolean; intent?: ActionIntent; repeatedIntent?: boolean }
+
+export type ActionIntent = 'quote' | 'approval_request' | 'retry_request';
+
+/**
+ * Intent-level command matching (noun + request verb in one clause, either order),
+ * so noun-based commands like "Freigabe anfordern" or "Retries neu quoten" count
+ * as commands. Questions ("Was kosten die Retries?") never match.
+ */
+const REQ_VERB = String.raw`(anforder\w*|forder\w*\s+an|fordere|beantrag\w*|einhol\w*|request\w*|ask\s+for|obtain|solicit\w*|pide|pedir|crear?|create|erstell\w*|prepar\w*|vorbereit\w*|generat\w*|aktualisier\w*|refresh\w*)`;
+const NOUN = (n: string) => String.raw`[\p{L}-]*(${n})[\p{L}]*`;
+const INTENT_RES: Record<ActionIntent, RegExp[]> = {
+  quote: [
+    /(^|\s)(neu\s+)?(quoten|quote|quotiere\w*|re-?quote|cotiza\w*)(\s|$|[.!,])/iu,
+    new RegExp(String.raw`${NOUN('quote|angebot|kostenvoranschlag|cotizaci[oó]n')}.{0,60}\b${REQ_VERB}`, 'iu'),
+    new RegExp(String.raw`\b${REQ_VERB}\b.{0,60}${NOUN('quote|angebot|kostenvoranschlag|cotizaci[oó]n')}`, 'iu'),
+  ],
+  approval_request: [
+    new RegExp(String.raw`${NOUN('freigabe|genehmigung|approval|aprobaci[oó]n|autorizaci[oó]n')}.{0,60}\b${REQ_VERB}`, 'iu'),
+    new RegExp(String.raw`\b${REQ_VERB}\b.{0,60}${NOUN('freigabe|genehmigung|approval|aprobaci[oó]n|autorizaci[oó]n')}`, 'iu'),
+  ],
+  retry_request: [
+    new RegExp(String.raw`${NOUN('retry|retries|reintento')}.{0,60}\b(anforder\w*|vorbereit\w*|request\w*|prepar\w*|solicit\w*|pide)`, 'iu'),
+    new RegExp(String.raw`\b(request|prepare|solicita|prepara|bereite)\w*\b.{0,40}${NOUN('retry|retries|reintento')}`, 'iu'),
+  ],
+};
+
+/** Explicit quote / approval-request / retry-request command (negations and pure questions excluded). */
+export function detectActionIntent(message: string): ActionIntent | null {
+  const clauses = splitClauses(String(message ?? ''));
+  for (const intent of ['approval_request', 'quote', 'retry_request'] as ActionIntent[]) {
+    for (const { text: c, negated } of clauses) {
+      if (negated || isPureQuestionAboutAction(c)) continue;
+      if (INTENT_RES[intent].some((re) => re.test(c))) return intent;
+    }
+  }
+  return null;
+}
+
+/** The assistant handed the action back ("bitte im nächsten Turn erneut anfragen", "ask in the next turn"). */
+export function deferredToNextTurn(text: string): boolean {
+  return /\b(n[äa]chste[nm]?\s+(turn|zug|nachricht|anfrage|schritt)|neue[nm]?\s+(turn|anfrage)|another\s+turn|next\s+(turn|message)|separate\s+(turn|request)|siguiente\s+(turno|mensaje)|otro\s+turno|erneut\s+(an)?frag\w*|nochmal\s+(an)?frag\w*|ask\s+(again|explicitly|for\s+it\s+explicitly)|vuelve\s+a\s+pedir|ausdrücklich\s+(an)?(frag|forder)\w*)/i.test(String(text ?? ''));
+}
 
 /** Mode of a standalone (non-continuation) message. */
 function standaloneMode(message: string): TurnDecision {
+  const intent = detectActionIntent(message);
+  if (intent) return { mode: 'normal', reason: `intent_${intent}`, intent };
   if (classifyReadOnly(message)) {
     if (hasCommand(message, SAVE_RE) && !hasCommand(message, PRODUCTION_RE)) return { mode: 'planning', reason: 'save_plan_command' };
     return { mode: 'read_only', reason: 'status_or_question' };
@@ -150,9 +204,11 @@ function standaloneMode(message: string): TurnDecision {
  * of the SAME conversation read from the database (newest first) — never from
  * the client. A continuation inherits at most 'planning' from the latest
  * standalone request, so "weiter" can never unlock production or approvals,
- * also not after a failed or rejected production request.
+ * also not after a failed or rejected production request. An explicit action
+ * request is judged on its own words and is never downgraded because the
+ * previous assistant turn deferred or was interrupted.
  */
-export function decideTurnMode(input: { message: string; clientReadOnly?: unknown; priorUserMessages?: string[] }): TurnDecision {
+export function decideTurnMode(input: { message: string; clientReadOnly?: unknown; priorUserMessages?: string[]; priorAssistantMessage?: string; priorTurnStatus?: string | null }): TurnDecision {
   if (input.clientReadOnly === true) return { mode: 'read_only', reason: 'client_read_only' };
   const message = String(input.message ?? '');
   if (isContinuation(message)) {
@@ -162,8 +218,25 @@ export function decideTurnMode(input: { message: string; clientReadOnly?: unknow
     if (PLANNING_RE.test(message) && !hasCommand(message, PRODUCTION_RE)) return { mode: 'planning', reason: 'continuation_with_planning_words' };
     return { mode: 'read_only', reason: base ? 'continuation_of_status_question' : 'continuation_without_context', needsClarification: true };
   }
-  return standaloneMode(message);
+  const d = standaloneMode(message);
+  if (d.intent) {
+    const repeated = (input.priorUserMessages ?? []).slice(0, 3).some((m) => detectActionIntent(m) === d.intent);
+    const deferred = deferredToNextTurn(input.priorAssistantMessage ?? '') || input.priorTurnStatus === 'interrupted';
+    return { ...d, repeatedIntent: repeated || deferred, reason: deferred ? `${d.reason}_after_deferral` : d.reason };
+  }
+  return d;
 }
+
+/** Normal-mode instruction when the user asks for the same action again (or after a deferral). */
+export const ANTI_LOOP_INSTRUCTION =
+  'ANTI-LOOP (server): the user has explicitly requested this action already and this turn has the normal-mode tools for it. Do NOT tell the user to ask again, to ask in another turn, or to say "weiter". Either call the next valid tool now (prepare_shot_retry to quote retries with canonical prices, request_retry_approval to create pending approval cards) or answer with exactly one concrete blocking error (code + reason). Paid execution (retry_shot) still requires a confirmed UI approval.';
+
+/** Replacement when a repeated-intent turn still answered with "ask again" and called no tool. */
+export const ANTI_LOOP_BLOCK_TEXT: Record<string, string> = {
+  de: 'Ich konnte diese Aktion in diesem Turn nicht ausführen und habe kein Werkzeug aufgerufen. Blockiert: kein gültiger nächster Schritt gefunden (Code ANTI_LOOP_NO_TOOL). Erneutes Anfragen hilft hier nicht.',
+  en: 'I could not run this action in this turn and called no tool. Blocked: no valid next step found (code ANTI_LOOP_NO_TOOL). Asking again will not help.',
+  es: 'No pude ejecutar esta acción en este turno y no llamé a ninguna herramienta. Bloqueado: no se encontró un siguiente paso válido (código ANTI_LOOP_NO_TOOL). Volver a pedirlo no ayudará.',
+};
 
 export function resolveTurnMode(input: { message: string; clientReadOnly?: unknown; priorUserMessages?: string[] }): TurnMode {
   return decideTurnMode(input).mode;

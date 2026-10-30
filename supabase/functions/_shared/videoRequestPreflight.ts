@@ -5,7 +5,7 @@
  * Plain TypeScript (no Deno APIs) so the browser can mirror it through
  * `src/lib/ai-video/requestPreflight.ts` — one rule set, two callers.
  *
- * Evidence (production failures, 09/2026, account yaxac88729@watchyio.com):
+ * Evidence (production failures, 09/2026, account REDACTED_ACCOUNT_EMAIL):
  *  - Replicate Seedance Pro: 422 "prompt: String should have at most 4000
  *    characters" — 3 runs, provider was the first validation layer.
  *  - ModelArk Seedance 2.5: 400 InvalidParameter when a first/last frame is

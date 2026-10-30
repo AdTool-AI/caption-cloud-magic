@@ -5,6 +5,11 @@ pipeline {
         nodejs 'node24'
     }
 
+    parameters {
+        string(name: 'AWS_PUBLIC_ANON_CREDENTIAL_ID', defaultValue: 'adtool-aws-public-anon-key',
+            description: 'Jenkins Secret text credential containing the reviewed AWS public anon JWT (never a service-role key).')
+    }
+
     options {
         timeout(time: 40, unit: 'MINUTES')
         disableConcurrentBuilds()
@@ -23,14 +28,16 @@ pipeline {
         AMPLIFY_BRANCH = 'staging'
         SITE_URL = 'https://prodtest.useadtool.ai'
         AWS_CLI = '/usr/local/bin/aws'
+        VITE_AWS_TEST_SUPABASE_URL = 'https://api-prod.useadtool.ai'
+        FRONTEND_DIST = 'dist-aws-test'
     }
 
     stages {
-        stage('Checkout main') {
+        stage('Checkout deploy branch') {
             steps {
                 deleteDir()
                 checkout scm
-                sh 'test "$BRANCH_NAME" = main'
+                sh 'case "$BRANCH_NAME" in main|codex/aws-fresh-migration) ;; *) exit 1 ;; esac'
             }
         }
 
@@ -52,14 +59,36 @@ pipeline {
             }
         }
 
-        stage('Build frontend') {
+        stage('Validate AWS frontend') {
             steps {
                 sh '''
                     set -eu
-                    npm run build
-                    test -s dist/index.html
-                    git rev-parse HEAD > dist/jenkins-commit.txt
+                    npm run test:aws-test-config
+                    node node_modules/typescript/bin/tsc --noEmit -p tsconfig.app.json
+                    node node_modules/typescript/bin/tsc --noEmit -p tsconfig.node.json
+                    node node_modules/vitest/vitest.mjs run \
+                        src/lib/__tests__/awsBootstrap.test.ts \
+                        src/lib/__tests__/awsValidationFetch.test.ts \
+                        src/hooks/__tests__/awsBootstrapAuth.test.tsx \
+                        src/hooks/__tests__/awsUserRoles.test.ts \
+                        src/integrations/supabase/__tests__/awsTestClient.test.ts \
+                        src/pages/__tests__/AwsValidation.test.tsx
                 '''
+            }
+        }
+
+        stage('Build AWS frontend') {
+            steps {
+                withCredentials([string(credentialsId: (params.AWS_PUBLIC_ANON_CREDENTIAL_ID ?: 'adtool-aws-public-anon-key'),
+                    variable: 'VITE_AWS_TEST_SUPABASE_ANON_KEY')]) {
+                    sh '''
+                        set +x
+                        set -eu
+                        npm run build:aws
+                        npm run verify:aws-build
+                        git rev-parse HEAD > "$FRONTEND_DIST/jenkins-commit.txt"
+                    '''
+                }
             }
         }
 
@@ -67,12 +96,12 @@ pipeline {
             steps {
                 sh '''
                     set -eu
-                    cd dist
+                    cd "$FRONTEND_DIST"
                     zip -qr ../frontend.zip .
                 '''
 
                 archiveArtifacts(
-                    artifacts: 'frontend.zip',
+                    artifacts: 'frontend.zip,dist-aws-test/backend-profile.json,dist-aws-test/jenkins-commit.txt',
                     fingerprint: true
                 )
             }
@@ -80,7 +109,10 @@ pipeline {
 
         stage('Deploy prodtest') {
             when {
-                branch 'main'
+                anyOf {
+                    branch 'main'
+                    branch 'codex/aws-fresh-migration'
+                }
             }
 
             steps {
@@ -160,6 +192,12 @@ pipeline {
                             || true)
 
                         if [ "$served_commit" = "$expected_commit" ]; then
+                            profile_file=$(mktemp)
+                            trap 'rm -f "$profile_file"' EXIT
+                            curl --fail --silent --show-error \
+                                --connect-timeout 10 --max-time 20 \
+                                "$SITE_URL/backend-profile.json?build=$BUILD_NUMBER" > "$profile_file"
+                            node scripts/verify-aws-build.mjs --profile "$profile_file"
                             echo "Verified deployed commit: $served_commit"
                             echo "Website: $SITE_URL"
                             exit 0

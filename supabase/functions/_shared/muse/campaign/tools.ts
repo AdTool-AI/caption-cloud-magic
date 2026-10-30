@@ -106,6 +106,12 @@ export const CAMPAIGN_TOOL_DEFINITIONS: MuseFunctionTool[] = [
   },
   {
     type: 'function',
+    name: 'discover_official_logo',
+    description: 'Use only when the user has not uploaded a logo. Searches the official website, the stored official social profiles and optional official brand pages (same domain) for the business logo; stores up to 3 candidates reference_only with source URL, discovery source, file type, dimensions and confidence. Never confirms, never generates a substitute. Afterwards show the candidates and ask the user to confirm in the campaign panel that it is the correct logo AND that they have permission to use it. Free (no wallet charge; plain web fetches).',
+    parameters: { type: 'object', properties: { campaign_id: str, brand_pages: { type: 'array', items: str } }, required: ['campaign_id'], additionalProperties: false },
+  },
+  {
+    type: 'function',
     name: 'identify_content_pillars',
     description: 'Stores the business\'s main content pillars ranked by relevance to the campaign goal (replaces previous list). Include evidence source URLs.',
     parameters: {
@@ -268,8 +274,30 @@ export const CAMPAIGN_TOOL_DEFINITIONS: MuseFunctionTool[] = [
   {
     type: 'function',
     name: 'get_campaign',
-    description: 'Returns the full stored campaign (stage, research, sources, pillars, areas, assets, videos, scripts, shots, coverage). Without campaign_id returns the latest campaign of this chat.',
-    parameters: { type: 'object', properties: { campaign_id: str }, additionalProperties: false },
+    description: 'Returns the stored campaign. Default is a COMPACT view (stage, counts, pillars, per-video copy, per-shot model/cost/status). Request details only when needed: include ["sources","facts","social","assets","scripts","shots"] or ["all"]; video_id / shot_id narrows to one video/shot with its details. Without campaign_id returns the latest campaign of this chat.',
+    parameters: { type: 'object', properties: { campaign_id: str, video_id: str, shot_id: str, include: { type: 'array', items: { type: 'string' } } }, additionalProperties: false },
+  },
+  {
+    type: 'function',
+    name: 'update_campaign_video_metadata',
+    description: 'Patch copy fields of ONE existing campaign video (hook_text, main_message, hero_subject, cta, rationale, visual_style). Never touches scripts, shots, other videos, generation, approvals or wallet. Free.',
+    parameters: {
+      type: 'object',
+      properties: { campaign_id: str, video_id: str, fields: { type: 'object', description: 'Only the allowed fields, string values.' }, reason: str },
+      required: ['campaign_id', 'video_id', 'fields'],
+      additionalProperties: false,
+    },
+  },
+  {
+    type: 'function',
+    name: 'override_campaign_shot_routing',
+    description: 'Planning only. Apply a model the USER explicitly chose for ONE planning-state shot. Server checks catalog, mode, duration, resolution, aspect and recalculates the canonical price; any price you send is ignored. Requires user_approved true and override_reason. No approval, no charge, no generation.',
+    parameters: {
+      type: 'object',
+      properties: { campaign_id: str, video_id: str, shot_id: str, model: str, resolution: str, override_reason: str, user_approved: { type: 'boolean' } },
+      required: ['campaign_id', 'video_id', 'shot_id', 'model', 'override_reason', 'user_approved'],
+      additionalProperties: false,
+    },
   },
   // ---- Phase B: production (routing, budget, generation, QA) ----
   {

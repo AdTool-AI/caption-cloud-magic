@@ -79,7 +79,7 @@ describe('reconcile endpoint — caller guard', () => {
   });
 
   it('rejects a user JWT, a wrong key and an empty header', () => {
-    const userJwt = 'eyJhbGciOiJIUzI1NiJ9.eyJyb2xlIjoiYXV0aGVudGljYXRlZCJ9.sig';
+    const userJwt = 'REDACTED_TOKEN_CONFIGURE_ON_TARGET';
     expect(isInternalCaller(new Headers({ Authorization: `Bearer ${userJwt}` }), env())).toBe(false);
     expect(isInternalCaller(new Headers({ Authorization: `Bearer ${userJwt}`, apikey: userJwt }), env())).toBe(false);
     // A browser client always sends the public apikey alongside its user JWT.

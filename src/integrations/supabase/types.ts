@@ -10,7 +10,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.5"
+    PostgrestVersion: "13.0.5"
   }
   public: {
     Tables: {
@@ -736,6 +736,51 @@ export type Database = {
           },
         ]
       }
+      agent_model_calls: {
+        Row: {
+          cached_tokens: number | null
+          chained: boolean
+          conversation_id: string
+          cost_usd: number
+          created_at: string
+          id: string
+          input_tokens: number
+          internal: boolean
+          output_tokens: number
+          step: number
+          turn_mode: string
+          user_id: string
+        }
+        Insert: {
+          cached_tokens?: number | null
+          chained?: boolean
+          conversation_id: string
+          cost_usd?: number
+          created_at?: string
+          id?: string
+          input_tokens?: number
+          internal?: boolean
+          output_tokens?: number
+          step: number
+          turn_mode: string
+          user_id: string
+        }
+        Update: {
+          cached_tokens?: number | null
+          chained?: boolean
+          conversation_id?: string
+          cost_usd?: number
+          created_at?: string
+          id?: string
+          input_tokens?: number
+          internal?: boolean
+          output_tokens?: number
+          step?: number
+          turn_mode?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       agent_operations: {
         Row: {
           arguments: Json
@@ -969,6 +1014,217 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      agent_workflow_settings: {
+        Row: {
+          engine_mode: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          engine_mode?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          engine_mode?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      agent_workflow_shadow_events: {
+        Row: {
+          conversation_id: string
+          created_at: string
+          engine_state: string | null
+          expected_next_action: string | null
+          expected_tools: string[]
+          forbidden_transition: string | null
+          id: string
+          intent_hash: string | null
+          loop_detected: boolean
+          match: boolean | null
+          mismatch_reason: string | null
+          model_calls: number
+          observed_actions: Json
+          read_calls: number
+          request_id: string | null
+          state_fingerprint: string | null
+          tool_calls: number
+          turn_error: string | null
+          turn_mode: string | null
+          user_id: string
+          video_id: string | null
+          workflow_id: string | null
+        }
+        Insert: {
+          conversation_id: string
+          created_at?: string
+          engine_state?: string | null
+          expected_next_action?: string | null
+          expected_tools?: string[]
+          forbidden_transition?: string | null
+          id?: string
+          intent_hash?: string | null
+          loop_detected?: boolean
+          match?: boolean | null
+          mismatch_reason?: string | null
+          model_calls?: number
+          observed_actions?: Json
+          read_calls?: number
+          request_id?: string | null
+          state_fingerprint?: string | null
+          tool_calls?: number
+          turn_error?: string | null
+          turn_mode?: string | null
+          user_id: string
+          video_id?: string | null
+          workflow_id?: string | null
+        }
+        Update: {
+          conversation_id?: string
+          created_at?: string
+          engine_state?: string | null
+          expected_next_action?: string | null
+          expected_tools?: string[]
+          forbidden_transition?: string | null
+          id?: string
+          intent_hash?: string | null
+          loop_detected?: boolean
+          match?: boolean | null
+          mismatch_reason?: string | null
+          model_calls?: number
+          observed_actions?: Json
+          read_calls?: number
+          request_id?: string | null
+          state_fingerprint?: string | null
+          tool_calls?: number
+          turn_error?: string | null
+          turn_mode?: string | null
+          user_id?: string
+          video_id?: string | null
+          workflow_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_workflow_shadow_events_workflow_id_fkey"
+            columns: ["workflow_id"]
+            isOneToOne: false
+            referencedRelation: "agent_workflows"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      agent_workflow_steps: {
+        Row: {
+          attempt: number
+          created_at: string
+          error: string | null
+          id: string
+          idempotency_key: string
+          input_fingerprint: string
+          lease_owner: string | null
+          lease_until: string | null
+          result: Json | null
+          status: string
+          step_kind: string
+          updated_at: string
+          user_id: string
+          workflow_id: string
+        }
+        Insert: {
+          attempt?: number
+          created_at?: string
+          error?: string | null
+          id?: string
+          idempotency_key: string
+          input_fingerprint: string
+          lease_owner?: string | null
+          lease_until?: string | null
+          result?: Json | null
+          status?: string
+          step_kind: string
+          updated_at?: string
+          user_id: string
+          workflow_id: string
+        }
+        Update: {
+          attempt?: number
+          created_at?: string
+          error?: string | null
+          id?: string
+          idempotency_key?: string
+          input_fingerprint?: string
+          lease_owner?: string | null
+          lease_until?: string | null
+          result?: Json | null
+          status?: string
+          step_kind?: string
+          updated_at?: string
+          user_id?: string
+          workflow_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_workflow_steps_workflow_id_fkey"
+            columns: ["workflow_id"]
+            isOneToOne: false
+            referencedRelation: "agent_workflows"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      agent_workflows: {
+        Row: {
+          boundary: Json
+          campaign_id: string | null
+          conversation_id: string
+          created_at: string
+          id: string
+          mode: string
+          next_action: Json
+          state: string
+          state_fingerprint: string | null
+          status: string
+          updated_at: string
+          user_id: string
+          version: number
+          video_id: string
+        }
+        Insert: {
+          boundary?: Json
+          campaign_id?: string | null
+          conversation_id: string
+          created_at?: string
+          id?: string
+          mode?: string
+          next_action?: Json
+          state: string
+          state_fingerprint?: string | null
+          status?: string
+          updated_at?: string
+          user_id: string
+          version?: number
+          video_id: string
+        }
+        Update: {
+          boundary?: Json
+          campaign_id?: string | null
+          conversation_id?: string
+          created_at?: string
+          id?: string
+          mode?: string
+          next_action?: Json
+          state?: string
+          state_fingerprint?: string | null
+          status?: string
+          updated_at?: string
+          user_id?: string
+          version?: number
+          video_id?: string
+        }
+        Relationships: []
       }
       ai_jobs: {
         Row: {
@@ -5006,42 +5262,153 @@ export type Database = {
           },
         ]
       }
+      campaign_assembly_jobs: {
+        Row: {
+          approved_at: string | null
+          campaign_id: string
+          created_at: string
+          current_step: number
+          edit_revision: number
+          error: string | null
+          expected_revision: number
+          finished_at: string | null
+          id: string
+          lease_id: string | null
+          lease_until: string | null
+          max_cost: Json
+          rejected_at: string | null
+          requested_by: string
+          scope: Json
+          scope_fingerprint: string
+          status: string
+          steps: Json
+          updated_at: string
+          user_id: string
+          video_id: string
+        }
+        Insert: {
+          approved_at?: string | null
+          campaign_id: string
+          created_at?: string
+          current_step?: number
+          edit_revision: number
+          error?: string | null
+          expected_revision: number
+          finished_at?: string | null
+          id?: string
+          lease_id?: string | null
+          lease_until?: string | null
+          max_cost: Json
+          rejected_at?: string | null
+          requested_by?: string
+          scope: Json
+          scope_fingerprint: string
+          status?: string
+          steps: Json
+          updated_at?: string
+          user_id: string
+          video_id: string
+        }
+        Update: {
+          approved_at?: string | null
+          campaign_id?: string
+          created_at?: string
+          current_step?: number
+          edit_revision?: number
+          error?: string | null
+          expected_revision?: number
+          finished_at?: string | null
+          id?: string
+          lease_id?: string | null
+          lease_until?: string | null
+          max_cost?: Json
+          rejected_at?: string | null
+          requested_by?: string
+          scope?: Json
+          scope_fingerprint?: string
+          status?: string
+          steps?: Json
+          updated_at?: string
+          user_id?: string
+          video_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaign_assembly_jobs_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "agent_campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campaign_assembly_jobs_video_id_fkey"
+            columns: ["video_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_videos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       campaign_assets: {
         Row: {
           campaign_id: string
+          confirmed_by: string | null
           created_at: string
+          discovery_source: string | null
+          file_type: string | null
+          height: number | null
           id: string
           kind: string
+          logo_confirmed_at: string | null
           media_library_id: string | null
+          official_confidence: number | null
           owner_note: string | null
           reuse_status: string
+          rights_confirmed_at: string | null
           source_url: string | null
           url: string
           user_id: string
+          width: number | null
         }
         Insert: {
           campaign_id: string
+          confirmed_by?: string | null
           created_at?: string
+          discovery_source?: string | null
+          file_type?: string | null
+          height?: number | null
           id?: string
           kind: string
+          logo_confirmed_at?: string | null
           media_library_id?: string | null
+          official_confidence?: number | null
           owner_note?: string | null
           reuse_status?: string
+          rights_confirmed_at?: string | null
           source_url?: string | null
           url: string
           user_id: string
+          width?: number | null
         }
         Update: {
           campaign_id?: string
+          confirmed_by?: string | null
           created_at?: string
+          discovery_source?: string | null
+          file_type?: string | null
+          height?: number | null
           id?: string
           kind?: string
+          logo_confirmed_at?: string | null
           media_library_id?: string | null
+          official_confidence?: number | null
           owner_note?: string | null
           reuse_status?: string
+          rights_confirmed_at?: string | null
           source_url?: string | null
           url?: string
           user_id?: string
+          width?: number | null
         }
         Relationships: [
           {
@@ -5317,9 +5684,60 @@ export type Database = {
           },
         ]
       }
+      campaign_planning_audit: {
+        Row: {
+          after: Json
+          before: Json
+          campaign_id: string
+          created_at: string
+          id: string
+          kind: string
+          reason: string | null
+          shot_id: string | null
+          user_confirmed: boolean
+          user_id: string
+          video_id: string | null
+        }
+        Insert: {
+          after: Json
+          before: Json
+          campaign_id: string
+          created_at?: string
+          id?: string
+          kind: string
+          reason?: string | null
+          shot_id?: string | null
+          user_confirmed?: boolean
+          user_id: string
+          video_id?: string | null
+        }
+        Update: {
+          after?: Json
+          before?: Json
+          campaign_id?: string
+          created_at?: string
+          id?: string
+          kind?: string
+          reason?: string | null
+          shot_id?: string | null
+          user_confirmed?: boolean
+          user_id?: string
+          video_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaign_planning_audit_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "agent_campaigns"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       campaign_post_actions: {
         Row: {
           approved_at: string | null
+          assembly_job_id: string | null
           campaign_id: string
           cost_doc: Json
           created_at: string
@@ -5337,6 +5755,7 @@ export type Database = {
         }
         Insert: {
           approved_at?: string | null
+          assembly_job_id?: string | null
           campaign_id: string
           cost_doc?: Json
           created_at?: string
@@ -5354,6 +5773,7 @@ export type Database = {
         }
         Update: {
           approved_at?: string | null
+          assembly_job_id?: string | null
           campaign_id?: string
           cost_doc?: Json
           created_at?: string
@@ -5370,6 +5790,13 @@ export type Database = {
           video_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "campaign_post_actions_assembly_job_id_fkey"
+            columns: ["assembly_job_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_assembly_jobs"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "campaign_post_actions_campaign_id_fkey"
             columns: ["campaign_id"]
@@ -5625,6 +6052,7 @@ export type Database = {
           retry_prompt: string | null
           retry_reason: string | null
           routing_fingerprint: string | null
+          routing_override: Json | null
           routing_rationale: Json | null
           routing_stale: boolean
           selected_attempt_id: string | null
@@ -5685,6 +6113,7 @@ export type Database = {
           retry_prompt?: string | null
           retry_reason?: string | null
           routing_fingerprint?: string | null
+          routing_override?: Json | null
           routing_rationale?: Json | null
           routing_stale?: boolean
           selected_attempt_id?: string | null
@@ -5745,6 +6174,7 @@ export type Database = {
           retry_prompt?: string | null
           retry_reason?: string | null
           routing_fingerprint?: string | null
+          routing_override?: Json | null
           routing_rationale?: Json | null
           routing_stale?: boolean
           selected_attempt_id?: string | null
@@ -6021,7 +6451,9 @@ export type Database = {
           export_revision: number | null
           export_status: string | null
           export_url: string | null
+          final_ai_qa: Json | null
           final_client_ready: boolean
+          frame_check: Json | null
           funnel_stage: string
           hero_subject: string
           hook_text: string
@@ -6036,6 +6468,7 @@ export type Database = {
           series_key: string | null
           shot_structure: string[]
           target_audience: string
+          technical_acceptance: Json | null
           technical_check: Json | null
           title: string
           updated_at: string
@@ -6059,7 +6492,9 @@ export type Database = {
           export_revision?: number | null
           export_status?: string | null
           export_url?: string | null
+          final_ai_qa?: Json | null
           final_client_ready?: boolean
+          frame_check?: Json | null
           funnel_stage: string
           hero_subject: string
           hook_text: string
@@ -6074,6 +6509,7 @@ export type Database = {
           series_key?: string | null
           shot_structure?: string[]
           target_audience: string
+          technical_acceptance?: Json | null
           technical_check?: Json | null
           title: string
           updated_at?: string
@@ -6097,7 +6533,9 @@ export type Database = {
           export_revision?: number | null
           export_status?: string | null
           export_url?: string | null
+          final_ai_qa?: Json | null
           final_client_ready?: boolean
+          frame_check?: Json | null
           funnel_stage?: string
           hero_subject?: string
           hook_text?: string
@@ -6112,6 +6550,7 @@ export type Database = {
           series_key?: string | null
           shot_structure?: string[]
           target_audience?: string
+          technical_acceptance?: Json | null
           technical_check?: Json | null
           title?: string
           updated_at?: string
@@ -22366,6 +22805,10 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      claim_assembly_job: {
+        Args: { p_id: string; p_lease_seconds: number }
+        Returns: string
+      }
       claim_founders_slot: {
         Args: {
           _founders_coupon?: string
@@ -22399,6 +22842,7 @@ export type Database = {
         Args: { p_id: string; p_user: string }
         Returns: {
           approved_at: string | null
+          assembly_job_id: string | null
           campaign_id: string
           cost_doc: Json
           created_at: string
@@ -22988,6 +23432,10 @@ export type Database = {
         }
         Returns: string
       }
+      confirm_campaign_logo: {
+        Args: { p_asset: string; p_has_rights: boolean; p_is_official: boolean }
+        Returns: Json
+      }
       consume_retry_approval: {
         Args: {
           _approval_id: string
@@ -23372,6 +23820,38 @@ export type Database = {
       show_limit: { Args: never; Returns: number }
       show_trgm: { Args: { "": string }; Returns: string[] }
       staff_wallet_topup: { Args: never; Returns: number }
+      start_assembly_job: {
+        Args: { p_id: string; p_user: string }
+        Returns: {
+          approved_at: string | null
+          campaign_id: string
+          created_at: string
+          current_step: number
+          edit_revision: number
+          error: string | null
+          expected_revision: number
+          finished_at: string | null
+          id: string
+          lease_id: string | null
+          lease_until: string | null
+          max_cost: Json
+          rejected_at: string | null
+          requested_by: string
+          scope: Json
+          scope_fingerprint: string
+          status: string
+          steps: Json
+          updated_at: string
+          user_id: string
+          video_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "campaign_assembly_jobs"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       stripe_revoke_ai_video_credits_for_refund: {
         Args: {
           p_charge_amount_minor: number
@@ -23622,6 +24102,22 @@ export type Database = {
       voice_library_facets: {
         Args: { _language?: string; _native_only?: boolean; _search?: string }
         Returns: Json
+      }
+      workflow_claim_step: {
+        Args: { p_lease_seconds: number; p_owner: string; p_step: string }
+        Returns: boolean
+      }
+      workflow_transition: {
+        Args: {
+          p_boundary: Json
+          p_expected_version: number
+          p_fp: string
+          p_from: string
+          p_id: string
+          p_next: Json
+          p_to: string
+        }
+        Returns: number
       }
     }
     Enums: {

@@ -1,7 +1,7 @@
 /**
  * Embedding provider for semantic duplicate checks. Configurable by env so the
  * agent can move hosts: EMBEDDINGS_BASE_URL / EMBEDDINGS_API_KEY / EMBEDDINGS_MODEL.
- * Defaults to the AI gateway already used elsewhere in AdTool.
+ * All settings must be supplied by the host; no platform credential fallback.
  */
 
 function env(name: string): string | undefined {
@@ -17,10 +17,14 @@ export class EmbeddingError extends Error {
 }
 
 export async function embedTexts(texts: string[]): Promise<number[][]> {
-  const base = (env('EMBEDDINGS_BASE_URL') ?? 'https://ai.gateway.lovable.dev/v1').replace(/\/+$/, '');
-  const key = env('EMBEDDINGS_API_KEY') ?? env('LOVABLE_API_KEY');
-  const model = env('EMBEDDINGS_MODEL') ?? 'google/gemini-embedding-2';
-  if (!key) throw new EmbeddingError(401, 'No embeddings API key configured.');
+  const base = env('EMBEDDINGS_BASE_URL')?.replace(/\/+$/, '');
+  const key = env('EMBEDDINGS_API_KEY');
+  const model = env('EMBEDDINGS_MODEL');
+  if (!base || !key || !model) throw new EmbeddingError(503, 'Embeddings provider is not configured.');
+  let endpoint: URL;
+  try { endpoint = new URL(base); } catch { throw new EmbeddingError(503, 'Embeddings endpoint is invalid.'); }
+  if (endpoint.protocol !== 'https:' || endpoint.username || endpoint.password || endpoint.search || endpoint.hash)
+    throw new EmbeddingError(503, 'Embeddings endpoint must be a clean HTTPS base URL.');
 
   const res = await fetch(`${base}/embeddings`, {
     method: 'POST',

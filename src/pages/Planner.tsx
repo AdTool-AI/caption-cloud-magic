@@ -1,4 +1,7 @@
-import { useState, useEffect } from "react";
+import { PlannerRecommendationsDialog } from '@/components/planner/PlannerRecommendationsDialog';
+import { useState, useEffect, useRef } from "react";
+import { createPlannerBlockWriter, PlannerBlockSaveError } from "@/lib/plannerBlockWrite";
+import { plannerCreateRequestId } from "@/lib/plannerWriteRequest";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { Footer } from "@/components/Footer";
@@ -23,12 +26,15 @@ import { tx } from "@/lib/i18nText";
 
 export default function Planner() {
   const { user } = useAuth();
+  const initialPlanRequests = useRef(new Map<string, string>());
+  const blockWriter = useRef(createPlannerBlockWriter());
   const newPlannerUI = useFeatureFlag("enable_new_planner_ui");
   const { trackProjectCreate } = useUserBehavior();
   const [weekplan, setWeekplan] = useState<any>(null);
   const [blocks, setBlocks] = useState<any[]>([]);
   const [selectedBlock, setSelectedBlock] = useState<any>(null);
   const [selectedBlocks, setSelectedBlocks] = useState<string[]>([]);
+  const [recommendationOpen, setRecommendationOpen] = useState(false);
   const [recommendations, setRecommendations] = useState<any[]>([]);
   const [aiOverlayVisible, setAiOverlayVisible] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -38,6 +44,8 @@ export default function Planner() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [pendingDrop, setPendingDrop] = useState<{ date: Date; content: any } | null>(null);
   const [postsPerDay, setPostsPerDay] = useState<Record<string, { scheduled: number; approved: number }>>({});
+
+  useEffect(() => { blockWriter.current.clear(); }, [user?.id, workspaceId, weekplan?.id]);
 
   useEffect(() => {
     if (user) {
@@ -161,49 +169,22 @@ export default function Planner() {
 
         console.log("Creating new weekplan for workspace:", workspaceId);
 
-        // Try edge function first
+        if (!user?.id) throw new Error('UNAUTHORIZED');
+        const createBody = {
+          workspace_id: workspaceId,
+          name: tx({ de: "Mein Content Plan", en: "My Content Plan", es: "Mi plan de contenido" }),
+          start_date: startDate.toISOString().split("T")[0],
+          weeks: 2,
+          timezone: "Europe/Berlin",
+          default_platforms: ["Instagram", "Facebook"],
+        };
         const { data, error } = await supabase.functions.invoke("planner-upsert-weekplan", {
-          body: {
-            workspace_id: workspaceId,
-            name: tx({ de: "Mein Content Plan", en: "My Content Plan", es: "Mi plan de contenido" }),
-            start_date: startDate.toISOString().split("T")[0],
-            weeks: 2,
-            timezone: "Europe/Berlin",
-            default_platforms: ["Instagram", "Facebook"],
-          },
+          body: { ...createBody, request_id: plannerCreateRequestId(initialPlanRequests.current, user.id, workspaceId, createBody) },
         });
 
-        if (error) {
-          console.error("Edge function error:", error);
-          // Fallback: Direct database insert
-          console.log("Falling back to direct database insert");
-          
-          const { data: newPlan, error: insertError } = await supabase
-            .from("weekplans")
-            .insert({
-              workspace_id: workspaceId,
-              name: tx({ de: "Mein Content Plan", en: "My Content Plan", es: "Mi plan de contenido" }),
-              start_date: startDate.toISOString().split("T")[0],
-              weeks: 2,
-              timezone: "Europe/Berlin",
-              default_platforms: ["Instagram", "Facebook"],
-              created_by: user?.id,
-            })
-            .select()
-            .single();
-
-          if (insertError) {
-            console.error("Direct insert error:", insertError);
-            throw insertError;
-          }
-
-          if (newPlan) {
-            console.log("Weekplan created successfully:", newPlan.id);
-            setWeekplan(newPlan);
-            setBlocks([]);
-            toast.success(tx({ de: "Content Plan erstellt", en: "Content Plan created", es: "Plan de contenido creado" }));
-          }
-        } else if (data) {
+        // A failed/unknown backend result must never fall back to an untracked direct insert.
+        if (error) throw error;
+        if (data) {
           console.log("Weekplan created via edge function:", data.id);
           setWeekplan(data);
           setBlocks([]);
@@ -245,56 +226,40 @@ export default function Planner() {
     }
   };
 
+  const saveDraftBlocks = async (items: any[]) => {
+    if (!user || !workspaceId || !weekplan) throw new PlannerBlockSaveError("INVALID_BLOCK_SCOPE");
+    return blockWriter.current.save(user.id, workspaceId, items,
+      body => supabase.functions.invoke("planner-upsert-blocks", { body }), weekplan.id);
+  };
+
+  const showBlockSaveError = (error: unknown) => {
+    const code = error instanceof PlannerBlockSaveError ? error.code : "BLOCK_SAVE_FAILED";
+    if (code === "SAVE_SCOPE_CHANGED") return;
+    toast.error(code === "STALE_WRITE_RETRY_REQUIRED" || code === "REQUEST_ID_REUSED"
+      ? tx({ de: "Dieser Entwurf wurde geändert. Bitte neu laden und erneut speichern.", en: "This draft changed. Reload it before saving again.", es: "Este borrador cambió. Vuelve a cargarlo antes de guardar." })
+      : code === "DRAFT_EDIT_REQUIRED"
+        ? tx({ de: "Hier können nur Entwürfe bearbeitet werden.", en: "Only drafts can be edited here.", es: "Aquí solo se pueden editar borradores." })
+        : tx({ de: "Fehler beim Speichern", en: "Failed to save", es: "Error al guardar" }));
+  };
+
   const handleBlockDrop = async (blockData: any) => {
-    if (!weekplan || !workspaceId) return;
-
-    const { data, error } = await supabase.functions.invoke("planner-upsert-blocks", {
-      body: {
-        workspace_id: workspaceId,
-        blocks: [blockData],
-      },
-    });
-
-    if (error) {
-      console.error("Error saving block:", error);
-      toast.error(tx({ de: "Fehler beim Speichern: ", en: "Failed to save: ", es: "Error al guardar: " }) + error.message);
-      return;
-    }
-
-    const result = data?.results?.[0];
-    if (result?.error) {
-      console.error("Database error:", result.error);
-      toast.error(tx({ de: "Fehler: ", en: "Error: ", es: "Error: " }) + (result.error.message || JSON.stringify(result.error)));
-      return;
-    }
-
-    if (result) {
-      trackProjectCreate('post', weekplan.id);
-      loadBlocks(weekplan.id);
-      toast.success(tx({ de: "Post geplant", en: "Post scheduled", es: "Publicación programada" }));
-    } else {
-      toast.error(tx({ de: "Unerwartetes Problem beim Speichern", en: "Unexpected problem saving", es: "Problema inesperado al guardar" }));
-    }
+    if (!weekplan || !workspaceId || !user) return;
+    try {
+      await saveDraftBlocks([blockData]);
+      if (!blockData.id) trackProjectCreate('post', weekplan.id);
+      await loadBlocks(weekplan.id);
+      toast.success(tx({ de: "Entwurf gespeichert", en: "Draft saved", es: "Borrador guardado" }));
+    } catch (error) { showBlockSaveError(error); }
   };
 
   const handleBlockSave = async (updatedBlock: any) => {
-    if (!workspaceId) return;
-
-    const { error } = await supabase.functions.invoke("planner-upsert-blocks", {
-      body: {
-        workspace_id: workspaceId,
-        blocks: [updatedBlock],
-      },
-    });
-
-    if (error) {
-      toast.error(tx({ de: "Fehler beim Speichern", en: "Failed to save", es: "Error al guardar" }));
-      return;
-    }
-
-    loadBlocks(weekplan.id);
-    setSelectedBlock(null);
-    toast.success(tx({ de: "Änderungen gespeichert", en: "Changes saved", es: "Cambios guardados" }));
+    if (!weekplan || !workspaceId || !user) return;
+    try {
+      await saveDraftBlocks([updatedBlock]);
+      await loadBlocks(weekplan.id);
+      setSelectedBlock(current => current?.id === updatedBlock.id ? null : current);
+      toast.success(tx({ de: "Änderungen gespeichert", en: "Changes saved", es: "Cambios guardados" }));
+    } catch (error) { showBlockSaveError(error); }
   };
 
   const handleBlockDelete = async (blockId: string) => {
@@ -329,6 +294,8 @@ export default function Planner() {
 
     const { data, error } = await supabase.functions.invoke("planner-upsert-weekplan", {
       body: {
+        request_id: crypto.randomUUID(),
+        expected_updated_at: weekplan.updated_at,
         id: weekplan.id,
         workspace_id: workspaceId,
         name: weekplan.name,
@@ -380,69 +347,8 @@ export default function Planner() {
     toast.success(`${data.approved_blocks} Posts genehmigt & in Warteschlange`);
   };
 
-  const handleApplyRecommendations = async () => {
-    if (!weekplan || !workspaceId) return;
-
-    const hasExistingBlocks = blocks.length > 0;
-    const mode = hasExistingBlocks ? "redistribute" : "new";
-
-    const loadingToast = toast.loading(
-      mode === "redistribute" ? tx({ de: "Verteile Posts neu...", en: "Redistributing posts...", es: "Redistribuyendo publicaciones..." }) : tx({ de: "Lade AI-Empfehlungen...", en: "Loading AI recommendations...", es: "Cargando recomendaciones de IA..." })
-    );
-
-    try {
-      const { data, error } = await supabase.functions.invoke("planner-apply-recommendations", {
-        body: {
-          workspace_id: workspaceId,
-          weekplan_id: weekplan.id,
-          mode,
-        },
-      });
-
-      if (error) {
-        console.error("Recommendations error:", error);
-        toast.error(tx({ de: "Fehler beim Laden der Empfehlungen: ", en: "Failed to load recommendations: ", es: "Error al cargar las recomendaciones: " }) + error.message, { id: loadingToast });
-        return;
-      }
-
-      console.log("Recommendations response:", data);
-
-      if (data && data.suggestions && data.suggestions.length > 0) {
-        // Apply the suggestions by creating blocks
-        toast.loading(
-          tx({ de: `${mode === "redistribute" ? "Verteile" : "Erstelle"} ${data.suggestions.length} Posts...`, en: `${mode === "redistribute" ? "Redistributing" : "Creating"} ${data.suggestions.length} posts...`, es: `${mode === "redistribute" ? "Redistribuyendo" : "Creando"} ${data.suggestions.length} publicaciones...` }),
-          { id: loadingToast }
-        );
-
-        const { data: blocksData, error: blocksError } = await supabase.functions.invoke("planner-upsert-blocks", {
-          body: {
-            workspace_id: workspaceId,
-            blocks: data.suggestions,
-          },
-        });
-
-        if (blocksError) {
-          console.error("Error creating blocks:", blocksError);
-          toast.error(tx({ de: "Fehler beim Erstellen der Posts", en: "Failed to create posts", es: "Error al crear las publicaciones" }), { id: loadingToast });
-          return;
-        }
-
-        // Reload blocks and show success
-        await loadBlocks(weekplan.id);
-        setRecommendations(data.recommendations || []);
-        toast.success(
-          mode === "redistribute" 
-            ? `${data.suggestions.length} Posts optimal verteilt! 🎯` 
-            : `${data.suggestions.length} Posts automatisch eingeplant! 🎉`,
-          { id: loadingToast }
-        );
-      } else {
-        toast.info(tx({ de: "Keine Content-Items in der Bibliothek gefunden", en: "No content items found in the library", es: "No se encontraron elementos de contenido en la biblioteca." }), { id: loadingToast });
-      }
-    } catch (error: any) {
-      console.error("Unexpected error:", error);
-      toast.error(tx({ de: "Unerwarteter Fehler: ", en: "Unexpected error:", es: "Error inesperado:" }) + error.message, { id: loadingToast });
-    }
+  const handleApplyRecommendations = () => {
+    if (workspaceId && weekplan) setRecommendationOpen(true);
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
@@ -662,6 +568,10 @@ export default function Planner() {
         onConfirm={handleTimeConfirm}
         onCancel={() => setPendingDrop(null)}
       />
+
+      <PlannerRecommendationsDialog open={recommendationOpen} onOpenChange={setRecommendationOpen}
+        workspaceId={workspaceId} weekplanId={weekplan?.id}
+        onApplied={() => { if (weekplan?.id) void loadBlocks(weekplan.id); }} />
 
       <Footer />
     </div>

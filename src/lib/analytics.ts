@@ -13,7 +13,7 @@
  * trackEvent('button_clicked', { button_name: 'signup' });
  * 
  * // Identify a user (after login)
- * identifyUser('user_123', { email: 'user@example.com', plan: 'pro' });
+ * identifyUser('user_123', { email: 'REDACTED_ACCOUNT_EMAIL', plan: 'pro' });
  * 
  * // Reset user (after logout)
  * resetUser();

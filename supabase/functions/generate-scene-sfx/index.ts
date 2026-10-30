@@ -1,3 +1,4 @@
+import { resolveRequestUser } from "../_shared/internalAuth.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.75.0";
 import { isQaMockRequest, qaMockResponse } from "../_shared/qaMock.ts";
@@ -26,7 +27,7 @@ serve(async (req) => {
 
     const auth = req.headers.get('Authorization');
     if (!auth) return json({ error: 'Unauthorized' }, 401);
-    const { data: { user } } = await supabase.auth.getUser(auth.replace('Bearer ', ''));
+    const user = await resolveRequestUser(req, supabase);
     if (!user) return json({ error: 'Unauthorized' }, 401);
     // Motion Studio premium gate — subscription or Creator account required
     // before any generation, render or edit. Existing work stays untouched.

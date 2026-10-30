@@ -1,3 +1,4 @@
+import { resolveRequestUser } from "../_shared/internalAuth.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { appendWebhookToken } from "../_shared/webhook-auth.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.75.0";
@@ -277,6 +278,9 @@ serve((req: Request) => withLang(req, () => (async (req) => {
     if (qaSvc.isQaService && qaSvc.userId) {
       user = { id: qaSvc.userId };
       console.log(`[render-directors-cut] QA service-auth user=${user.id}`);
+    } else if ((await resolveRequestUser(req, { auth: { getUser: async () => ({ data: { user: null } }) } }))?.id) {
+      // Assembly worker: service key + x-agent-user-id (see _shared/internalAuth.ts). No user token path change.
+      user = await resolveRequestUser(req, { auth: { getUser: async () => ({ data: { user: null } }) } });
     } else {
       const token = authHeader.replace('Bearer ', '');
       const { data: { user: jwtUser }, error: authError } = await supabaseClient.auth.getUser(token);

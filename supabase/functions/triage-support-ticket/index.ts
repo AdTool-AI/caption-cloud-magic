@@ -4,7 +4,7 @@
 //   suggested_reply (in user's language), linked_incident_id (best match)
 // - Writes back to support_tickets and sends two emails:
 //     1) Customer: AI analysis + ETA + first reply
-//     2) info@useadtool.ai: full triage with user context
+//     2) REDACTED_ACCOUNT_EMAIL: full triage with user context
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
 import { sendEmail } from "../_shared/email-send.ts";

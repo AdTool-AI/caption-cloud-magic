@@ -1,4 +1,4 @@
-project_id = "lbunafpxuskwmsrraqxl"
+project_id = "adtool-aws-local"
 
 [functions.analyze-briefing]
 verify_jwt = true

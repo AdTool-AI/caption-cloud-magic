@@ -17,14 +17,9 @@ ON public.staff_wallet_accounts FOR ALL
 USING ((auth.jwt() ->> 'role') = 'service_role')
 WITH CHECK ((auth.jwt() ->> 'role') = 'service_role');
 
-INSERT INTO public.staff_wallet_accounts (user_id, label, top_up_to, min_balance)
-VALUES ('ee1f91c5-b61d-4188-8e95-da419e376c59', 'social_media_manager', 5000.00, 1000.00)
-ON CONFLICT (user_id) DO UPDATE
-  SET label = EXCLUDED.label,
-      top_up_to = EXCLUDED.top_up_to,
-      min_balance = EXCLUDED.min_balance,
-      active = true,
-      updated_at = now();
+
+-- SOURCE EXPORT: historical customer-specific statement omitted; no schema or reusable function removed.
+
 
 CREATE OR REPLACE FUNCTION public.staff_wallet_topup()
 RETURNS integer

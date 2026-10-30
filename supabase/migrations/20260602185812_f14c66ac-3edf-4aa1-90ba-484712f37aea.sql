@@ -82,13 +82,6 @@ GRANT EXECUTE ON FUNCTION public.release_dialog_lock(UUID, TEXT) TO service_role
 
 -- Reset the stuck 3-speaker scene so it can re-run cleanly with the new
 -- orchestrator. Master plate (clip_url) and audio plan stay intact.
-UPDATE public.composer_scenes
-SET dialog_shots = NULL,
-    lip_sync_status = NULL,
-    twoshot_stage = NULL,
-    clip_error = NULL,
-    lip_sync_applied_at = NULL,
-    lip_sync_source_clip_url = NULL,
-    replicate_prediction_id = NULL,
-    updated_at = now()
-WHERE id = 'd47e6e3c-13ca-42b0-abd0-2f3eae919c73';
+
+-- SOURCE EXPORT: historical customer-specific statement omitted; no schema or reusable function removed.
+

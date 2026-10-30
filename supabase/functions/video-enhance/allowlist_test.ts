@@ -8,7 +8,7 @@ import {
 const TEST_USER = '8948d3d9-2c5e-4405-9e9c-1624448e7189';
 const OTHER_USER = '43d88fa6-9341-4094-8cf8-7fc175ffa696';
 /**
- * Documented allowlist member (internal QA account bestofproducts4u@gmail.com).
+ * Documented allowlist member (internal QA account REDACTED_ACCOUNT_EMAIL).
  * The allowlist exists ONLY for controlled test-only behaviour such as the
  * fail-once persistence test. Regular model access depends on the global
  * backend switches, never on this list.

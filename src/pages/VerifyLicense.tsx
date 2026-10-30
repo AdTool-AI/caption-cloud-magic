@@ -33,9 +33,8 @@ export default function VerifyLicense() {
 
   useEffect(() => {
     if (!token) return;
-    const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID;
     fetch(
-      `https://${projectId}.supabase.co/functions/v1/verify-license-certificate?token=${encodeURIComponent(token)}`,
+      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/verify-license-certificate?token=${encodeURIComponent(token)}`,
     )
       .then((r) => r.json())
       .then((r: VerifyResponse) => {

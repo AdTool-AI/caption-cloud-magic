@@ -4,7 +4,5 @@ update public.plate_face_cache
   where detector like 'aws_rekognition%'
     and expires_at > now();
 
-update public.composer_scenes
-  set dialog_shots = (dialog_shots::jsonb - 'plate_identity')
-  where id = '5f4005fa-5fe1-429f-b47c-e6478310429a'
-    and dialog_shots is not null;
+
+-- SOURCE EXPORT: historical customer-specific statement omitted; no schema or reusable function removed.

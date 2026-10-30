@@ -6,7 +6,9 @@
 import type { ToolContext, ToolResult } from '../toolRuntime.ts';
 import { executeSpotTool } from './spotTools.ts';
 import { createMuseResponse } from '../museClient.ts';
-import { researchBusiness } from './research.ts';
+import { researchBusiness, robotsAllows } from './research.ts';
+import { safeFetchText } from '../../safe-fetch.ts';
+import { adjustConfidence, extractLogoCandidates, sniffImage, type LogoCandidate } from './logoDiscovery.ts';
 import { embedTexts } from './embeddings.ts';
 import { computeSocialCompleteness, discoverSocialProfiles } from './social.ts';
 import { planShotSave, type ExistingShot, type ShotPlanFields } from './shotPersistence.ts';
@@ -18,6 +20,7 @@ import {
   estimateCampaignBudget, prepareShotRetry, productionStatus, requestShotRetryApproval, retryShot,
   reviewShot, routeCampaignShots, startCampaignProduction,
 } from './production.ts';
+import { overrideCampaignShotRouting, updateCampaignVideoMetadata } from './planningOverrides.ts';
 
 // Phase B paid execution tools — foreground-only for Muse (background turns never receive them).
 export const PAID_CAMPAIGN_TOOLS = new Set<string>(['start_campaign_production', 'retry_shot']);
@@ -189,6 +192,86 @@ async function collectAssets(ctx: ToolContext, a: Args): Promise<ToolResult> {
       },
       rejected_references: rejected,
       rule: 'Public web images are reference_only and must not appear in a final deliverable. User Media Library items are the user\'s own; check they fit this business before using them.',
+    },
+  };
+}
+
+/** Downloads at most 5 MB of an https image and reads its type/size. */
+async function probeImage(url: string): Promise<ReturnType<typeof sniffImage>> {
+  try {
+    const host = new URL(url).hostname;
+    if (!url.startsWith('https://') || /^(localhost|127\.|10\.|192\.168\.|169\.254\.|\[)/.test(host) || host.endsWith('.internal')) return null;
+    const res = await fetch(url, { signal: AbortSignal.timeout(8000), redirect: 'follow' });
+    if (!res.ok || !res.body) return null;
+    const reader = res.body.getReader();
+    const chunks: Uint8Array[] = []; let n = 0;
+    while (n < 64 * 1024) { const { value, done } = await reader.read(); if (done || !value) break; chunks.push(value); n += value.length; }
+    reader.cancel().catch(() => {});
+    const len = Number(res.headers.get('content-length') ?? 0);
+    if (len > 5 * 1024 * 1024) return null;
+    const buf = new Uint8Array(n); let o = 0; for (const c of chunks) { buf.set(c, o); o += c.length; }
+    return sniffImage(buf);
+  } catch { return null; }
+}
+
+/**
+ * Searches official sources (website, official social/brand pages) for the business logo.
+ * Stores candidates reference_only with source, type, size and confidence. Never confirms,
+ * never generates a substitute; only the owner's confirm_campaign_logo turns one reuse_ok.
+ */
+async function discoverOfficialLogo(ctx: ToolContext, a: Args): Promise<ToolResult> {
+  const c = await loadCampaign(ctx, a.campaign_id);
+  if (!c) return err('NOT_FOUND', 'Campaign not found.');
+  const { data: existing } = await ctx.admin.from('campaign_assets').select('id, url, kind, reuse_status, discovery_source, confirmed_by').eq('campaign_id', c.id);
+  const confirmed = (existing ?? []).find((x: Args) => x.kind === 'logo' && x.reuse_status === 'reuse_ok');
+  if (confirmed) return { output: { status: 'already_confirmed', asset_id: confirmed.id, url: confirmed.url } };
+  const pages: Array<{ url: string; source: 'official_website' | 'official_social' | 'official_brand_page' }> = [];
+  if (c.website) pages.push({ url: String(c.website), source: 'official_website' });
+  const { data: socials } = await ctx.admin.from('campaign_social_profiles').select('platform, profile_url, status')
+    .eq('campaign_id', c.id).not('profile_url', 'is', null);
+  for (const s of socials ?? []) if (s.status !== 'not_accessible') pages.push({ url: String(s.profile_url), source: 'official_social' });
+  for (const u of (Array.isArray(a.brand_pages) ? a.brand_pages : []).slice(0, 3)) {
+    try { if (c.website && new URL(String(u)).hostname.replace(/^www\./, '') === new URL(String(c.website)).hostname.replace(/^www\./, '')) pages.push({ url: String(u), source: 'official_brand_page' }); } catch { /* skip */ }
+  }
+  if (!pages.length) return { output: { status: 'no_official_sources', note: 'No official website or social profile stored. Ask the user to upload the original logo; no substitute will be generated.' } };
+  const notes: string[] = [];
+  const found: LogoCandidate[] = [];
+  for (const p of pages.slice(0, 6)) {
+    if (!(await robotsAllows(p.url))) { notes.push(`robots.txt disallows ${p.url}`); continue; }
+    try {
+      const res = await safeFetchText(p.url);
+      found.push(...extractLogoCandidates(res.text, res.finalUrl, p.source, String(c.company_name ?? '')).slice(0, 4));
+    } catch (e) { notes.push(`${p.url}: ${(e as Error).message} (login walls are not bypassed)`); }
+  }
+  const seen = new Set<string>();
+  const ranked: Array<LogoCandidate & { file_type: string; width: number | null; height: number | null; final: number }> = [];
+  for (const cand of found.sort((x, y) => y.confidence - x.confidence)) {
+    if (seen.has(cand.url) || ranked.length >= 3) continue;
+    seen.add(cand.url);
+    const info = await probeImage(cand.url);
+    const final = adjustConfidence(cand, info);
+    if (info && final >= 0.2) ranked.push({ ...cand, ...info, final });
+  }
+  const byUrl = new Map((existing ?? []).map((x: Args) => [x.url, x]));
+  for (const r of ranked) {
+    const meta = {
+      kind: 'logo', source_url: r.page_url, discovery_source: r.discovery_source, file_type: r.file_type,
+      width: r.width, height: r.height, official_confidence: r.final,
+      owner_note: `Logo candidate via ${r.signal} on ${r.page_url}. Usage rights NOT confirmed — reference only until the owner confirms.`,
+    };
+    const prev = byUrl.get(r.url) as Args | undefined;
+    if (prev) { if (prev.reuse_status !== 'reuse_ok') await ctx.admin.from('campaign_assets').update(meta).eq('id', prev.id); }
+    else await ctx.admin.from('campaign_assets').insert({ campaign_id: c.id, user_id: ctx.userId, url: r.url, reuse_status: 'reference_only', ...meta });
+  }
+  const { data: stored } = await ctx.admin.from('campaign_assets')
+    .select('id, url, source_url, discovery_source, file_type, width, height, official_confidence, reuse_status')
+    .eq('campaign_id', c.id).not('discovery_source', 'is', null).order('official_confidence', { ascending: false });
+  return {
+    output: {
+      status: ranked.length ? 'candidates_stored' : 'no_logo_found',
+      candidates: stored ?? [],
+      notes,
+      rule: 'Candidates are reference_only. Show them to the user and ask them to confirm in the campaign panel (1) it is the correct official logo and (2) they have permission to use it. You cannot confirm this yourself; public visibility is not permission. Never generate a substitute logo.',
     },
   };
 }
@@ -532,11 +615,55 @@ async function getCampaign(ctx: ToolContext, a: Args): Promise<ToolResult> {
     ctx.admin.from('campaign_business_areas').select('area, relevance').eq('campaign_id', c.id),
     ctx.admin.from('campaign_videos').select('*').eq('campaign_id', c.id).order('video_index'),
     // Active shots only (archived ones are history); ids let re-saves keep each shot's row.
-    ctx.admin.from('campaign_shots').select('id, video_id, shot_index, start_s, end_s, purpose, shot_type, description, on_screen_text, selected_model, resolution, cut_duration_s, generation_duration_s, estimated_cost, routing_stale, status').eq('campaign_id', c.id).is('archived_at', null).order('shot_index'),
+    ctx.admin.from('campaign_shots').select('id, video_id, shot_index, start_s, end_s, purpose, shot_type, description, on_screen_text, selected_model, resolution, generation_mode, aspect_ratio, routing_override, cut_duration_s, generation_duration_s, estimated_cost, routing_stale, status').eq('campaign_id', c.id).is('archived_at', null).order('shot_index'),
     ctx.admin.from('campaign_social_profiles').select('platform, status, profile_url, discovery_via, access_note, content_themes, visual_style, strongest_formats, content_gaps').eq('campaign_id', c.id),
   ]);
+  const include = new Set<string>(Array.isArray(a?.include) ? a.include.map(String) : []);
+  const full = include.has('all');
+  const want = (k: string) => full || include.has(k);
+  const shotRows = (shots.data ?? []) as Array<Record<string, any>>;
+  const videoRows = ((videos.data ?? []) as Array<Record<string, any>>).filter((v) => !a?.video_id || v.id === a.video_id);
+  if (!full) {
+    // Compact default: enough for decisions; details only on explicit request.
+    const compactShot = (s: Record<string, any>) => ({
+      id: s.id, shot_index: s.shot_index, start_s: s.start_s, end_s: s.end_s, purpose: s.purpose,
+      selected_model: s.selected_model, resolution: s.resolution, generation_duration_s: s.generation_duration_s,
+      estimated_cost: s.estimated_cost, routing_stale: s.routing_stale, status: s.status,
+      ...(a?.shot_id === s.id || want('shots') ? { description: s.description, on_screen_text: s.on_screen_text, shot_type: s.shot_type, generation_mode: s.generation_mode, aspect_ratio: s.aspect_ratio, routing_override: s.routing_override, cut_duration_s: s.cut_duration_s } : {}),
+    });
+    return {
+      output: {
+        view: 'compact',
+        note: 'Compact view. Pass include:["sources","facts","social","assets","scripts","shots"] or "all", or video_id/shot_id, for details.',
+        campaign: {
+          id: c.id, company: c.company_name, website: c.website, goal: c.goal, stage: c.stage, language: c.language,
+          video_count: c.requested_video_count, duration_s: c.video_duration_s, audience: c.audience, commercial_angle: c.commercial_angle,
+          coverage_score: c.coverage_score, needs_user_review: c.needs_user_review, social_research_complete: c.social_research_complete,
+        },
+        counts: { sources: sources.data?.length ?? 0, facts: facts.data?.length ?? 0, assets: assets.data?.length ?? 0, shots: shotRows.length },
+        pillars: (pillars.data ?? []).map((p: any) => p.name),
+        business_areas: (areas.data ?? []).map((x: any) => `${x.area} ${x.relevance}`),
+        ...(want('sources') ? { sources: sources.data } : {}),
+        ...(want('facts') ? { facts: facts.data } : {}),
+        ...(want('assets') ? { assets: (assets.data ?? []).slice(0, 30) } : {}),
+        ...(want('social') ? { social_profiles: social.data } : { social_profiles: (social.data ?? []).map((x: any) => `${x.platform}:${x.status}`) }),
+        videos: videoRows.map((v) => {
+          const vs = shotRows.filter((s) => s.video_id === v.id && (!a?.shot_id || s.id === a.shot_id));
+          const base: Record<string, unknown> = {
+            id: v.id, video_index: v.video_index, title: v.title, pillar: v.pillar, hook_text: v.hook_text, main_message: v.main_message,
+            hero_subject: v.hero_subject, cta: v.cta, status: v.status,
+            estimated_total: vs.reduce((t, s) => t + Number(s.estimated_cost ?? 0), 0),
+          };
+          if (want('scripts') || a?.video_id === v.id) Object.assign(base, v);
+          base.shots = vs.map(compactShot);
+          return base;
+        }),
+      },
+    };
+  }
   return {
     output: {
+      view: 'full',
       campaign: {
         id: c.id, company: c.company_name, website: c.website, goal: c.goal, stage: c.stage, language: c.language,
         video_count: c.requested_video_count, duration_s: c.video_duration_s, audience: c.audience, commercial_angle: c.commercial_angle,
@@ -557,6 +684,7 @@ export async function executeCampaignTool(ctx: ToolContext, name: string, args: 
     case 'research_business': return await researchTool(ctx, args ?? {});
     case 'record_research_findings': return await recordFindings(ctx, args ?? {});
     case 'collect_campaign_assets': return await collectAssets(ctx, args ?? {});
+    case 'discover_official_logo': return await discoverOfficialLogo(ctx, args ?? {});
     case 'identify_content_pillars': return await storePillars(ctx, args ?? {});
     case 'identify_business_areas': return await storeAreas(ctx, args ?? {});
     case 'plan_campaign_videos': return await planVideos(ctx, args ?? {});
@@ -564,6 +692,8 @@ export async function executeCampaignTool(ctx: ToolContext, name: string, args: 
     case 'discover_social_profiles': return await discoverSocial(ctx, args ?? {});
     case 'record_social_analysis': return await recordSocial(ctx, args ?? {});
     case 'get_campaign': return await getCampaign(ctx, args ?? {});
+    case 'update_campaign_video_metadata': return await updateCampaignVideoMetadata(ctx, args ?? {});
+    case 'override_campaign_shot_routing': return await overrideCampaignShotRouting(ctx, args ?? {});
     case 'route_campaign_shots': return await routeCampaignShots(ctx, args ?? {});
     case 'estimate_campaign_budget': return await estimateCampaignBudget(ctx, args ?? {});
     case 'start_campaign_production': return await startCampaignProduction(ctx, args ?? {});

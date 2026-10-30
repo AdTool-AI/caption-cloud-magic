@@ -28,8 +28,11 @@ export interface SpotEdit {
   sfx: AudioClip[];
   subtitles: { from_voiceover_url: string; segments: { start: number; end: number; text: string }[] } | null;
   overlays: { id: string; text: string; start: number; end: number; role: 'text' | 'product_name' | 'cta' }[];
-  logo: { url: string; source: 'campaign_asset' | 'upload'; rights_confirmed: boolean } | null;
+  /** width/height = intrinsic pixel size of the original file (needed to keep its aspect ratio). */
+  logo: { url: string; source: 'campaign_asset' | 'upload'; rights_confirmed: boolean; width?: number; height?: number; width_share?: number } | null;
   endcard: { headline: string; cta: string; duration: number } | null;
+  /** text_only = deterministic text branding (no logo, never a substitute); approved_logo = reuse_ok logo required. */
+  branding_mode?: 'approved_logo' | 'text_only';
 }
 
 export const DEFAULT_DUCK = 0.35;
@@ -74,14 +77,47 @@ export function buildClips(shots: Row[], attempts: Row[], genById: Map<string, R
   });
 }
 
+/**
+ * Resolve each clip's URL from its stored attempt → completed generation (server-side only).
+ * Keeps attempt/shot/order/trims/source_duration. Fails closed: any unresolvable clip → error list, nothing applied.
+ */
+export function resolveClipUrls(clips: EditClip[], attempts: Row[], genById: Map<string, Row>, userId: string):
+  { ok: true; clips: EditClip[]; changed: number } | { ok: false; errors: { shot_id: string; attempt_id: string | null; code: string }[] } {
+  const errors: { shot_id: string; attempt_id: string | null; code: string }[] = [];
+  let changed = 0;
+  const out = clips.map((c) => {
+    const att = attempts.find((a) => a.id === c.attempt_id);
+    if (!c.attempt_id || !att) { errors.push({ shot_id: c.shot_id, attempt_id: c.attempt_id, code: 'ATTEMPT_NOT_FOUND' }); return c; }
+    if (att.shot_id !== c.shot_id) { errors.push({ shot_id: c.shot_id, attempt_id: c.attempt_id, code: 'ATTEMPT_WRONG_SHOT' }); return c; }
+    if (att.user_id != null && att.user_id !== userId) { errors.push({ shot_id: c.shot_id, attempt_id: c.attempt_id, code: 'ATTEMPT_WRONG_USER' }); return c; }
+    const gen = att.generation_id ? genById.get(att.generation_id) : undefined;
+    if (!gen || gen.status !== 'completed' || !gen.video_url || (gen.user_id != null && gen.user_id !== userId)) {
+      errors.push({ shot_id: c.shot_id, attempt_id: c.attempt_id, code: 'CLIP_URL_MISSING' }); return c;
+    }
+    if (c.url !== gen.video_url) changed++;
+    return { ...c, url: String(gen.video_url) };
+  });
+  return errors.length ? { ok: false, errors } : { ok: true, clips: out, changed };
+}
+
+const normText = (s: string) => String(s ?? '').toLowerCase().normalize('NFKD').replace(/[^\p{L}\p{N}]+/gu, '');
+/** True when an overlay only repeats what the endcard CTA already says (e.g. address/hours). */
+export function overlayDuplicatesEndcard(text: string, endcard: { cta: string } | null): boolean {
+  const t = normText(text);
+  return !!endcard && t.length >= 6 && normText(endcard.cta).includes(t);
+}
+
 export function defaultEdit(video: Row, clips: EditClip[], targetDuration: number): SpotEdit {
   const pp = video.post_production ?? {};
+  const endcard = pp.cta_text ? { headline: pp.brand_name_overlay ?? '', cta: pp.cta_text, duration: 3 } : null;
   return {
     aspect: '9:16', target_duration: targetDuration, clips,
     voiceover: null, music: null, sfx: [], subtitles: null,
-    overlays: (pp.overlay_text ?? []).map((t: string, i: number) => ({ id: `ov-${i}`, text: t, start: i * 3, end: i * 3 + 2.5, role: 'text' as const })),
+    overlays: (pp.overlay_text ?? [])
+      .filter((t: string) => !overlayDuplicatesEndcard(t, endcard))
+      .map((t: string, i: number) => ({ id: `ov-${i}`, text: t, start: i * 3, end: i * 3 + 2.5, role: 'text' as const })),
     logo: null,
-    endcard: pp.cta_text ? { headline: pp.brand_name_overlay ?? '', cta: pp.cta_text, duration: 3 } : null,
+    endcard,
   };
 }
 
@@ -109,22 +145,27 @@ export function validateEdit(e: SpotEdit, req: { voiceover: boolean; music: bool
   }
   if (e.subtitles?.segments.some((s) => s.end > total + 0.05 || s.start < 0 || s.end <= s.start)) add('SUBTITLE_TIMING', 'A subtitle lies outside the cut.');
   if (e.overlays.some((o) => o.end > total + 0.05 || o.end <= o.start)) add('OVERLAY_TIMING', 'A text overlay lies outside the cut.');
-  if (req.logo && !e.logo) add('LOGO_MISSING', 'Original logo file required — no substitute is generated.');
-  if (e.logo && !e.logo.rights_confirmed) add('LOGO_RIGHTS', 'Usage rights for the logo are not confirmed.');
+  const textOnly = e.branding_mode === 'text_only';
+  if (textOnly && (!e.endcard || !(e.endcard.headline || '').trim())) add('TEXT_BRANDING_MISSING', 'Text-only branding needs an endcard with the brand name.');
+  if (!textOnly && req.logo && !e.logo) add('LOGO_MISSING', 'Original logo file required — no substitute is generated.');
+  if (!textOnly && e.logo && !e.logo.rights_confirmed) add('LOGO_RIGHTS', 'Usage rights for the logo are not confirmed.');
+  if (!textOnly && e.logo && !(Number(e.logo.width) > 0 && Number(e.logo.height) > 0)) add('LOGO_SIZE_UNKNOWN', 'Logo pixel size unknown — cannot keep its aspect ratio.');
   if (req.endcard && !e.endcard) add('ENDCARD_MISSING', 'Endcard required.');
   if (e.endcard && e.endcard.duration > total) add('ENDCARD_TOO_LONG', 'Endcard is longer than the cut.');
+  e.overlays.filter((o) => overlayDuplicatesEndcard(o.text, e.endcard)).forEach((o) => add('OVERLAY_DUPLICATES_ENDCARD', `Overlay "${o.text}" repeats the endcard text.`, false));
   return out;
 }
 
-export function requirementsFrom(pp: Row | null | undefined) {
+export function requirementsFrom(pp: Row | null | undefined, edit?: { branding_mode?: string } | null) {
   const p = pp ?? {};
+  const textOnly = edit?.branding_mode === 'text_only';
   return {
     voiceover: !!p.voiceover_required,
     music: !!p.music_direction,
     sfx: !!p.sfx_direction,
     subtitles: !!p.subtitles_required,
-    logo: !!(p.brand_name_overlay || p.cta_text),
-    endcard: !!p.cta_text,
+    logo: !textOnly && !!(p.brand_name_overlay || p.cta_text),
+    endcard: textOnly || !!p.cta_text,
   };
 }
 
@@ -135,7 +176,7 @@ export function deriveStage(video: Row, shots: Row[], attempts: Row[]): { stage:
   const clipsReady = active.length > 0 && active.every((s) => { const a = pickAttempt(s, attempts); return !!a?.generation_id; });
   if (!clipsReady) { missing.push('clips'); return { stage: 'planning_done', export_stale: false, missing }; }
   const edit: SpotEdit | null = video.edit ?? null;
-  const issues = edit ? validateEdit(edit, requirementsFrom(video.post_production)).filter((i) => i.blocking) : [{ code: 'NO_CUT' }];
+  const issues = edit ? validateEdit(edit, requirementsFrom(video.post_production, edit)).filter((i) => i.blocking) : [{ code: 'NO_CUT' }];
   if (issues.length) { missing.push(...issues.map((i) => i.code)); return { stage: 'clips_done', export_stale: false, missing }; }
   const exported = video.export_status === 'done' && !!video.export_url;
   const stale = exported && video.export_revision !== video.edit_revision;
@@ -179,9 +220,11 @@ export function buildRenderPayload(e: SpotEdit, revision: number) {
     const from = round(total - e.endcard.duration);
     overlays.push({ id: 'endcard', kind: 'cta', text: e.endcard.cta, animation: 'fade', position: 'bottom', startTime: from, endTime: total, style: style(true), slots: { title: e.endcard.headline } });
   }
-  if (e.logo) {
+  if (e.branding_mode !== 'text_only' && e.logo && Number(e.logo.width) > 0 && Number(e.logo.height) > 0) {
     const from = e.endcard ? round(total - e.endcard.duration) : 0;
-    overlays.push({ id: 'logo', kind: 'logo', text: '', animation: 'fade', position: 'center', startTime: from, endTime: total, style: style(false), slots: { imageUrl: e.logo.url }, box: { x: 0.25, y: 0.3, w: 0.5, h: 0.2 } });
+    const [fw, fh] = frameSize(e.aspect);
+    const b = logoBox(fw, fh, Number(e.logo.width), Number(e.logo.height), e.logo.width_share);
+    overlays.push({ id: 'logo', kind: 'logo', text: '', animation: 'fade', position: 'center', startTime: from, endTime: total, style: style(false), slots: { imageUrl: e.logo.url }, box: { x: b.x, y: b.y, w: b.w, h: b.h } });
   }
   return {
     source_video_url: e.clips[0]?.url,
@@ -265,8 +308,10 @@ export function technicalCheck(e: SpotEdit, revision: number, m: TechCheckInput)
 }
 
 /** Cost documentation per step. Internal = provider cost to the platform; user = current price rule (unchanged). */
-export function costDoc(kind: 'voiceover' | 'music' | 'sfx' | 'subtitles' | 'export', p: Row = {}) {
+export function costDoc(kind: 'voiceover' | 'music' | 'sfx' | 'subtitles' | 'export' | 'frame_check' | 'spot_ai_qa', p: Row = {}) {
   switch (kind) {
+    case 'frame_check': return { provider: 'Frame extraction + text recognition', internal: 'unknown', user_price: 'no wallet charge today' };
+    case 'spot_ai_qa': return { provider: 'Video analyzer (full spot)', internal: 'unknown', user_price: 'no wallet charge today' };
     case 'voiceover': return { provider: 'ElevenLabs TTS', internal: 'unknown (character-based, not metered in code)', user_price: 'no wallet charge today', chars: String(p.text ?? '').length };
     case 'subtitles': return { provider: 'ElevenLabs Scribe STT', internal: 'unknown (per audio minute, not metered in code)', user_price: 'no wallet charge today' };
     case 'music': {
@@ -276,4 +321,24 @@ export function costDoc(kind: 'voiceover' | 'music' | 'sfx' | 'subtitles' | 'exp
     case 'sfx': return { provider: 'ElevenLabs Sound Generation', internal: 'unknown', user_price: '5 credits per clip (existing generate-scene-sfx rule)' };
     case 'export': return { provider: 'AWS Remotion Lambda', internal: 'unknown (Lambda GB-seconds + S3, not metered per render)', user_price: 'free since v428' };
   }
+}
+
+export function frameSize(aspect: SpotEdit['aspect']): [number, number] {
+  return aspect === '9:16' ? [1080, 1920] : aspect === '16:9' ? [1920, 1080] : [1080, 1080];
+}
+
+/**
+ * Logo box relative to the frame: width = share of frame width, height from the
+ * original aspect ratio (never stretched), centred, clamped to 60 % of frame height.
+ */
+export function logoBox(frameW: number, frameH: number, logoW: number, logoH: number, widthShare = 0.4) {
+  let wPx = frameW * widthShare;
+  let hPx = wPx * (logoH / logoW);
+  const maxH = frameH * 0.6;
+  if (hPx > maxH) { hPx = maxH; wPx = hPx * (logoW / logoH); }
+  const r4 = (n: number) => Math.round(n * 10000) / 10000;
+  return {
+    x: r4((frameW - wPx) / 2 / frameW), y: r4((frameH - hPx) / 2 / frameH), w: r4(wPx / frameW), h: r4(hPx / frameH),
+    px: { x: Math.round((frameW - wPx) / 2), y: Math.round((frameH - hPx) / 2), w: Math.round(wPx), h: Math.round(hPx) },
+  };
 }

@@ -10,9 +10,8 @@ import { useEffect } from "react";
  */
 export default function TikTokOAuthCallback() {
   useEffect(() => {
-    const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID;
     const search = window.location.search;
-    const target = `https://${projectId}.supabase.co/functions/v1/tiktok-oauth-callback${search}`;
+    const target = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/tiktok-oauth-callback${search}`;
     window.location.replace(target);
   }, []);
 

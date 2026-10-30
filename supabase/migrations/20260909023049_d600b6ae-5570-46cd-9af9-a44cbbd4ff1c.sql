@@ -6,7 +6,7 @@ SET search_path = public
 AS $$
 DECLARE
   v_user_id uuid;
-  -- admin archive account (bestofproducts4u@gmail.com) is exempt from the library cap
+  -- admin archive account (REDACTED_ACCOUNT_EMAIL) is exempt from the library cap
   v_exempt_user uuid := '8948d3d9-2c5e-4405-9e9c-1624448e7189';
 BEGIN
   IF TG_TABLE_NAME = 'video_creations' THEN
@@ -51,7 +51,7 @@ BEGIN
     RETURN;
   END IF;
 
-  -- admin archive account (bestofproducts4u@gmail.com): never auto-prune
+  -- admin archive account (REDACTED_ACCOUNT_EMAIL): never auto-prune
   IF _user_id = '8948d3d9-2c5e-4405-9e9c-1624448e7189'::uuid THEN
     RETURN;
   END IF;

@@ -1,1 +1,4 @@
-UPDATE public.composer_scenes SET clip_status='pending', clip_error=NULL, twoshot_stage=NULL, lip_sync_status=NULL, dialog_shots=NULL, updated_at=now() WHERE id='90d620a6-8abd-4210-b210-fc558de0c62e'; DELETE FROM public.scene_anchor_cache WHERE scene_id='90d620a6-8abd-4210-b210-fc558de0c62e';
+
+-- SOURCE EXPORT: historical customer-specific statement omitted; no schema or reusable function removed.
+ 
+-- SOURCE EXPORT: historical customer-specific statement omitted; no schema or reusable function removed.

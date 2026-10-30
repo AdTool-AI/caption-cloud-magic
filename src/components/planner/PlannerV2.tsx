@@ -1,3 +1,5 @@
+import { PlannerRecommendationsDialog } from './PlannerRecommendationsDialog';
+import { createPlannerBlockWriter, PlannerBlockSaveError } from "@/lib/plannerBlockWrite";
 import { Card } from "@/components/ui/card";
 import { tx } from "@/lib/i18nText";
 import { Badge } from "@/components/ui/badge";
@@ -25,7 +27,7 @@ import {
 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CampaignTab } from "./CampaignTab";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { useTranslation } from "@/hooks/useTranslation";
@@ -76,6 +78,10 @@ interface ScheduledPost {
   end_at: string;
   status: string;
   content_id: string | null;
+  workspace_id: string;
+  weekplan_id: string;
+  updated_at: string | null;
+  meta?: unknown;
   content_items?: {
     title: string;
     caption?: string | null;
@@ -106,13 +112,14 @@ export function PlannerV2({ className, embedded, forcedTab }: PlannerV2Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const { user } = useAuth();
+  const blockWriter = useRef(createPlannerBlockWriter());
   const { t, language } = useTranslation();
   const dateFnsLocale = localeMap[language] || enUS;
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [posts, setPosts] = useState<ScheduledPost[]>([]);
   const [loading, setLoading] = useState(true);
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
-  const [aiLoading, setAiLoading] = useState(false);
+  const [recommendationOpen, setRecommendationOpen] = useState(false);
   
   const [sortBy, setSortBy] = useState<SortOption>("date-asc");
   const [filterPlatform, setFilterPlatform] = useState<FilterPlatform>("all");
@@ -130,6 +137,8 @@ export function PlannerV2({ className, embedded, forcedTab }: PlannerV2Props) {
   const [autoPublish, setAutoPublish] = useState(false);
   const [transferring, setTransferring] = useState(false);
   const [transferDialogOpen, setTransferDialogOpen] = useState(false);
+
+  useEffect(() => { blockWriter.current.clear(); }, [user?.id, workspaceId]);
 
   // Fetch workspace
   useEffect(() => {
@@ -189,31 +198,9 @@ export function PlannerV2({ className, embedded, forcedTab }: PlannerV2Props) {
 
   const handleNewPost = () => navigate("/calendar?quickAdd=true");
 
-  const handleAiSuggestions = async () => {
+  const handleAiSuggestions = () => {
     if (!workspaceId) { toast.error(t('planner.noWorkspace')); return; }
-    setAiLoading(true);
-    try {
-      const { data, error } = await supabase.functions.invoke("planner-apply-recommendations", {
-        body: { workspace_id: workspaceId, mode: "unscheduled" }
-      });
-      if (error) throw error;
-      if (data?.suggestions?.length > 0) {
-        toast.success(t('planner.suggestionsApplied', { count: data.suggestions.length }));
-        const { data: refreshedPosts } = await supabase
-          .from("schedule_blocks")
-          .select("*, content_items(*)")
-          .eq("workspace_id", workspaceId)
-          .order("start_at", { ascending: true });
-        if (refreshedPosts) setPosts(refreshedPosts);
-      } else {
-        toast.info(t('planner.noSuggestions'));
-      }
-    } catch (error: any) {
-      console.error("AI suggestions error:", error);
-      toast.error(t('planner.errorAi'));
-    } finally {
-      setAiLoading(false);
-    }
+    setRecommendationOpen(true);
   };
 
   const handleCalendarView = () => navigate("/calendar");
@@ -222,7 +209,7 @@ export function PlannerV2({ className, embedded, forcedTab }: PlannerV2Props) {
     setEditingPost(post);
     setEditTitle(post.title_override || post.content_items?.title || "");
     setEditPlatform(post.platform);
-    setEditDate(post.start_at.slice(0, 16));
+    setEditDate(format(parseISO(post.start_at), "yyyy-MM-dd'T'HH:mm"));
     setEditStatus(post.status);
   };
 
@@ -235,25 +222,29 @@ export function PlannerV2({ className, embedded, forcedTab }: PlannerV2Props) {
   };
 
   const handleSavePost = async () => {
-    if (!editingPost) return;
+    if (!editingPost || !user || !workspaceId || saving) return;
+    if (editingPost.status !== "draft" || editStatus !== "draft") {
+      toast.error(tx({ de: "Hier können nur Entwürfe bearbeitet werden.", en: "Only drafts can be edited here.", es: "Aquí solo se pueden editar borradores." }));
+      return;
+    }
     setSaving(true);
+    const snapshot = editingPost;
     try {
       const startAt = new Date(editDate).toISOString();
-      const endAt = new Date(new Date(editDate).getTime() + 30 * 60 * 1000).toISOString();
-      const { error } = await supabase
-        .from("schedule_blocks")
-        .update({ title_override: editTitle, platform: editPlatform, start_at: startAt, end_at: endAt, status: editStatus, updated_at: new Date().toISOString() })
-        .eq("id", editingPost.id);
-      if (error) throw error;
-      setPosts(prev => prev.map(p => p.id === editingPost.id ? { ...p, title_override: editTitle, platform: editPlatform, start_at: startAt, end_at: endAt, status: editStatus } : p));
+      const duration = new Date(snapshot.end_at).getTime() - new Date(snapshot.start_at).getTime();
+      const endAt = new Date(new Date(startAt).getTime() + duration).toISOString();
+      const [saved] = await blockWriter.current.save(user.id, workspaceId,
+        [{ ...snapshot, title_override: editTitle, platform: editPlatform, start_at: startAt, end_at: endAt }],
+        body => supabase.functions.invoke("planner-upsert-blocks", { body }));
+      setPosts(prev => prev.map(post => post.id === saved.id ? { ...post, ...saved } : post));
       toast.success(t('planner.postUpdated'));
-      closePostEditor();
-    } catch (error: any) {
-      console.error("Save error:", error);
-      toast.error(t('planner.errorSaving'));
-    } finally {
-      setSaving(false);
-    }
+      setEditingPost(current => current?.id === snapshot.id ? null : current);
+    } catch (error) {
+      const code = error instanceof PlannerBlockSaveError ? error.code : "BLOCK_SAVE_FAILED";
+      if (code !== "SAVE_SCOPE_CHANGED") toast.error(code === "STALE_WRITE_RETRY_REQUIRED" || code === "REQUEST_ID_REUSED"
+        ? tx({ de: "Dieser Entwurf wurde geändert. Bitte neu laden und erneut speichern.", en: "This draft changed. Reload it before saving again.", es: "Este borrador cambió. Vuelve a cargarlo antes de guardar." })
+        : t('planner.errorSaving'));
+    } finally { setSaving(false); }
   };
 
   const handleDeletePost = async () => {
@@ -382,8 +373,8 @@ export function PlannerV2({ className, embedded, forcedTab }: PlannerV2Props) {
             <Plus className="h-4 w-4" />
             {t('planner.newPost')}
           </Button>
-          <Button size="sm" variant="outline" className="gap-2" onClick={handleAiSuggestions} disabled={aiLoading || !workspaceId}>
-            {aiLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+          <Button size="sm" variant="outline" className="gap-2" onClick={handleAiSuggestions} disabled={!workspaceId}>
+            <Sparkles className="h-4 w-4" />
             {t('planner.aiSuggestions')}
           </Button>
           <Button size="sm" variant="outline" className="gap-2" onClick={handleCalendarView}>
@@ -520,7 +511,7 @@ export function PlannerV2({ className, embedded, forcedTab }: PlannerV2Props) {
                 <Plus className="h-4 w-4" />
                 {t('planner.newPost')}
               </Button>
-              <Button variant="outline" onClick={handleAiSuggestions} disabled={aiLoading} className="gap-2">
+              <Button variant="outline" onClick={handleAiSuggestions} disabled={!workspaceId} className="gap-2">
                 <Sparkles className="h-4 w-4" />
                 {t('planner.aiSuggestions')}
               </Button>
@@ -637,7 +628,7 @@ export function PlannerV2({ className, embedded, forcedTab }: PlannerV2Props) {
             
             <div className="space-y-2">
               <Label htmlFor="status">{t('planner.status')}</Label>
-              <Select value={editStatus} onValueChange={setEditStatus}>
+              <Select value={editStatus} onValueChange={setEditStatus} disabled>
                 <SelectTrigger>
                   <SelectValue placeholder={t('planner.chooseStatus')} />
                 </SelectTrigger>
@@ -659,7 +650,7 @@ export function PlannerV2({ className, embedded, forcedTab }: PlannerV2Props) {
             </Button>
             <div className="flex gap-2 flex-1 justify-end">
               <Button variant="outline" onClick={closePostEditor}>{t('planner.cancel')}</Button>
-              <Button onClick={handleSavePost} disabled={saving}>
+              <Button onClick={handleSavePost} disabled={saving || editingPost?.status !== "draft"}>
                 {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                 {t('planner.save')}
               </Button>
@@ -710,6 +701,15 @@ export function PlannerV2({ className, embedded, forcedTab }: PlannerV2Props) {
           <CampaignTab workspaceId={workspaceId} initialOpenTemplates={initialOpenTemplates} />
         </TabsContent>
       </Tabs>
+      <PlannerRecommendationsDialog open={recommendationOpen} onOpenChange={setRecommendationOpen}
+        workspaceId={workspaceId} onApplied={() => {
+          if (!workspaceId) return;
+          void supabase.from('schedule_blocks').select('*, content_items(*)').eq('workspace_id', workspaceId)
+            .order('start_at', { ascending: true }).then(({ data, error }) => {
+              if (error) toast.error(t('planner.errorLoading'));
+              else if (data) setPosts(data);
+            });
+        }} />
     </div>
   );
 }

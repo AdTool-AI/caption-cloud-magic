@@ -1,1 +1,2 @@
-UPDATE public.composer_scenes SET lip_sync_status='pending', twoshot_stage=NULL, clip_error=NULL, dialog_shots=NULL WHERE id='57a28235-ccad-4400-8c75-fa168f18cc96';
+
+-- SOURCE EXPORT: historical customer-specific statement omitted; no schema or reusable function removed.

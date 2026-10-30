@@ -6,6 +6,7 @@ import { identifyUser, resetUser, trackEvent, ANALYTICS_EVENTS } from '@/lib/ana
 import { mapAuthError, trackAuthError } from '@/lib/authErrors';
 import { translations, type Language } from '@/lib/translations';
 import { clearAllLocalDrafts } from '@/lib/local-draft-scope';
+import { isAwsTestBackend, awsTestAuthStorageKey } from '@/lib/backendTarget';
 
 const getLang = (): Language => {
   const saved = (localStorage.getItem('adtool-ai-lang') || 'en').toLowerCase().slice(0, 2);
@@ -27,6 +28,7 @@ interface AuthContextType {
   subscribed: boolean;
   productId: string | null;
   subscriptionEnd: string | null;
+  subscriptionCheckStatus: 'signed_out' | 'checking' | 'verified' | 'unavailable' | 'error';
   requiresMfa: boolean;
   refreshSubscription: () => Promise<void>;
   signUp: (email: string, password: string) => Promise<{ error: any }>;
@@ -38,7 +40,9 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 // Cache configuration
-const SUBSCRIPTION_CACHE_KEY = 'subscription_cache';
+const SUBSCRIPTION_CACHE_KEY = isAwsTestBackend
+  ? 'subscription_cache:' + awsTestAuthStorageKey(import.meta.env.VITE_SUPABASE_URL)
+  : 'subscription_cache';
 const SUBSCRIPTION_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 const SUBSCRIPTION_POLL_INTERVAL = 5 * 60 * 1000; // 5 minutes (was 60 seconds)
 
@@ -95,6 +99,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [subscribed, setSubscribed] = useState(false);
   const [productId, setProductId] = useState<string | null>(null);
   const [subscriptionEnd, setSubscriptionEnd] = useState<string | null>(null);
+  const [subscriptionCheckStatus, setSubscriptionCheckStatus] = useState<AuthContextType['subscriptionCheckStatus']>('signed_out');
   const [requiresMfa, setRequiresMfa] = useState(false);
 
   const clearMfaRequirement = useCallback(() => {
@@ -102,6 +107,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
   const checkSubscription = useCallback(async (forceRefresh = false) => {
+    if (isAwsTestBackend) {
+      // Billing has not been migrated. Neither cache nor a fallback may grant access.
+      clearSubscriptionCache();
+      setSubscribed(false);
+      setProductId(null);
+      setSubscriptionEnd(null);
+      setSubscriptionCheckStatus('unavailable');
+      return;
+    }
+    setSubscriptionCheckStatus('checking');
     // Check cache first (unless force refresh)
     if (!forceRefresh) {
       const cached = getSubscriptionCache();
@@ -110,6 +125,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         setSubscribed(cached.subscribed);
         setProductId(cached.productId);
         setSubscriptionEnd(cached.subscriptionEnd);
+        setSubscriptionCheckStatus('verified');
         return;
       }
     }
@@ -123,6 +139,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         setSubscribed(false);
         setProductId(null);
         setSubscriptionEnd(null);
+        setSubscriptionCheckStatus('error');
         return;
       }
 
@@ -137,6 +154,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         setSubscribed(subData.subscribed);
         setProductId(subData.productId);
         setSubscriptionEnd(subData.subscriptionEnd);
+        setSubscriptionCheckStatus('verified');
         
         // Cache the result
         setSubscriptionCache(subData);
@@ -146,6 +164,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setSubscribed(false);
       setProductId(null);
       setSubscriptionEnd(null);
+      setSubscriptionCheckStatus('error');
     }
   }, []);
 
@@ -171,6 +190,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           setSubscribed(false);
           setProductId(null);
           setSubscriptionEnd(null);
+          setSubscriptionCheckStatus('signed_out');
+          if (isAwsTestBackend) setRequiresMfa(false);
           clearSubscriptionCache();
         }
       }
@@ -192,7 +213,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   // Auto-refresh subscription status every 5 minutes (was 60 seconds)
   useEffect(() => {
-    if (!user) return;
+    if (!user || isAwsTestBackend) return;
 
     const interval = setInterval(() => {
       checkSubscription(true); // Force refresh on interval
@@ -202,6 +223,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, [user, checkSubscription]);
 
   const signUp = async (email: string, password: string) => {
+    if (isAwsTestBackend) return { error: new Error('Self-service signup is unavailable on this AWS backend.') };
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -251,13 +273,17 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     if (error) {
       const friendly = mapAuthError(error, 'signin');
       toast.error(friendly.title, { description: friendly.description });
-      trackAuthError(friendly, 'signin');
+      if (!isAwsTestBackend) trackAuthError(friendly, 'signin');
       return { error };
     }
     
     // Check if MFA is required
     if (data.user) {
-      const { data: aalData } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+      const { data: aalData, error: aalError } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+      if (isAwsTestBackend && (aalError || !aalData)) {
+        setRequiresMfa(true);
+        return { error: new Error('Session assurance could not be verified.'), requiresMfa: true };
+      }
       
       if (aalData?.nextLevel === 'aal2' && aalData?.currentLevel === 'aal1') {
         // User has MFA enabled but hasn't completed second factor
@@ -266,7 +292,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       }
       
       toast.success('Logged in successfully!');
-      identifyUser(data.user.id, { 
+      if (isAwsTestBackend) setRequiresMfa(false);
+      if (!isAwsTestBackend) identifyUser(data.user.id, {
         email: data.user.email,
         last_login: new Date().toISOString(),
       });
@@ -276,11 +303,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const signOut = async () => {
-    resetUser();
+    if (!isAwsTestBackend) resetUser();
     clearSubscriptionCache();
     // Local drafts belong to the leaving account and must not leak into the
     // next sign-in on this browser.
-    clearAllLocalDrafts();
+    if (!isAwsTestBackend) clearAllLocalDrafts();
     await supabase.auth.signOut();
     toast.success('Logged out successfully');
   };
@@ -293,6 +320,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       subscribed, 
       productId, 
       subscriptionEnd,
+      subscriptionCheckStatus,
       requiresMfa,
       refreshSubscription,
       signUp, 

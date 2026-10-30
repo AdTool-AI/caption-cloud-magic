@@ -25,6 +25,10 @@ export interface ProbedVideoMetadata {
    * `hevc`, `av1`. NEVER a MIME type — the container/MIME is a separate fact.
    */
   codec?: string;
+  /** A track with handler `vide` (or dimensions) exists. */
+  hasVideoTrack?: boolean;
+  /** A track with handler `soun` exists. Listed in the container — not proof of audible content. */
+  hasAudioTrack?: boolean;
 }
 
 
@@ -169,6 +173,17 @@ export function parseStsdCodec(view: DataView, stsd: Box): string | undefined {
 }
 
 /** Parses a complete `moov` box. Returns `null` when it holds no video track. */
+/** Handler type of a track (`vide`, `soun`, …) from moov > trak > mdia > hdlr. */
+export function trackHandler(view: DataView, trak: Box): string | undefined {
+  const mdia = findBox(view, trak.start + trak.headerSize, trak.start + trak.size, 'mdia');
+  if (!mdia) return undefined;
+  const hdlr = findBox(view, mdia.start + mdia.headerSize, mdia.start + mdia.size, 'hdlr');
+  if (!hdlr) return undefined;
+  const p = hdlr.start + hdlr.headerSize + 8; // version/flags(4) + pre_defined(4)
+  if (p + 4 > hdlr.start + hdlr.size) return undefined;
+  return td.decode(new Uint8Array(view.buffer, view.byteOffset + p, 4));
+}
+
 export function parseMoov(moov: Uint8Array, sizeBytes = 0, container = 'mp4'): ProbedVideoMetadata | null {
   const view = new DataView(moov.buffer, moov.byteOffset, moov.byteLength);
   const root = readBox(view, 0);
@@ -182,6 +197,9 @@ export function parseMoov(moov: Uint8Array, sizeBytes = 0, container = 'mp4'): P
   const movie = parseMvhd(view, mvhd);
   const movieDuration = movie.timescale > 0 ? movie.duration / movie.timescale : 0;
 
+  let hasAudioTrack = false;
+  for (const t of children(view, bodyStart, bodyEnd)) if (t.type === 'trak' && trackHandler(view, t) === 'soun') hasAudioTrack = true;
+
   let best: ProbedVideoMetadata | null = null;
   for (const trak of children(view, bodyStart, bodyEnd)) {
     if (trak.type !== 'trak') continue;
@@ -192,6 +210,8 @@ export function parseMoov(moov: Uint8Array, sizeBytes = 0, container = 'mp4'): P
     const { width, height } = parseTkhd(view, tkhd);
     // Audio tracks report 0x0 — only video tracks carry dimensions.
     if (width <= 0 || height <= 0) continue;
+    const handler = trackHandler(view, trak);
+    if (handler && handler !== 'vide') continue;
 
     const mdia = findBox(view, trakStart, trakEnd, 'mdia');
     let fps = 0;
@@ -230,6 +250,8 @@ export function parseMoov(moov: Uint8Array, sizeBytes = 0, container = 'mp4'): P
       container,
       sizeBytes,
       codec,
+      hasVideoTrack: true,
+      hasAudioTrack,
     };
 
     if (!best || candidate.width * candidate.height > best.width * best.height) best = candidate;
@@ -237,8 +259,8 @@ export function parseMoov(moov: Uint8Array, sizeBytes = 0, container = 'mp4'): P
   return best;
 }
 
-async function rangeFetch(url: string, start: number, end: number): Promise<Uint8Array> {
-  const res = await fetch(url, { headers: { Range: `bytes=${start}-${end}` } });
+async function rangeFetch(url: string, start: number, end: number, f: typeof fetch = fetch): Promise<Uint8Array> {
+  const res = await f(url, { headers: { Range: `bytes=${start}-${end}` } });
   if (!res.ok && res.status !== 206) throw new Error(`range read failed: ${res.status}`);
   return new Uint8Array(await res.arrayBuffer());
 }
@@ -247,8 +269,8 @@ async function rangeFetch(url: string, start: number, end: number): Promise<Uint
  * Measures a remote MP4/MOV. Scans the top-level box list to locate `moov`
  * (which can sit at the end of the file) and reads only that box.
  */
-export async function probeRemoteVideo(url: string): Promise<ProbedVideoMetadata> {
-  const head = await fetch(url, { method: 'HEAD' });
+export async function probeRemoteVideo(url: string, f: typeof fetch = fetch): Promise<ProbedVideoMetadata> {
+  const head = await f(url, { method: 'HEAD' });
   if (!head.ok) throw new Error(`source not reachable: ${head.status}`);
   const sizeBytes = Number(head.headers.get('content-length') ?? 0);
   const contentType = head.headers.get('content-type') ?? '';
@@ -257,13 +279,13 @@ export async function probeRemoteVideo(url: string): Promise<ProbedVideoMetadata
 
   let offset = 0;
   for (let guard = 0; guard < 64 && offset < sizeBytes; guard++) {
-    const header = await rangeFetch(url, offset, Math.min(offset + 15, sizeBytes - 1));
+    const header = await rangeFetch(url, offset, Math.min(offset + 15, sizeBytes - 1), f);
     if (header.byteLength < 8) break;
     const view = new DataView(header.buffer, header.byteOffset, header.byteLength);
     const box = readBox(view, 0);
     if (!box) break;
     if (box.type === 'moov') {
-      const moov = await rangeFetch(url, offset, Math.min(offset + box.size - 1, sizeBytes - 1));
+      const moov = await rangeFetch(url, offset, Math.min(offset + box.size - 1, sizeBytes - 1), f);
       const parsed = parseMoov(moov, sizeBytes, container);
       if (!parsed) throw new Error('no video track found');
       return parsed;
@@ -273,7 +295,7 @@ export async function probeRemoteVideo(url: string): Promise<ProbedVideoMetadata
 
   // moov is often at the end of the file; scan backwards from the end.
   const tailStart = Math.max(0, sizeBytes - 1024 * 1024);
-  const tail = await rangeFetch(url, tailStart, sizeBytes - 1);
+  const tail = await rangeFetch(url, tailStart, sizeBytes - 1, f);
   for (let guard = 0, tailOffset = tail.byteLength - 1; guard < 64 && tailOffset >= 8; guard++) {
     // Search backwards for the 'moov' type signature.
     let idx = -1;

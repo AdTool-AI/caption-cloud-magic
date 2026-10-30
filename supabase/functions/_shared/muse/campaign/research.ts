@@ -45,7 +45,7 @@ function normalizeUrl(u: string): string {
   }
 }
 
-async function robotsAllows(pageUrl: string): Promise<boolean> {
+export async function robotsAllows(pageUrl: string): Promise<boolean> {
   try {
     const u = new URL(pageUrl);
     const res = await fetch(`${u.origin}/robots.txt`, { signal: AbortSignal.timeout(4000) });
@@ -179,20 +179,15 @@ export async function perplexityResearch(prompt: string, errors: string[]): Prom
 }
 
 export async function firecrawlSearch(query: string, errors: string[], limit = 8): Promise<ResearchSource[]> {
-  const key = env('FIRECRAWL_API_KEY');
-  if (!key) return []; // optional
-  // Direct keys (fc-) call Firecrawl; connection keys (lovc_) go through the connector gateway.
-  const gateway = !key.startsWith('fc-');
-  const lovableKey = env('LOVABLE_API_KEY');
-  if (gateway && !lovableKey) { errors.push('Firecrawl gateway key present but LOVABLE_API_KEY missing'); return []; }
-  const url = gateway ? 'https://connector-gateway.lovable.dev/firecrawl/v2/search' : 'https://api.firecrawl.dev/v2/search';
-  const headers: Record<string, string> = gateway
-    ? { Authorization: `Bearer ${lovableKey}`, 'X-Connection-Api-Key': key, 'Content-Type': 'application/json' }
-    : { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' };
+  const config = firecrawlConfig();
+  if (!config) {
+    if (env('FIRECRAWL_API_KEY')) errors.push('A direct Firecrawl provider key is required.');
+    return [];
+  }
   try {
-    const res = await fetch(url, {
+    const res = await fetch(config.url('/search'), {
       method: 'POST',
-      headers,
+      headers: config.headers,
       body: JSON.stringify({ query, limit, scrapeOptions: { formats: ['markdown'], onlyMainContent: true } }),
       signal: AbortSignal.timeout(60_000),
     });
@@ -210,13 +205,8 @@ export async function firecrawlSearch(query: string, errors: string[], limit = 8
 
 export function firecrawlConfig(): { url: (path: string) => string; headers: Record<string, string> } | null {
   const key = env('FIRECRAWL_API_KEY');
-  if (!key) return null;
-  const gateway = !key.startsWith('fc-');
-  const lovableKey = env('LOVABLE_API_KEY');
-  if (gateway && !lovableKey) return null;
-  return gateway
-    ? { url: (p) => `https://connector-gateway.lovable.dev/firecrawl/v2${p}`, headers: { Authorization: `Bearer ${lovableKey}`, 'X-Connection-Api-Key': key, 'Content-Type': 'application/json' } }
-    : { url: (p) => `https://api.firecrawl.dev/v2${p}`, headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' } };
+  if (!key?.startsWith('fc-')) return null;
+  return { url: (p) => `https://api.firecrawl.dev/v2${p}`, headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' } };
 }
 
 export async function researchBusiness(input: {

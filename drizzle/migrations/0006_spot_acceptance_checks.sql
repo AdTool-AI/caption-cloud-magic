@@ -1,0 +1,3 @@
+ALTER TABLE public.campaign_videos ADD COLUMN IF NOT EXISTS technical_acceptance jsonb, ADD COLUMN IF NOT EXISTS final_ai_qa jsonb, ADD COLUMN IF NOT EXISTS frame_check jsonb;
+ALTER TABLE public.campaign_post_actions DROP CONSTRAINT campaign_post_actions_kind_check;
+ALTER TABLE public.campaign_post_actions ADD CONSTRAINT campaign_post_actions_kind_check CHECK (kind = ANY (ARRAY['voiceover','music','sfx','subtitles','export','frame_check','spot_ai_qa']));

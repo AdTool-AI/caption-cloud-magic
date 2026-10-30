@@ -1,1 +1,2 @@
-DELETE FROM auth.users WHERE email = 'info@useadtool.ai';
+
+-- SOURCE EXPORT: historical customer-specific statement omitted; no schema or reusable function removed.

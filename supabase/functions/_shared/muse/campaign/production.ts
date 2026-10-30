@@ -17,7 +17,7 @@ import { getMuseModel } from '../videoModelCatalog.ts';
 import { resolveCostPerSecond, CATALOG_VERSION } from '../../videoPricingCatalog.ts';
 import { resolveAccountDiscountFactor, resolveWalletCurrency } from '../../accountVideoPricing.ts';
 import {
-  assessRisk, blendedQuality, buildShotPrompt, categorizeShot, explainExclusions, negativeConstraints, requiredTier, routeShot, staticPrior,
+  assessRisk, blendedQuality, planningEstimate, buildShotPrompt, categorizeShot, explainExclusions, negativeConstraints, requiredTier, routeShot, staticPrior,
   type ModelQaStatsRow, type RouteCandidate, type ShotInput,
 } from './routing.ts';
 import { approvedShotIds, budgetTotals, buildScope, filterDispatchable, scopeShotsToVideos } from './scope.ts';
@@ -114,7 +114,7 @@ export async function routeCampaignShots(ctx: ToolContext, a: Args): Promise<Too
       // Fingerprint of exactly what this routing was computed for (incl. prompt/negatives/aspect).
       const fp = routingFingerprint({ ...s, english_prompt: prompt, negative_constraints: negatives, aspect_ratio: aspect });
       const discount = await resolveAccountDiscountFactor(ctx.admin, ctx.userId);
-      const est = best.estimated_cost == null ? null : Math.round(best.estimated_cost * discount * 100) / 100;
+      const est = best.price_per_second == null ? null : planningEstimate(best.price_per_second, best.duration, discount);
       const cut = Number(s.end_s) - Number(s.start_s);
       await ctx.admin.from('campaign_shots').update({
         content_category: category,

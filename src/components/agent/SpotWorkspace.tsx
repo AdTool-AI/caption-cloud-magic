@@ -8,6 +8,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { supabase } from "@/integrations/supabase/client";
 import { tx } from "@/lib/i18nText";
 import { toast } from "sonner";
+import { rejectAssembly as rejectAssemblyApi, startAssembly as startAssemblyApi } from "@/services/muse/assemblyClient";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Row = Record<string, any>;
@@ -70,7 +71,16 @@ export function SpotWorkspace({ videoId, title }: { videoId: string; title: stri
     finally { setBusy(false); }
   }, [videoId]);
 
-  useEffect(() => { run({ action: "get" }); }, [run]);
+  const [assembly, setAssembly] = useState<Row | null>(null);
+  const loadAssembly = useCallback(async () => {
+    try { const r = await call({ action: "get_assembly", video_id: videoId }); setAssembly(r?.assembly ?? null); } catch { /* shown elsewhere */ }
+  }, [videoId]);
+  useEffect(() => { run({ action: "get" }); loadAssembly(); }, [run, loadAssembly]);
+  useEffect(() => {
+    if (assembly?.status !== "running") return;
+    const t = setInterval(() => { loadAssembly(); run({ action: "get" }); }, 15000);
+    return () => clearInterval(t);
+  }, [assembly?.status, loadAssembly, run]);
   useEffect(() => {
     if (spot?.export?.status !== "rendering") return;
     const t = setInterval(() => run({ action: "refresh_export" }), 15000);
@@ -187,7 +197,7 @@ export function SpotWorkspace({ videoId, title }: { videoId: string; title: stri
         <Button size="sm" variant="ghost" disabled={busy} onClick={() => save((ed) => ({ overlays: [...(ed.overlays ?? []), { id: `ov-${Date.now()}`, text: "CORDIAL", start: 0, end: 2, role: "product_name" }] }))}>+ {tx({ de: "Text", en: "Text", es: "Texto" })}</Button>
         <div className="flex flex-wrap items-center gap-2">
           {edit.logo ? <img src={edit.logo.url} alt="logo" className="h-8 rounded bg-foreground/80 p-1" /> : <span className="text-muted-foreground">{tx({ de: "Kein Logo — es wird kein Ersatz erzeugt", en: "No logo — no substitute is generated", es: "Sin logo — no se genera sustituto" })}</span>}
-          {(spot.logo_candidates ?? []).map((l: Row) => (
+          {(spot.logo_candidates ?? []).filter((l: Row) => l.reuse_status === "reuse_ok").map((l: Row) => (
             <Button key={l.id} size="sm" variant="outline" disabled={busy} onClick={() => save({ logo: { url: l.url, rights_confirmed: false } })}>{tx({ de: "Kampagnen-Logo nutzen", en: "Use campaign logo", es: "Usar logo de campaña" })}</Button>
           ))}
           <label className="inline-flex cursor-pointer items-center rounded-md border border-input px-2 py-1 hover:bg-accent">
@@ -204,6 +214,9 @@ export function SpotWorkspace({ videoId, title }: { videoId: string; title: stri
             </label>
           )}
         </div>
+        {(spot.logo_candidates ?? []).filter((l: Row) => l.reuse_status !== "reuse_ok" && l.discovery_source).map((l: Row) => (
+          <LogoCandidateCard key={l.id} logo={l} onDone={() => run({ action: "get" })} />
+        ))}
         <div className="flex flex-wrap items-center gap-1.5">
           <span>{tx({ de: "Endcard", en: "Endcard", es: "Cierre" })}</span>
           <Input className="h-7 w-32" defaultValue={edit.endcard?.headline ?? ""} placeholder="Headline" onBlur={(e) => { const v = e.target.value; save((ed) => ({ endcard: { ...(ed.endcard ?? { cta: "", duration: 3 }), headline: v } })); }} />
@@ -227,6 +240,33 @@ export function SpotWorkspace({ videoId, title }: { videoId: string; title: stri
         </section>
       )}
 
+      {assembly && (
+        <section className="space-y-1.5 rounded border border-border/60 p-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-medium">{tx({ de: "Komplette Montage", en: "Full assembly", es: "Montaje completo" })}</span>
+            <Badge variant="outline">{assembly.status}</Badge>
+            <span className="text-muted-foreground">{tx({ de: "Branding", en: "Branding", es: "Marca" })}: {assembly.scope?.branding_mode === "text_only" ? tx({ de: "nur Text", en: "text only", es: "solo texto" }) : tx({ de: "freigegebenes Logo", en: "approved logo", es: "logo aprobado" })}</span>
+          </div>
+          <div className="text-muted-foreground">
+            {tx({ de: "Höchstbetrag", en: "Maximum", es: "Máximo" })}: {assembly.max_cost?.wallet_usd_max} USD + {assembly.max_cost?.legacy_credits_max} Credits · {tx({ de: "keine neuen Video-Shots", en: "no new video shots", es: "sin nuevas tomas de vídeo" })}
+          </div>
+          <ol className="grid grid-cols-2 gap-x-3 sm:grid-cols-5">
+            {(assembly.steps ?? []).map((st: Row, i: number) => (
+              <li key={st.step} className={st.status === "failed" ? "text-destructive" : st.status === "done" ? "text-foreground" : "text-muted-foreground"}>{i + 1}. {st.step} · {st.status}</li>
+            ))}
+          </ol>
+          {assembly.error && <div className="text-destructive">{assembly.error}</div>}
+          {assembly.status === "pending" && (
+            <div className="flex gap-2"><Button size="sm" className="h-7" disabled={busy} onClick={async () => { try { await startAssemblyApi(assembly.id); toast.success(tx({ de: "Montage läuft im Hintergrund.", en: "Assembly is running in the background.", es: "El montaje se ejecuta en segundo plano." })); } catch (e) { toast.error((e as Error).message); } loadAssembly(); }}>
+              {tx({ de: "Genau diesen Umfang freigeben & starten", en: "Approve & start exactly this scope", es: "Aprobar e iniciar exactamente este alcance" })}
+            </Button>
+            <Button size="sm" variant="outline" className="h-7" disabled={busy} onClick={async () => { try { await rejectAssemblyApi(assembly.id); toast.success(tx({ de: "Montage abgelehnt.", en: "Assembly rejected.", es: "Montaje rechazado." })); } catch (e) { toast.error((e as Error).message); } loadAssembly(); }}>
+              {tx({ de: "Ablehnen", en: "Reject", es: "Rechazar" })}
+            </Button></div>
+          )}
+        </section>
+      )}
+
       {/* Export & checks */}
       <section className="space-y-1.5">
         <div className="flex flex-wrap items-center gap-2">
@@ -246,6 +286,12 @@ export function SpotWorkspace({ videoId, title }: { videoId: string; title: stri
             <ul className="pl-3 text-muted-foreground">{spot.technical_check.items.map((i: Row) => <li key={i.key}>{i.ok === true ? "✓" : i.ok === false ? "✗" : "?"} {i.key}: {i.detail}</li>)}</ul>
           </div>
         )}
+        <div className="space-y-0.5 rounded border border-border p-2">
+          <p>{tx({ de: "Automatisch technisch geprüft", en: "Automatically checked (technical)", es: "Comprobado automáticamente (técnico)" })}: {spot.technical_acceptance?.status === "passed" ? "✓" : spot.technical_acceptance?.status === "failed" ? "✗" : "–"}{spot.frame_check ? ` · ${tx({ de: "Sichtbarkeit", en: "Visibility", es: "Visibilidad" })} ${spot.frame_check.items.filter((i: Row) => i.status === "visible").length}/${spot.frame_check.items.length}` : ""}</p>
+          <p>{tx({ de: "Durch KI analysiert", en: "Analyzed by AI", es: "Analizado por IA" })}: {spot.final_ai_qa ? `${spot.final_ai_qa.score}/10 · ${spot.final_ai_qa.verdict}` : "–"}</p>
+          <p>{tx({ de: "Von dir bestätigt", en: "Confirmed by you", es: "Confirmado por ti" })}: {spot.content_check?.passed ? "✓" : "–"}</p>
+          <p className="font-medium">{tx({ de: "Kundenfertig", en: "Customer-ready", es: "Listo para el cliente" })}: {spot.customer_ready?.ready ? tx({ de: "ja", en: "yes", es: "sí" }) : `${tx({ de: "nein", en: "no", es: "no" })}${spot.customer_ready?.reasons?.some((r: string) => r.startsWith("SHOTS_NOT_VISUALLY_READY")) ? ` – ${tx({ de: "Shots haben die visuelle Prüfung nicht bestanden", en: "shots failed visual QA", es: "los planos no superaron la revisión visual" })}` : ""}`}</p>
+        </div>
         {spot.export?.status === "done" && !spot.export_stale && (
           <div className="space-y-1">
             <p className="font-medium">{tx({ de: "Inhaltliche Prüfung (durch dich)", en: "Content check (by you)", es: "Revisión de contenido (por ti)" })}: {spot.content_check?.passed ? "✓" : "–"}</p>
@@ -262,6 +308,32 @@ export function SpotWorkspace({ videoId, title }: { videoId: string; title: stri
           </div>
         )}
       </section>
+    </div>
+  );
+}
+
+/** Found logo candidate: stays reference-only until the owner confirms identity AND usage rights. */
+function LogoCandidateCard({ logo, onDone }: { logo: Row; onDone: () => void }) {
+  const [official, setOfficial] = useState(false);
+  const [rights, setRights] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const confirm = async () => {
+    setBusy(true);
+    const { error } = await supabase.rpc("confirm_campaign_logo", { p_asset: logo.id, p_is_official: official, p_has_rights: rights });
+    setBusy(false);
+    if (error) { toast.error(error.message); return; }
+    onDone();
+  };
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-md border border-border/60 p-2">
+      <img src={logo.url} alt="" className="h-10 w-auto max-w-24 rounded bg-muted object-contain" />
+      <div className="min-w-0 flex-1 text-[11px] text-muted-foreground">
+        <div className="truncate">{logo.source_url ?? logo.url}</div>
+        <div>{[logo.file_type, logo.width && logo.height ? `${logo.width}×${logo.height}` : null, logo.confidence != null ? `${Math.round(Number(logo.confidence) * 100)}%` : null].filter(Boolean).join(" · ")}</div>
+      </div>
+      <label className="flex items-center gap-1"><Checkbox checked={official} onCheckedChange={(v) => setOfficial(v === true)} />{tx({ de: "Offizielles Logo", en: "Official logo", es: "Logo oficial" })}</label>
+      <label className="flex items-center gap-1"><Checkbox checked={rights} onCheckedChange={(v) => setRights(v === true)} />{tx({ de: "Nutzungsrechte vorhanden", en: "I have usage rights", es: "Tengo derechos de uso" })}</label>
+      <Button size="sm" variant="outline" disabled={!official || !rights || busy} onClick={confirm}>{tx({ de: "Bestätigen", en: "Confirm", es: "Confirmar" })}</Button>
     </div>
   );
 }

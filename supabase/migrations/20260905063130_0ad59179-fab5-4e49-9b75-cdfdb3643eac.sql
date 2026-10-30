@@ -3,20 +3,9 @@ ALTER TABLE public.studio_images ADD COLUMN IF NOT EXISTS workflow_type text;
 ALTER TABLE public.studio_images ADD COLUMN IF NOT EXISTS source_run_id uuid;
 
 -- 2. backfill (explicit mapping, no blanket default)
-UPDATE public.studio_images
-SET workflow_type = CASE
-  WHEN model_used = 'topaz-dust-scratch' THEN 'restored'
-  WHEN model_used = 'topaz-colorization' THEN 'colorized'
-  WHEN model_used IN ('topaz-image-upscale', 'clarity-pro', 'clarity-upscaler') THEN 'enhanced'
-  WHEN upscale_factor IS NOT NULL THEN 'enhanced'
-  WHEN metadata_json->>'editMode' = 'true' THEN 'edited'
-  WHEN metadata_json->>'editMode' = 'false' THEN 'generated'
-  WHEN id = '124ff480-1fdb-494f-a62d-a05c9f1e1c01' THEN 'uploaded'
-  WHEN id = '4e835fc7-378c-40ac-8bdc-f1fe85eb1630' THEN 'generated'
-  WHEN source = 'upload' THEN 'uploaded'
-  ELSE 'generated'
-END
-WHERE workflow_type IS NULL;
+
+-- SOURCE EXPORT: historical customer-specific statement omitted; no schema or reusable function removed.
+
 
 -- 3. verify: fail loudly if anything is unmapped or invalid
 DO $$

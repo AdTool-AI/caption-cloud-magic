@@ -1,15 +1,10 @@
-UPDATE public.composer_scenes
-SET
-  lip_sync_status = 'pending',
-  twoshot_stage = NULL,
-  clip_error = NULL,
-  dialog_shots = NULL,
-  lip_sync_applied_at = NULL,
-  updated_at = now()
-WHERE id = '24998e98-b53f-4b52-aed6-95ce26ee7ffa';
 
-DELETE FROM public.syncso_inflight_jobs
-WHERE scene_id = '24998e98-b53f-4b52-aed6-95ce26ee7ffa';
+-- SOURCE EXPORT: historical customer-specific statement omitted; no schema or reusable function removed.
+
+
+
+-- SOURCE EXPORT: historical customer-specific statement omitted; no schema or reusable function removed.
+
 
 UPDATE public.provider_circuit_state
 SET

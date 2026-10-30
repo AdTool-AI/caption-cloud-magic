@@ -1,10 +1,12 @@
-import { defineConfig } from 'vitest/config';
+import { defineConfig, configDefaults } from 'vitest/config';
 import react from '@vitejs/plugin-react-swc';
 import path from 'path';
 
 export default defineConfig({
   plugins: [react()],
   test: {
+    // Stored migration packets are review artifacts with their own Python/Deno runners.
+    exclude: [...configDefaults.exclude, 'tooling/**', 'scripts/**/*.test.mjs'],
     globals: true,
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],

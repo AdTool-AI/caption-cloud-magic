@@ -106,8 +106,8 @@ try {
 $env:K6_TEST_ACCESS_TOKEN = $config.testUser.accessToken
 $env:K6_TEST_WORKSPACE_ID = $config.testUser.workspaceId
 $env:SUPABASE_URL = "https://lbunafpxuskwmsrraqxl.supabase.co"
-$env:SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxidW5hZnB4dXNrd21zcnJhcXhsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjAxMjA3NzUsImV4cCI6MjA3NTY5Njc3NX0.gRvY8kUzrELzlhSdGNJj_CXsaT8mqaUO7F1jCEi2T7Y"
-$env:SUPABASE_SERVICE_ROLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxidW5hZnB4dXNrd21zcnJhcXhsIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc2MDEyMDc3NSwiZXhwIjoyMDc1Njk2Nzc1fQ.6xP0rKZ8VkHt3VQCKS9_yX8p7nYqLx5w3jN4mT0gA2o"
+$env:SUPABASE_ANON_KEY = "REDACTED_TOKEN_CONFIGURE_ON_TARGET"
+$env:SUPABASE_SERVICE_ROLE_KEY = "REDACTED_TOKEN_CONFIGURE_ON_TARGET"
 
 # Set load level (default: light)
 if (-not $env:K6_LOAD_LEVEL) {

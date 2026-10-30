@@ -63,16 +63,18 @@ export async function loadAgentConversation(id: string): Promise<ConversationSna
     costUsd: Number(convo.data.estimated_ai_cost_usd ?? 0),
     messages: (msgs.data ?? [])
       .filter((m: { internal?: boolean; role: string }) => !m.internal && (m.role === 'user' || m.role === 'assistant'))
-      .map((m: { id: string; role: 'user' | 'assistant'; content: string; created_at: string; tool_calls?: { turn_status?: string; error?: string } | null }) => ({
+      .map((m: { id: string; role: 'user' | 'assistant'; content: string; created_at: string; tool_calls?: { turn_status?: string; error?: string; completed_tools?: string[] } | null }) => ({
         id: m.id,
         role: m.role,
         text: m.content,
         createdAt: m.created_at,
         ...(m.tool_calls?.turn_status === 'interrupted' ? { status: 'interrupted' as const, error: m.tool_calls.error } : {}),
+        ...(Array.isArray(m.tool_calls?.completed_tools) ? { completedTools: m.tool_calls!.completed_tools } : {}),
       })),
     operations: (ops.data ?? []).map((o: Record<string, unknown>) => ({
       id: String(o.id),
       name: String(o.tool_name),
+      createdAt: o.created_at ? String(o.created_at) : undefined,
       status: o.status === 'running' ? 'running' : o.status === 'failed' ? 'failed' : 'succeeded',
       arguments: o.arguments,
       result: o.result,

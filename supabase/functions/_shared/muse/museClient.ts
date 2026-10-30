@@ -34,7 +34,7 @@ export interface MuseResponse {
   status: string;
   outputText: string;
   toolCalls: MuseToolCall[];
-  usage: { input: number; output: number; total: number };
+  usage: { input: number; output: number; total: number; cached?: number | null };
   raw: unknown;
 }
 
@@ -129,6 +129,7 @@ function normalizeResponse(parsed: any): MuseResponse {
       input: Number(usage.input_tokens ?? 0),
       output: Number(usage.output_tokens ?? 0),
       total: Number(usage.total_tokens ?? 0),
+      cached: usage.input_tokens_details?.cached_tokens != null ? Number(usage.input_tokens_details.cached_tokens) : null,
     },
     raw: parsed,
   };

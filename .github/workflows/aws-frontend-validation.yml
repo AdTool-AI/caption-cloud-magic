@@ -1,0 +1,39 @@
+name: AWS frontend validation
+
+on:
+  push:
+    branches: [main, codex/aws-fresh-migration]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run test:aws-test-config
+      - run: node node_modules/typescript/bin/tsc --noEmit -p tsconfig.app.json
+      - run: node node_modules/typescript/bin/tsc --noEmit -p tsconfig.node.json
+      - name: Scoped frontend checks (no live backend requests)
+        run: >-
+          node node_modules/vitest/vitest.mjs run
+          src/lib/__tests__/awsBootstrap.test.ts
+          src/lib/__tests__/awsValidationFetch.test.ts
+          src/hooks/__tests__/awsBootstrapAuth.test.tsx
+          src/hooks/__tests__/awsUserRoles.test.ts
+          src/integrations/supabase/__tests__/awsTestClient.test.ts
+          src/pages/__tests__/AwsValidation.test.tsx
+      # Jenkins owns the credential-bound build and Amplify deployment.
+      # Legacy full-app/load/visual workflows are archived until their contracts migrate.

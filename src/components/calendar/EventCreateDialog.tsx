@@ -128,8 +128,7 @@ export function EventCreateDialog({
 
   // Approval Workflow
   const [approvers, setApprovers] = useState<ApprovalRequest[]>([]);
-  const [approverEmail, setApproverEmail] = useState("");
-  const [approverRole, setApproverRole] = useState("");
+  const [approverId, setApproverId] = useState("");
 
   const { requestApproval } = useCalendarApprovals();
 
@@ -167,19 +166,12 @@ export function EventCreateDialog({
   };
 
   const addApprover = () => {
-    if (!approverEmail.trim()) return;
-    
-    setApprovers(prev => [
-      ...prev,
-      { email: approverEmail, role: approverRole || undefined }
-    ]);
-    setApproverEmail("");
-    setApproverRole("");
+    const member = workspaceMembers.find(row => row.user_id === approverId);
+    if (!member || approvers.length >= 10 || approvers.some(row => row.user_id === member.user_id)) return;
+    setApprovers(prev => [...prev, { user_id: member.user_id, email: member.profiles?.email || `Workspace member (${member.user_id.slice(-6)})` }]);
+    setApproverId("");
   };
-
-  const removeApprover = (email: string) => {
-    setApprovers(prev => prev.filter(a => a.email !== email));
-  };
+  const removeApprover = (id: string) => setApprovers(prev => prev.filter(row => row.user_id !== id));
 
   const validateStep = (step: number): boolean => {
     switch (step) {
@@ -279,7 +271,13 @@ export function EventCreateDialog({
 
       // Request approvals if any approvers were added
       if (approvers.length > 0) {
-        await requestApproval(createdEvent.id, approvers);
+        const receipt = await requestApproval(createdEvent, approvers, new Date(Date.now() + 3 * 86400000).toISOString());
+        if (!receipt) {
+          // Event creation already committed. Do not retry insertion or claim review success.
+          toast.warning('Event created; the review request is not confirmed. Open the event to check its review history.');
+          onSuccess(); onClose();
+          return;
+        }
       }
 
       // Track first post scheduled
@@ -765,29 +763,25 @@ export function EventCreateDialog({
               <div className="space-y-2">
                 <Label>{tx({ de: "Approver hinzufügen", en: "Add Approver", es: "Agregar aprobador" })}</Label>
                 <div className="flex gap-2">
-                  <Input
-                    placeholder="Email"
-                    value={approverEmail}
-                    onChange={e => setApproverEmail(e.target.value)}
-                    className="flex-1"
-                  />
-                  <Input
-                    placeholder="Rolle (optional)"
-                    value={approverRole}
-                    onChange={e => setApproverRole(e.target.value)}
-                    className="w-32"
-                  />
+                  <Select value={approverId} onValueChange={setApproverId}>
+                    <SelectTrigger className="flex-1"><SelectValue placeholder="Choose a workspace member" /></SelectTrigger>
+                    <SelectContent>{workspaceMembers.map(member => <SelectItem key={member.user_id} value={member.user_id}>
+                      {member.profiles?.email || `Workspace member (${member.user_id.slice(-6)})`}
+                    </SelectItem>)}</SelectContent>
+                  </Select>
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
                     onClick={addApprover}
-                    disabled={!approverEmail.trim()}
+                    disabled={!approverId || approvers.length >= 10}
                   >
                     Add
                   </Button>
                 </div>
               </div>
+
+              <p className="text-xs text-muted-foreground">Workspace reviewers sign in to decide. Requests expire after three days; no email or publishing is triggered.</p>
 
               {approvers.length > 0 && (
                 <div className="space-y-2">
@@ -799,15 +793,12 @@ export function EventCreateDialog({
                     >
                       <div className="text-sm">
                         <span className="font-medium">{approver.email}</span>
-                        {approver.role && (
-                          <span className="text-muted-foreground ml-2">({approver.role})</span>
-                        )}
                       </div>
                       <Button
                         type="button"
                         variant="ghost"
                         size="sm"
-                        onClick={() => removeApprover(approver.email)}
+                        onClick={() => removeApprover(approver.user_id)}
                       >
                         ✕
                       </Button>

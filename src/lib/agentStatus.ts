@@ -121,3 +121,53 @@ export function formatMoney(amount: number | null | undefined, currency: string 
   const c = (currency ?? "").trim().toUpperCase();
   return c ? `${n.toFixed(2)} ${c}` : n.toFixed(2);
 }
+
+export interface AssemblyChatItem { at?: string; r: Record<string, unknown>; actionable: boolean }
+
+export interface AssemblyChatPlacement {
+  pinned: AssemblyChatItem | null;
+  history: AssemblyChatItem[];
+}
+
+/**
+ * Merge prepared-assembly operation results with assemblies discovered from the
+ * jobs table. De-duplicated by assembly_id; only the newest pending one is
+ * actionable; non-pending rows render as history only. Discovery-only rows
+ * that are not pending are dropped (they have no turn of their own).
+ */
+/** Statuses the newest assembly keeps pinned above the composer (open, running, or failed → "prepare again"). */
+export const LIVE_ASSEMBLY = new Set(["pending", "running", "failed"]);
+export function mergeAssemblyItems(
+  fromOps: Array<{ at?: string; r: Record<string, unknown> }>,
+  discovered: Array<{ id: string; status: string; created_at?: string }>,
+): AssemblyChatItem[] {
+  const status = new Map(discovered.map((d) => [d.id, d.status]));
+  const newestDiscovered = [...discovered].sort((a, b) => String(b.created_at ?? "").localeCompare(String(a.created_at ?? "")))[0];
+  const seen = new Set<string>();
+  const out: Array<{ at?: string; r: Record<string, unknown> }> = [];
+  for (const o of fromOps) {
+    const id = String(o.r.assembly_id);
+    if (seen.has(id)) continue;
+    seen.add(id); out.push(o);
+  }
+  for (const d of discovered) {
+    if (seen.has(d.id)) continue;
+    // Pending packages always surface; a running/failed one only if it is the newest (e.g. prepared from the card).
+    const show = d.status === "pending" || (d === newestDiscovered && LIVE_ASSEMBLY.has(d.status));
+    if (!show) continue;
+    seen.add(d.id); out.push({ at: d.created_at, r: { assembly_id: d.id } });
+  }
+  const st = (o: { r: Record<string, unknown> }) => status.get(String(o.r.assembly_id)) ?? "pending";
+  const byNewest = [...out].sort((a, b) => String(b.at ?? "").localeCompare(String(a.at ?? "")));
+  const newestLive = byNewest[0] && LIVE_ASSEMBLY.has(st(byNewest[0])) ? byNewest[0]
+    : byNewest.find((o) => st(o) === "pending");
+  const pick = newestLive ? String(newestLive.r.assembly_id) : null;
+  return out.map((o) => ({ ...o, actionable: String(o.r.assembly_id) === pick }));
+}
+export function placeAssemblyItems(items: AssemblyChatItem[]): AssemblyChatPlacement {
+  const pinned = items.find((item) => item.actionable) ?? null;
+  return {
+    pinned,
+    history: pinned ? items.filter((item) => item !== pinned) : items,
+  };
+}

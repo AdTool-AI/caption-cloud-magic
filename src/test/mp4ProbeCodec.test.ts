@@ -123,3 +123,17 @@ describe('mp4 probe — codec from the stsd sample entry', () => {
     ).toBeUndefined();
   });
 });
+
+describe('mp4 probe — audio/video tracks from hdlr', () => {
+  const hdlr = (h: string) => box('hdlr', zeros(8), Array.from(enc.encode(h)), zeros(12));
+  const audioTrak = box('trak', tkhd(0, 0), box('mdia', mdhd(48_000, 1_440_000), hdlr('soun')));
+  const videoTrak = box('trak', tkhd(1080, 1920), box('mdia', mdhd(24_000, 720_000), hdlr('vide'), box('minf', box('stbl', stsd(1, sampleEntry('avc1')), stts([[720, 1000]])))));
+  it('reports both tracks', () => {
+    const m = parseMoov(box('moov', mvhd(1000, 30_000), videoTrak, audioTrak))!;
+    expect(m.hasVideoTrack).toBe(true); expect(m.hasAudioTrack).toBe(true);
+    expect(m.durationSeconds).toBeCloseTo(30, 3); expect(m.width).toBe(1080);
+  });
+  it('video only → no audio', () => {
+    expect(parseMoov(box('moov', mvhd(1000, 30_000), videoTrak))!.hasAudioTrack).toBe(false);
+  });
+});

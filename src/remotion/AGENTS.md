@@ -1,0 +1,1 @@
+- Director's Cut scenes with their own clip (`additionalMedia`) start at `mediaSourceStart` inside that clip, never at their timeline position (`src/remotion/utils/sceneSourceStart.ts`); `scripts/motion/` renders a 6-clip cut and fails on any static scene — so clips 2+ can't freeze again.

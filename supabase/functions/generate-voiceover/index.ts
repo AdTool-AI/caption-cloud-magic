@@ -1,3 +1,4 @@
+import { resolveRequestUser } from "../_shared/internalAuth.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.75.0";
 import { getPremiumVoiceById, getDefaultSettingsForVoice, getDefaultModelForVoice } from "../_shared/premium-voices.ts";
@@ -43,9 +44,8 @@ serve(async (req) => {
 
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) throw new Error('No authorization header');
-    const token = authHeader.replace('Bearer ', '');
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-    if (authError || !user) throw new Error('Unauthorized');
+    const user = await resolveRequestUser(req, supabase);
+    if (!user) throw new Error('Unauthorized');
 
     const requestBody: VoiceoverRequest = await req.json();
 
