@@ -8,6 +8,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { CommentThread } from "./CommentThread";
 import { TaskList } from "./TaskList";
 import { ApprovalDialog } from "./ApprovalDialog";
+import { ApprovalTimeline } from "./ApprovalTimeline";
 import { Copy, Trash2, FileText, MessageSquare, CheckSquare, UserCheck } from "lucide-react";
 import { useTranslation } from "@/hooks/useTranslation";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -275,6 +276,7 @@ export function EventDrawer({ open, onClose, eventId, onDelete, onUpdate }: Even
                 </TabsContent>
 
                 <TabsContent value="approval" className="mt-4">
+                  {eventId && <ApprovalTimeline event_id={eventId} />}
                   <div className="space-y-4 p-5 rounded-xl bg-[#0b0f1a]/60 border border-white/5">
                     <p className="text-sm text-muted-foreground">
                       {t("calendar.drawer.approvalDesc")}

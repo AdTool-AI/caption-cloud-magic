@@ -1,97 +1,15 @@
 import { assert, assertEquals, assertRejects } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { approveAction, confirmContent, getSpot, prepareAction, refreshExport, runAction, saveEdit, selectAttempt, type SpotCtx } from './spotRuntime.ts';
+import { refreshClipUrls, approveAction, confirmContent, getSpot, prepareAction, refreshExport, runAction, saveEdit, selectAttempt, type SpotCtx } from './spotRuntime.ts';
 
-// deno-lint-ignore no-explicit-any
-type Row = Record<string, any>;
-
-/** Minimal in-memory stand-in for the Supabase client (only what spotRuntime uses). */
-function fakeDb(tables: Record<string, Row[]>) {
-  let seq = 0;
-  const q = (t: string) => {
-    const filters: ((r: Row) => boolean)[] = [];
-    let op: 'select' | 'update' | 'insert' = 'select';
-    let patch: Row = {};
-    let ins: Row | null = null;
-    let lim = Infinity;
-    const rows = () => (tables[t] ??= []).filter((r) => filters.every((f) => f(r)));
-    const exec = () => {
-      if (op === 'insert') {
-        const open = ['pending', 'approved', 'running'];
-        if (t === 'campaign_post_actions' && tables[t].some((r) => r.video_id === ins!.video_id && r.kind === ins!.kind && open.includes(r.status))) return { data: null, error: { message: 'duplicate key' } };
-        const r = { id: `act-${++seq}`, status: 'pending', created_at: new Date(Date.now() + seq).toISOString(), ...ins };
-        tables[t].push(r); return { data: [r], error: null };
-      }
-      if (op === 'update') { const hit = rows(); hit.forEach((r) => Object.assign(r, patch)); return { data: hit, error: null }; }
-      return { data: rows().slice(0, lim), error: null };
-    };
-    const b: Row = {
-      select: () => b, order: () => b, limit: (n: number) => { lim = n; return b; },
-      eq: (k: string, v: unknown) => { filters.push((r) => r[k] === v); return b; },
-      is: (k: string, v: unknown) => { filters.push((r) => (r[k] ?? null) === v); return b; },
-      in: (k: string, v: unknown[]) => { filters.push((r) => v.includes(r[k])); return b; },
-      update: (p: Row) => { op = 'update'; patch = p; return b; },
-      insert: (p: Row) => { op = 'insert'; ins = p; return b; },
-      maybeSingle: async () => { const r = exec(); return { data: r.data?.[0] ?? null, error: r.error }; },
-      single: async () => { const r = exec(); return { data: r.data?.[0] ?? null, error: r.error }; },
-      then: (res: (v: unknown) => void) => res(exec()),
-    };
-    return b;
+import { fakeDb, setup, U } from './spotTestKit.ts';
+import type { SpotProviders } from './spotRuntime.ts';
+function mockProviders(missing: string[] = []): SpotProviders {
+  return {
+    observeFrames: async (_u, probes) => probes.map((p) => p.kind === 'logo'
+      ? { element_id: p.element_id, logo_similarity: missing.includes(p.element_id) ? 0.1 : 0.95 }
+      : { element_id: p.element_id, ocr_text: missing.includes(p.element_id) ? 'random' : p.expected }),
+    analyzeSpot: async () => '{"score":7,"verdict":"pass","issues":[],"summary":"ok"}',
   };
-  const rpc = async (name: string, a: Row) => {
-    if (name === 'save_campaign_edit') {
-      const v = tables.campaign_videos.find((r) => r.id === a.p_video && r.user_id === a.p_user);
-      if (!v || (a.p_expected != null && v.edit_revision !== a.p_expected)) return { data: null, error: { message: 'EDIT_REVISION_CONFLICT' } };
-      v.edit = structuredClone(a.p_edit); v.edit_revision += 1; v.final_client_ready = false;
-      return { data: v.edit_revision, error: null };
-    }
-    if (name === 'claim_post_action') {
-      const r = tables.campaign_post_actions.find((x) => x.id === a.p_id && x.user_id === a.p_user && x.status === 'approved');
-      if (!r) return { data: null, error: null };
-      r.status = 'running'; return { data: r, error: null };
-    }
-    throw new Error(name);
-  };
-  return { from: q, rpc };
-}
-
-const U = 'user-1';
-function setup() {
-  const durs = [4, 5, 5, 5, 6, 5];
-  const tables: Record<string, Row[]> = {
-    agent_campaigns: [{ id: 'c1', video_duration_s: 30, language: 'de' }],
-    campaign_videos: [{ id: 'v1', campaign_id: 'c1', user_id: U, edit: null, edit_revision: 0, post_production: { voiceover_required: true, subtitles_required: true, music_direction: 'warm', sfx_direction: 'click', cta_text: 'Jetzt ansehen', brand_name_overlay: 'CORDIAL' } }],
-    campaign_shots: durs.map((d, i) => ({ id: `s${i + 1}`, video_id: 'v1', user_id: U, shot_index: i + 1, cut_duration_s: d, current_generation_id: `g${i + 1}` })),
-    campaign_shot_attempts: [...durs.map((_, i) => ({ id: `a${i + 1}`, shot_id: `s${i + 1}`, campaign_id: 'c1', attempt_no: 1, generation_id: `g${i + 1}` })), { id: 'a1b', shot_id: 's1', campaign_id: 'c1', attempt_no: 2, generation_id: 'g1b' }],
-    ai_video_generations: [...durs.map((_, i) => ({ id: `g${i + 1}`, video_url: `https://x/g${i + 1}.mp4`, duration_seconds: i === 4 ? 10 : 5 })), { id: 'g1b', video_url: 'https://x/g1b.mp4', duration_seconds: 5 }],
-    campaign_assets: [{ id: 'as1', campaign_id: 'c1', url: 'https://cordial/logo.svg', kind: 'logo' }],
-    campaign_post_actions: [],
-    director_cut_renders: [],
-  };
-  const calls: { fn: string; body: Row }[] = [];
-  const fetchImpl = (async (url: string | URL, init?: RequestInit) => {
-    const u = String(url);
-    if (u.includes('/functions/v1/')) {
-      const fn = u.split('/functions/v1/')[1];
-      const body = JSON.parse(String(init?.body ?? '{}'));
-      calls.push({ fn, body });
-      const out: Record<string, Row> = {
-        'generate-voiceover': { audioUrl: 'https://x/vo.mp3', duration: 27 },
-        'generate-subtitles': { subtitles: [{ startTime: 0, endTime: 2.5, text: 'Ein Kabel.' }, { startTime: 2.5, endTime: 5, text: 'Ein Klang.' }] },
-        'generate-music-track': { url: 'https://x/music.mp3' },
-        'generate-scene-sfx': { url: 'https://x/sfx.mp3' },
-        'render-directors-cut': { render_id: 'r1' },
-      };
-      if (fn === 'render-directors-cut') tables.director_cut_renders.push({ id: 'r1', status: 'rendering' });
-      return new Response(JSON.stringify(out[fn]), { status: 200 });
-    }
-    // exported file: moov + vide + soun handlers
-    const enc = (s: string) => new TextEncoder().encode(s);
-    const bytes = new Uint8Array(20000);
-    bytes.set(enc('moov'), 4); bytes.set(enc('hdlr'), 100); bytes.set(enc('vide'), 112); bytes.set(enc('hdlr'), 200); bytes.set(enc('soun'), 212);
-    return new Response(bytes, { headers: { 'content-type': 'video/mp4' } });
-  }) as typeof fetch;
-  const ctx: SpotCtx = { admin: fakeDb(tables), userId: U, userJwt: 'jwt', supabaseUrl: 'https://proj.supabase.co', anonKey: 'anon', fetchImpl };
-  return { tables, ctx, calls };
 }
 
 async function approveRun(ctx: SpotCtx, id: string) { await approveAction(ctx, id); return runAction(ctx, id); }
@@ -132,7 +50,8 @@ Deno.test('end-to-end with mocked providers: cut → audio/text → export → c
   // export blocked until logo exists; foreign logos refused
   await assertRejects(() => prepareAction(ctx, 'v1', 'export', {}, 'agent'));
   await assertRejects(() => saveEdit(ctx, 'v1', { logo: { url: 'https://evil/fake.png', rights_confirmed: true } }, null));
-  await saveEdit(ctx, 'v1', { logo: { url: 'https://cordial/logo.svg', rights_confirmed: true } }, null);
+  await assertRejects(() => saveEdit(ctx, 'v1', { logo: { url: 'https://cordial/found-logo.png', rights_confirmed: true } }, null)); // reference_only until owner confirms
+  await saveEdit(ctx, 'v1', { logo: { url: 'https://cordial/logo.svg', rights_confirmed: true, width: 800, height: 400 } }, null);
 
   const exp = await prepareAction(ctx, 'v1', 'export', {}, 'agent');
   await approveRun(ctx, exp.action_id);
@@ -148,6 +67,25 @@ Deno.test('end-to-end with mocked providers: cut → audio/text → export → c
   assertEquals(done.stage, 'export_done');
   assert(done.technical_check.passed, JSON.stringify(done.technical_check.items));
   assert(!done.final_client_ready);
+
+  // acceptance checks: refuse without a configured provider, then run once with mocks
+  const fc0 = await prepareAction(ctx, 'v1', 'frame_check', {}, 'agent');
+  await approveAction(ctx, fc0.action_id);
+  await assertRejects(() => runAction(ctx, fc0.action_id)); // PROVIDER_NOT_CONFIGURED, nothing called
+  ctx.providers = mockProviders();
+  const fc = await prepareAction(ctx, 'v1', 'frame_check', {}, 'user');
+  await approveRun(ctx, fc.action_id);
+  const qa = await prepareAction(ctx, 'v1', 'spot_ai_qa', {}, 'user');
+  await approveRun(ctx, qa.action_id);
+  const checked = await getSpot(ctx, 'v1');
+  assert(checked.frame_check.passed, JSON.stringify(checked.frame_check.items));
+  assertEquals(checked.technical_acceptance.status, 'passed');
+  assertEquals(checked.final_ai_qa.method, 'ai_analysis');
+  // shots not visually ready → never customer-ready, even with everything else passed
+  const notReady = await confirmContent(ctx, 'v1', done.revision, { voiceover_audible_correct: true, texts_readable: true, picture_ok: true });
+  assert(!notReady.final_client_ready);
+  assert(notReady.customer_ready.reasons.some((r: string) => r.startsWith('SHOTS_NOT_VISUALLY_READY')));
+  tables.campaign_shots.forEach((s) => { s.visual_client_ready = true; });
 
   const fin = await confirmContent(ctx, 'v1', done.revision, { voiceover_audible_correct: true, texts_readable: true, picture_ok: true });
   assertEquals(fin.stage, 'final_checked');
@@ -182,4 +120,27 @@ Deno.test('clip list edits only reorder/trim existing shots', async () => {
   assertEquals(out.edit!.clips[0].shot_id, 's6');
   assertEquals(out.edit!.clips[0].url, 'https://x/g6.mp4'); // URL never taken from input
   await assertRejects(() => saveEdit(ctx, 'v1', { overlays: [] }, s.revision)); // stale revision
+});
+
+Deno.test('refreshClipUrls: fills null URLs, keeps order/trims, no paid writes; fails closed', async () => {
+  const { tables, ctx, calls } = setup();
+  tables.ai_video_generations.forEach((g) => { g.status = 'completed'; g.user_id = U; });
+  await getSpot(ctx, 'v1');
+  const v = tables.campaign_videos[0];
+  v.edit.clips = v.edit.clips.map((c: Row) => ({ ...c, url: null }));
+  const before = structuredClone(v.edit.clips);
+  const counts = () => JSON.stringify([tables.campaign_post_actions.length, tables.ai_video_generations.length, calls.length]);
+  const c0 = counts();
+  const r = await refreshClipUrls(ctx, 'v1');
+  assertEquals(r.changed, 6);
+  v.edit.clips.forEach((c: Row, i: number) => { assert(c.url); assertEquals({ ...c, url: null }, before[i]); });
+  assertEquals(counts(), c0);
+  const rev = v.edit_revision;
+  assertEquals((await refreshClipUrls(ctx, 'v1')).changed, 0);
+  assertEquals(v.edit_revision, rev);
+  v.edit.clips[2].url = null; tables.ai_video_generations.find((g) => g.id === v.edit.clips[2].attempt_id.replace('a', 'g'))!.video_url = null;
+  await assertRejects(() => refreshClipUrls(ctx, 'v1'));
+  assertEquals(v.edit_revision, rev);
+  assertEquals(v.edit.clips[2].url, null);
+  await assertRejects(() => refreshClipUrls({ ...ctx, userId: 'other' }, 'v1'));
 });

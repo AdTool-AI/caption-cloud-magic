@@ -12,9 +12,11 @@ import { CampaignPanel } from "@/components/agent/CampaignPanel";
 import { AgentMarkdown } from "@/components/agent/AgentMarkdown";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useAIVideoWallet } from "@/hooks/useAIVideoWallet";
-import { formatMoney, groupByTurn, isApprovalActionable } from "@/lib/agentStatus";
+import { formatMoney, groupByTurn, isApprovalActionable, mergeAssemblyItems, placeAssemblyItems } from "@/lib/agentStatus";
 import { tx } from "@/lib/i18nText";
 import { useTranslation } from "@/hooks/useTranslation";
+import { AssemblyApprovalCard } from "@/components/agent/AssemblyApprovalCard";
+import { listConversationAssemblies } from "@/services/muse/assemblyClient";
 import {
   sendAgentMessage,
   decideAgentApproval,
@@ -68,6 +70,7 @@ export default function AdToolAgent() {
   const [searchParams, setSearchParams] = useSearchParams();
   const conversationId = searchParams.get("conversation");
   const [tasks, setTasks] = useState<AgentTask[]>([]);
+  const [assemblies, setAssemblies] = useState<Array<{ id: string; status: string; created_at?: string }>>([]);
   const [history, setHistory] = useState<ConversationSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const busyRef = useRef(false);
@@ -136,13 +139,17 @@ export default function AdToolAgent() {
       setUsage(null);
       return;
     }
-    const snap = await loadAgentConversation(id);
+    const [snap, asm] = await Promise.all([
+      loadAgentConversation(id),
+      listConversationAssemblies(id).catch(() => [] as Array<Record<string, unknown>>),
+    ]);
     if (!snap || busyRef.current) return;
     setMessages(snap.messages);
     setOperations(snap.operations);
     setApprovals(snap.approvals);
     setCampaignApprovals(snap.campaignApprovals);
     setTasks(snap.tasks);
+    setAssemblies(asm.map((a) => ({ id: String(a.id), status: String(a.status), created_at: String(a.created_at ?? "") })));
     setUsage({ costUsd: snap.costUsd });
   }, []);
 
@@ -347,14 +354,26 @@ export default function AdToolAgent() {
   type Item =
     | { kind: "approval"; at?: string; a: StoredApproval }
     | { kind: "campaign"; at?: string; a: StoredCampaignApproval }
-    | { kind: "task"; at?: string; t: AgentTask };
+    | { kind: "task"; at?: string; t: AgentTask }
+    | { kind: "assembly"; at?: string; r: Record<string, unknown>; actionable: boolean };
   const now = Date.now();
   // Only valid, open approvals render in the chat; everything else lives in the
   // campaign workspace's collapsed approval history.
+  const assemblyPlacement = placeAssemblyItems(mergeAssemblyItems(
+    operations.flatMap((o) => {
+      const raw = o.result as Record<string, unknown> | undefined;
+      const r = (raw && typeof raw === "object" && "output" in raw ? raw.output : raw) as Record<string, unknown> | undefined;
+      return o.name === "prepare_spot_assembly" && o.status === "succeeded" && r && typeof r.assembly_id === "string"
+        ? [{ at: o.createdAt, r }] : [];
+    }),
+    assemblies,
+  ));
   const items: Item[] = [
     ...approvals.filter((a) => isApprovalActionable(a.state, a.approval_expires_at, now)).map((a) => ({ kind: "approval" as const, at: a.created_at, a })),
     ...campaignApprovals.filter((a) => isApprovalActionable(a.state, a.start_expires_at, now)).map((a) => ({ kind: "campaign" as const, at: a.created_at, a })),
     ...tasks.map((t) => ({ kind: "task" as const, at: t.created_at, t })),
+    // Closed/non-actionable assembly history remains attached to its original turn.
+    ...assemblyPlacement.history.map((x) => ({ kind: "assembly" as const, at: x.at, r: x.r, actionable: false })),
   ];
   const userIdx: number[] = [];
   messages.forEach((m, i) => m.role === "user" && userIdx.push(i));
@@ -367,6 +386,22 @@ export default function AdToolAgent() {
   userIdx.forEach((mi, ti) => {
     const next = userIdx[ti + 1] ?? messages.length;
     turnEnd.set(next - 1, ti);
+  });
+  // Tools that actually completed in the turn containing message i — the UI
+  // must never claim "nothing was started" when planning work ran.
+  const toolsRanInTurn = (i: number): string[] => {
+    const m = messages[i];
+    if (m.completedTools?.length) return [...new Set(m.completedTools)];
+    let u = i; while (u > 0 && messages[u].role !== "user") u--;
+    const from = messages[u]?.createdAt; const nu = messages.findIndex((x, k) => k > u && x.role === "user");
+    const to = nu >= 0 ? messages[nu].createdAt : undefined;
+    if (!from) return [];
+    return [...new Set(operations.filter((o) => o.status === "succeeded" && o.createdAt && o.createdAt >= from && (!to || o.createdAt < to)).map((o) => o.name))];
+  };
+  const toolsRanNote = (names: string[]) => tx({
+    de: `Planungsarbeit wurde ausgeführt, aber die abschließende Antwort wurde unterbrochen. Abgeschlossen: ${names.map(label).join(", ")}.`,
+    en: `Planning work was performed, but the final answer was interrupted. Completed: ${names.map(label).join(", ")}.`,
+    es: `Se realizó trabajo de planificación, pero la respuesta final se interrumpió. Completado: ${names.map(label).join(", ")}.`,
   });
   const lastUserText = (beforeIndex: number) => {
     for (let i = beforeIndex; i >= 0; i--) if (messages[i].role === "user") return messages[i].text;
@@ -383,6 +418,9 @@ export default function AdToolAgent() {
   const viewClip = (generationId: string) => setFocusGen({ id: generationId, nonce: Date.now() });
 
   const renderItem = (it: Item) => {
+    if (it.kind === "assembly") {
+      return <div key={`asm-${String(it.r.assembly_id)}`} className="max-w-[85%]"><AssemblyApprovalCard prepared={it.r} actionable={it.actionable} /></div>;
+    }
     if (it.kind === "task") {
       const t = it.t;
       return (
@@ -551,7 +589,7 @@ export default function AdToolAgent() {
                           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
                           <div className="min-w-0">
                             <p className="text-foreground">
-                              {tx({ de: "Antwort unterbrochen — der Agent konnte diese Anfrage nicht beantworten. Es wurde nichts gestartet.", en: "Answer interrupted — the agent could not answer this request. Nothing was started.", es: "Respuesta interrumpida: el agente no pudo responder. No se inició nada." })}
+                              {toolsRanInTurn(i).length > 0 ? toolsRanNote(toolsRanInTurn(i)) : tx({ de: "Antwort unterbrochen — der Agent konnte diese Anfrage nicht beantworten. Es wurde nichts gestartet.", en: "Answer interrupted — the agent could not answer this request. Nothing was started.", es: "Respuesta interrumpida: el agente no pudo responder. No se inició nada." })}
                             </p>
                             {m.error && <p className="mt-1 break-words text-xs text-muted-foreground">{m.error}</p>}
                             {lastTurn && lastUserText(i) && (
@@ -576,7 +614,7 @@ export default function AdToolAgent() {
                           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
                           <div>
                             <p className="text-foreground">
-                              {tx({ de: "Für diese Nachricht wurde keine Antwort gespeichert. Es wurde nichts gestartet.", en: "No answer was saved for this message. Nothing was started.", es: "No se guardó ninguna respuesta para este mensaje. No se inició nada." })}
+                              {toolsRanInTurn(i).length > 0 ? toolsRanNote(toolsRanInTurn(i)) : tx({ de: "Für diese Nachricht wurde keine Antwort gespeichert. Es wurde nichts gestartet.", en: "No answer was saved for this message. Nothing was started.", es: "No se guardó ninguna respuesta para este mensaje. No se inició nada." })}
                             </p>
                             {i === messages.length - 1 && (
                               <Button size="sm" variant="outline" className="mt-2 h-7" onClick={() => void sendText(m.text, `ask-again-${m.id}`)}>
@@ -633,6 +671,12 @@ export default function AdToolAgent() {
                 </ul>
               </CollapsibleContent>
             </Collapsible>
+
+            {assemblyPlacement.pinned && (
+              <div className="shrink-0 border-t border-border/60 bg-card/95 px-3 pt-3">
+                <AssemblyApprovalCard key={String(assemblyPlacement.pinned.r.assembly_id)} prepared={assemblyPlacement.pinned.r} actionable onPrepared={() => void reload(conversationId)} />
+              </div>
+            )}
 
             <div className="shrink-0 border-t border-border/60 bg-card/95 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
               <div className="flex gap-2">

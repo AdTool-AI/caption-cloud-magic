@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from './useAuth';
+import { isAwsTestBackend } from '@/lib/backendTarget';
 
 export type AppRole = 'admin' | 'moderator' | 'user';
 
@@ -12,6 +13,13 @@ export const useUserRoles = () => {
 
   useEffect(() => {
     const fetchRoles = async () => {
+      if (isAwsTestBackend) {
+        // Workspace role rows are not a source of global admin authority.
+        setRoles([]);
+        setError(null);
+        setLoading(false);
+        return;
+      }
       if (!user) {
         setRoles([]);
         setLoading(false);
@@ -41,14 +49,15 @@ export const useUserRoles = () => {
   }, [user]);
 
   const hasRole = (role: AppRole): boolean => {
-    return roles.includes(role);
+    return !isAwsTestBackend && roles.includes(role);
   };
 
   const isAdmin = hasRole('admin');
   const isModerator = hasRole('moderator');
 
   return {
-    roles,
+    roles: isAwsTestBackend ? [] : roles,
+    globalRoleStatus: isAwsTestBackend ? 'unavailable' as const : 'legacy' as const,
     loading,
     error,
     hasRole,

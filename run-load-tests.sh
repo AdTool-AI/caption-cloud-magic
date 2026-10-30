@@ -17,7 +17,7 @@ mkdir -p "${RESULTS_DIR}"
 
 # Configuration
 SUPABASE_URL="${SUPABASE_URL:-https://lbunafpxuskwmsrraqxl.supabase.co}"
-SUPABASE_ANON_KEY="${SUPABASE_ANON_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxidW5hZnB4dXNrd21zcnJhcXhsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjAxMjA3NzUsImV4cCI6MjA3NTY5Njc3NX0.gRvY8kUzrELzlhSdGNJj_CXsaT8mqaUO7F1jCEi2T7Y}"
+SUPABASE_ANON_KEY="${SUPABASE_ANON_KEY:-REDACTED_TOKEN_CONFIGURE_ON_TARGET}"
 
 # Test files - Phase 4 with Redis caching tests
 TESTS=(

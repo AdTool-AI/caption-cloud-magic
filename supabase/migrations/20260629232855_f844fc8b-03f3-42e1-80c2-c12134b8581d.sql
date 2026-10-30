@@ -1,1 +1,2 @@
-UPDATE public.composer_scenes SET clip_source='ai-happyhorse', clip_status='ready', clip_error=NULL, updated_at=now() WHERE id='afc258e6-88c9-4f82-b974-321f9dd0f32c';
+
+-- SOURCE EXPORT: historical customer-specific statement omitted; no schema or reusable function removed.

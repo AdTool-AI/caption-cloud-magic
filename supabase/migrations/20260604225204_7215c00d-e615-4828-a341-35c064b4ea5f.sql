@@ -1,18 +1,13 @@
 -- v48 cleanup: reset broken partial-mux scene + remove cron for deleted legacy functions
 -- (Keep clip_url + clip_status — those are the master plate, not the lipsync result.)
 
-UPDATE public.composer_scenes
-SET
-  lip_sync_status = 'pending',
-  lip_sync_applied_at = NULL,
-  twoshot_stage = NULL,
-  clip_error = NULL,
-  dialog_shots = NULL,
-  updated_at = now()
-WHERE id = '61edb887-10c7-432d-b777-600707bf7d9a';
 
-DELETE FROM public.syncso_inflight_jobs
-WHERE scene_id = '61edb887-10c7-432d-b777-600707bf7d9a';
+-- SOURCE EXPORT: historical customer-specific statement omitted; no schema or reusable function removed.
+
+
+
+-- SOURCE EXPORT: historical customer-specific statement omitted; no schema or reusable function removed.
+
 
 DO $$
 DECLARE

@@ -1,0 +1,1 @@
+ALTER TABLE public.campaign_assembly_jobs ADD COLUMN IF NOT EXISTS rejected_at timestamptz;

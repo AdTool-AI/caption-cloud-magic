@@ -35,7 +35,7 @@ const MAX_VIDEOS = 500;
 const MAX_IMAGES = 2500;
 const MAX_STORAGE_GB = 10;
 
-// Admin archive account (bestofproducts4u@gmail.com) is exempt from the library cap.
+// Admin archive account (REDACTED_ACCOUNT_EMAIL) is exempt from the library cap.
 // Mirrors the server-side exemption in enforce_user_video_library_limits.
 const ARCHIVE_EXEMPT_USER_ID = '8948d3d9-2c5e-4405-9e9c-1624448e7189';
 

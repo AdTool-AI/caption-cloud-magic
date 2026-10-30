@@ -7,7 +7,7 @@
  * make the chain deterministic.
  *
  * If this test fails, the lip-sync pipeline has drifted away from the state
- * that verifiably worked on 2026-08-03. See `.lovable/LIPSYNC-FEATURE-FREEZE.md`.
+ * that verifiably worked on 2026-08-03. The supporting freeze document is archived outside the repository.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync, existsSync } from 'node:fs';

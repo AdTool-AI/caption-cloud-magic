@@ -15,7 +15,7 @@
  *    That test failing is the signal, not an obstacle.
  *  - Modules must import from here instead of re-declaring literals.
  *
- * See `.lovable/LIPSYNC-FEATURE-FREEZE.md` and `docs/lipsync-pipeline-v400.md`.
+ * See `docs/lipsync-pipeline-v400.md`; the supporting freeze document is archived outside the repository.
  */
 
 export const LIPSYNC_CONTRACT_VERSION = "v400";

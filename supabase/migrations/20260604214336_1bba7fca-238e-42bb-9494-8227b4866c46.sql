@@ -1,2 +1,5 @@
-UPDATE composer_scenes SET lip_sync_status='pending', twoshot_stage=NULL, dialog_shots='{}'::jsonb, clip_error=NULL, replicate_prediction_id=NULL, updated_at=now() WHERE id IN ('4992cff4-e351-461c-aaae-a765696acf12','7dcdcfc7-8c7d-46c7-8a63-7d73ae6c58b8');
-DELETE FROM syncso_inflight_jobs WHERE scene_id IN ('4992cff4-e351-461c-aaae-a765696acf12','7dcdcfc7-8c7d-46c7-8a63-7d73ae6c58b8');
+
+-- SOURCE EXPORT: historical customer-specific statement omitted; no schema or reusable function removed.
+
+
+-- SOURCE EXPORT: historical customer-specific statement omitted; no schema or reusable function removed.

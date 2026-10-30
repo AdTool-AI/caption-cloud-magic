@@ -50,9 +50,9 @@ const buildBenefits = () => [
     icon: Wrench,
     title: tx({ de: "Profi-Werkzeuge enthalten", en: "Professional tools included", es: "Herramientas profesionales incluidas" }),
     text: tx({
-      de: "Motion Studio · Picture Studio · Spezialmodelle · Topaz Enhance & Upscale · Content Command Center · Social Connections · Planung und Veröffentlichung.",
-      en: "Motion Studio · Picture Studio · Specialist Models · Topaz Enhance & Upscale · Content Command Center · Social Connections · scheduling and publishing tools.",
-      es: "Motion Studio · Picture Studio · Modelos especializados · Topaz Enhance & Upscale · Content Command Center · Social Connections · programación y publicación.",
+      de: "Motion Studio · Picture Studio · Spezialmodelle · Topaz Enhance & Upscale · Content Command Center · Social Connections · Render-Queue · Planung und Veröffentlichung.",
+      en: "Motion Studio · Picture Studio · Specialist Models · Topaz Enhance & Upscale · Content Command Center · Social Connections · Render Queue · scheduling and publishing tools.",
+      es: "Motion Studio · Picture Studio · Modelos especializados · Topaz Enhance & Upscale · Content Command Center · Social Connections · cola de renderizado · programación y publicación.",
     }),
   },
   {

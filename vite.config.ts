@@ -1,21 +1,41 @@
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
-import { componentTagger } from "lovable-tagger";
+import { resolveAwsTestConfig } from "./scripts/aws-test-config.mjs";
 
 // https://vitejs.dev/config/
-export default defineConfig(({ mode }) => ({
+export default defineConfig(({ mode }) => {
+  const aws = resolveAwsTestConfig(loadEnv(mode, process.cwd(), 'VITE_'));
+  const backendStamp: Plugin | null = aws ? {
+    name: 'aws-test-backend-stamp',
+    generateBundle() {
+      this.emitFile({type:'asset',fileName:'backend-profile.json',source:JSON.stringify({
+        target:'aws-test',backendOrigin:aws.url,scope:'bootstrap-read-validation',publicCutover:false,
+      },null,2)});
+    },
+  } : null;
+  return ({
+  define: {
+    'import.meta.env.VITE_BACKEND_TARGET': JSON.stringify(aws ? 'aws-test' : 'legacy'),
+    ...(aws ? {
+      'import.meta.env.VITE_SUPABASE_URL': JSON.stringify(aws.url),
+      'import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY': JSON.stringify(aws.anonKey),
+      'import.meta.env.VITE_SUPABASE_ANON_KEY': JSON.stringify(aws.anonKey),
+      'import.meta.env.VITE_SUPABASE_PROJECT_ID': JSON.stringify('aws-test'),
+    } : {}),
+  },
   server: {
     host: "::",
     port: 8080,
   },
-  plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
+  plugins: [react(), backendStamp].filter(Boolean),
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
     },
   },
   build: {
+    outDir: aws ? 'dist-aws-test' : 'dist',
     rollupOptions: {
       output: {
         // Asset file names with content hash for CDN caching
@@ -64,7 +84,7 @@ export default defineConfig(({ mode }) => ({
     // Source Maps nur in Development
     sourcemap: mode === 'development',
     // Minify für Production
-    minify: mode === 'production' ? 'esbuild' : false,
+    minify: mode === 'production' || mode === 'aws-test' ? 'esbuild' : false,
     // Target moderne Browser für kleinere Bundles
     target: 'es2020',
     // Asset inlining threshold (reduce HTTP requests)
@@ -74,4 +94,5 @@ export default defineConfig(({ mode }) => ({
   optimizeDeps: {
     include: ['react', 'react-dom', 'react-router-dom'],
   },
-}));
+});
+});

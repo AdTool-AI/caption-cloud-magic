@@ -1,1 +1,2 @@
-UPDATE composer_scenes SET twoshot_stage=NULL, lip_sync_status=NULL, clip_error=NULL, updated_at=now() WHERE id='d2aa4ad5-9964-41cb-8a4f-81f6571183b6' AND clip_url IS NOT NULL AND clip_status='ready';
+
+-- SOURCE EXPORT: historical customer-specific statement omitted; no schema or reusable function removed.

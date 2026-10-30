@@ -95,38 +95,6 @@ CREATE TRIGGER on_auth_user_created_workspace
   FOR EACH ROW
   EXECUTE FUNCTION public.create_default_workspace();
 
--- Create workspace for existing user (bestofproducts4u@gmail.com)
-DO $$
-DECLARE
-  v_user_id UUID;
-BEGIN
-  -- Get user ID
-  SELECT id INTO v_user_id
-  FROM auth.users
-  WHERE email = 'bestofproducts4u@gmail.com';
-  
-  -- Only create if user exists and doesn't have a workspace yet
-  IF v_user_id IS NOT NULL THEN
-    INSERT INTO public.workspaces (owner_id, name, description)
-    SELECT 
-      v_user_id,
-      'Mein Workspace',
-      'Standard Workspace für Kalender und Team-Kollaboration'
-    WHERE NOT EXISTS (
-      SELECT 1 FROM public.workspaces WHERE owner_id = v_user_id
-    );
-    
-    -- Add owner as member with owner role
-    INSERT INTO public.workspace_members (workspace_id, user_id, role)
-    SELECT 
-      w.id,
-      v_user_id,
-      'owner'::team_role
-    FROM public.workspaces w
-    WHERE w.owner_id = v_user_id
-    AND NOT EXISTS (
-      SELECT 1 FROM public.workspace_members 
-      WHERE workspace_id = w.id AND user_id = v_user_id
-    );
-  END IF;
-END $$;
+-- Create workspace for existing user (REDACTED_ACCOUNT_EMAIL)
+
+-- SOURCE EXPORT: historical customer-specific statement omitted; no schema or reusable function removed.

@@ -175,6 +175,13 @@ Deno.serve(async (req) => {
   if (raw.requestId !== undefined && !requestId) {
     return new Response(JSON.stringify({ error: 'Invalid requestId.', code: 'INVALID_REQUEST_ID' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   }
+  // Requests whose worker was killed never reach done/failed: after 10 minutes
+  // mark them failed. Status/metadata only — nothing is re-run.
+  await admin.from('agent_request_ids')
+    .update({ status: 'failed', updated_at: new Date().toISOString() })
+    .eq('user_id', userId).eq('status', 'processing')
+    .lt('created_at', new Date(Date.now() - 10 * 60_000).toISOString())
+    .then(({ error }: { error: { message: string } | null }) => { if (error) console.error('[muse-agent] stale request cleanup failed', error.message); });
   if (requestId) {
     const fingerprint = await requestFingerprint(body.conversationId ?? null, message);
     const { error: claimErr } = await admin.from('agent_request_ids').insert({
@@ -208,7 +215,17 @@ Deno.serve(async (req) => {
       // deno-lint-ignore no-explicit-any
       .map((m: any) => String(m.content ?? ''));
   }
-  const decision = decideTurnMode({ message, clientReadOnly: raw.readOnly, priorUserMessages });
+  let priorAssistantMessage = '';
+  let priorTurnStatus: string | null = null;
+  if (body.conversationId) {
+    const { data: lastA } = await admin.from('agent_messages').select('content, tool_calls')
+      .eq('conversation_id', body.conversationId).eq('user_id', userId).eq('role', 'assistant')
+      .order('created_at', { ascending: false }).limit(1).maybeSingle();
+    priorAssistantMessage = String(lastA?.content ?? '');
+    // deno-lint-ignore no-explicit-any
+    priorTurnStatus = (lastA?.tool_calls as any)?.turn_status ?? null;
+  }
+  const decision = decideTurnMode({ message, clientReadOnly: raw.readOnly, priorUserMessages, priorAssistantMessage, priorTurnStatus });
   const mode = decision.mode;
   console.log('[muse-agent] turn_mode', JSON.stringify({ conversationId: body.conversationId ?? null, mode, reason: decision.reason }));
   if (requestId) await admin.from('agent_request_ids').update({ mode, mode_reason: decision.reason }).eq('user_id', userId).eq('request_id', requestId);
@@ -251,6 +268,8 @@ Deno.serve(async (req) => {
           testRewriteFirstToolCallTo,
           mode,
           needsClarification: decision.needsClarification,
+          repeatedIntent: decision.repeatedIntent,
+          requestId,
         });
         if (requestId) await admin.from('agent_request_ids').update({ status: 'done', updated_at: new Date().toISOString() }).eq('user_id', userId).eq('request_id', requestId);
       } catch (err) {

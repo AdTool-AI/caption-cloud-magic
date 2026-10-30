@@ -1,12 +1,7 @@
 -- v118: reset stuck dialog scene + install 15-min lipsync watchdog
-UPDATE public.composer_scenes
-SET dialog_shots = NULL,
-    lip_sync_status = NULL,
-    twoshot_stage = NULL,
-    clip_status = 'ready',
-    clip_error = NULL,
-    updated_at = NOW()
-WHERE id = '4fb6b816-d7cd-41ec-8948-760c229c1238';
+
+-- SOURCE EXPORT: historical customer-specific statement omitted; no schema or reusable function removed.
+
 
 -- Belt-and-braces watchdog: any dialog scene stuck in processing/dispatching
 -- for >15 min is force-failed (refund happens via the in-function v118

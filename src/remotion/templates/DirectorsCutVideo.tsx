@@ -1,4 +1,5 @@
 import React, { useMemo, useEffect, useRef } from 'react';
+import { getSceneSourceStartFrame } from '../utils/sceneSourceStart';
 import { AbsoluteFill, Video, OffthreadVideo, Audio, Sequence, Freeze, useCurrentFrame, useVideoConfig, Img, delayRender, continueRender, staticFile } from 'remotion';
 // Sensor-Baseline deaktiviert (29.07.2026) — Raw-Invariant gilt auch im DC.
 // Grade/Filter greifen nur, wenn der Kunde sie im Director's Cut aktiv setzt.
@@ -527,9 +528,11 @@ const SceneVideo: React.FC<{
   const localFrame = useCurrentFrame(); // Local frame within this Sequence (0 to sceneDurationFrames)
   const { fps } = useVideoConfig();
 
-  // Original video position for this scene
-  const originalStart = scene.originalStartTime ?? scene.startTime;
-  const sourceStartFrame = Math.floor(originalStart * fps);
+  // Source position for this scene. Scenes with their own clip (additionalMedia)
+  // start at their trim point inside that clip — NOT at their timeline position,
+  // otherwise scene N starts past the end of its own clip and freezes.
+  const sceneHasOwnClip = !!scene.additionalMedia && (scene.sourceMode === 'media' || scene.isFromOriginalVideo === false);
+  const sourceStartFrame = getSceneSourceStartFrame(scene, fps, sceneHasOwnClip);
   const playbackRate = scene.playbackRate ?? 1;
 
   // Get scene-specific effects

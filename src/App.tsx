@@ -7,6 +7,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { TranslationContext, useTranslationState } from "@/hooks/useTranslation";
 import { AuthProvider, useAuth } from "@/hooks/useAuth";
+import { isAwsTestBackend } from '@/lib/backendTarget';
+import AwsValidation from '@/pages/AwsValidation';
 import { useAnalyticsSync } from "@/hooks/useAnalyticsSync";
 import { useSessionTracking } from "@/hooks/useSessionTracking";
 import { useConsoleErrorBuffer } from "@/hooks/useConsoleErrorBuffer";
@@ -253,6 +255,7 @@ function AppLayout() {
                     <Route path="/planner" element={<CommandCenterRedirect view="posts" />} />
                     <Route path="/content-studio" element={<ContentStudio />} />
                     <Route path="/template-manager" element={<ContentStudioRedirect templates />} />
+                    <Route path="/review/request/:approvalId" element={<ReviewLink />} />
                     <Route path="/review/:token" element={<ReviewLink />} />
                     <Route path="/bio" element={<BioOptimizer />} />
                     
@@ -435,7 +438,9 @@ const AppContent = () => {
   );
 };
 
-const App = () => (
+const App = () => isAwsTestBackend ? (
+  <AuthProvider><Sonner /><AwsValidation /></AuthProvider>
+) : (
   <QueryClientProvider client={queryClient}>
     <BrowserRouter
       future={{

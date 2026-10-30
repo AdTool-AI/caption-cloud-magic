@@ -268,6 +268,15 @@ export function routeShot(
 }
 
 const round3 = (n: number) => Math.round(n * 1000) / 1000;
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/**
+ * Account planning estimate — the ONE formula used by automatic routing and
+ * manual overrides: round2(list/s) × seconds → round2 → × account discount → round2.
+ */
+export function planningEstimate(listPricePerSecond: number, seconds: number, discount: number): number {
+  return round2(round2(round2(listPricePerSecond) * seconds) * discount);
+}
 
 /** Why each catalog model was NOT a candidate (same rules as routeShot). */
 export function explainExclusions(

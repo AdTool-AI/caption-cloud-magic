@@ -1,0 +1,2 @@
+ALTER TABLE public.campaign_planning_audit DROP CONSTRAINT IF EXISTS campaign_planning_audit_kind_check;
+ALTER TABLE public.campaign_planning_audit ADD CONSTRAINT campaign_planning_audit_kind_check CHECK (kind IN ('video_metadata_patch','shot_routing_override','voiceover_voice_selection'));

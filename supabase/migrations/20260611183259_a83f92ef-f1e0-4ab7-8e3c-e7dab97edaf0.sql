@@ -1,1 +1,4 @@
-UPDATE composer_scenes SET lip_sync_status='pending', twoshot_stage=NULL, clip_error=NULL, updated_at=now() WHERE id='f67d51ba-4465-47eb-84e5-09e1dafd617e'; DELETE FROM syncso_inflight_jobs WHERE scene_id='f67d51ba-4465-47eb-84e5-09e1dafd617e';
+
+-- SOURCE EXPORT: historical customer-specific statement omitted; no schema or reusable function removed.
+ 
+-- SOURCE EXPORT: historical customer-specific statement omitted; no schema or reusable function removed.

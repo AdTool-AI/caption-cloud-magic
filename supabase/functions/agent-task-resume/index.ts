@@ -15,6 +15,8 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { loadMuseConfig } from '../_shared/muse/config.ts';
 import { runAgentTurn } from '../_shared/muse/agentLoop.ts';
+import { checkProvidersFromEnv } from '../_shared/muse/campaign/checkProviders.ts';
+import { tickAssembly } from '../_shared/muse/campaign/assembly.ts';
 import { nextPlanningJobState, PLANNING_CONTINUE_INPUT, PLANNING_JOB_INTERRUPT_TEXT, PLANNING_TOOLS } from '../_shared/muse/turnPolicy.ts';
 
 const corsHeaders = {
@@ -301,6 +303,27 @@ Deno.serve(async (req) => {
     }
   }
 
-  console.log('[agent-task-resume]', JSON.stringify({ ...summary, planning }));
-  return json(200, { ...summary, planning });
+  // Approved Phase C assembly jobs: execute exactly the approved scope, one
+  // leased job at a time, bounded per tick. Never driven by chat continuations.
+  const assembly = { advanced: 0, results: [] as unknown[] };
+  {
+    const { data: ajobs } = await admin.from('campaign_assembly_jobs').select('id, user_id')
+      .eq('status', 'running').or(`lease_until.is.null,lease_until.lt.${new Date().toISOString()}`).order('created_at').limit(2);
+    for (const j of ajobs ?? []) {
+      const { data: lease } = await admin.rpc('claim_assembly_job', { p_id: j.id, p_lease_seconds: 150 });
+      if (!lease) continue;
+      assembly.advanced += 1;
+      try {
+        const r = await tickAssembly({ admin, userId: j.user_id, userJwt: serviceKey, internalUserId: j.user_id, supabaseUrl, anonKey, providers: await checkProvidersFromEnv() }, j.id, Date.now() + 110_000);
+        assembly.results.push({ id: j.id, ...r });
+      } catch (err) {
+        assembly.results.push({ id: j.id, status: 'error', error: err instanceof Error ? err.message : String(err) });
+      } finally {
+        await admin.from('campaign_assembly_jobs').update({ lease_id: null, lease_until: null }).eq('id', j.id).eq('lease_id', lease);
+      }
+    }
+  }
+
+  console.log('[agent-task-resume]', JSON.stringify({ ...summary, planning, assembly }));
+  return json(200, { ...summary, planning, assembly });
 });

@@ -1,150 +1,79 @@
-import { useState } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { supabase } from "@/integrations/supabase/client";
-import { toast } from "sonner";
-import { Copy, Mail, CheckCircle2 } from "lucide-react";
-import { useTranslation } from "@/hooks/useTranslation";
+import { useEffect, useRef, useState } from 'react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { supabase } from '@/integrations/supabase/client';
+import { useCalendarApprovals } from '@/hooks/useCalendarApprovals';
+import { approvalEvent, type ApprovalEvent, type ApprovalReceipt } from '@/lib/calendarApprovalWrite';
+import { Link } from 'react-router-dom';
 
-interface ApprovalDialogProps {
-  eventId: string;
-  open: boolean;
-  onClose: () => void;
-}
-
-export function ApprovalDialog({ eventId, open, onClose }: ApprovalDialogProps) {
-  const { t } = useTranslation();
-  const [approverEmail, setApproverEmail] = useState("");
-  const [message, setMessage] = useState("");
+type Reviewer = { id: string; label: string };
+export function ApprovalDialog({ eventId, open, onClose }: { eventId: string; open: boolean; onClose: () => void }) {
+  const { requestApproval, loading: submitting } = useCalendarApprovals();
+  const [event, setEvent] = useState<ApprovalEvent | null>(null);
+  const [members, setMembers] = useState<Reviewer[]>([]);
+  const [selected, setSelected] = useState('');
+  const [expiresAt, setExpiresAt] = useState('');
+  const [receipt, setReceipt] = useState<ApprovalReceipt | null>(null);
+  const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [reviewLink, setReviewLink] = useState<string | null>(null);
-
-  const handleCreateLink = async () => {
-    if (!approverEmail.trim()) {
-      toast.error("Please enter an approver email");
-      return;
-    }
-
+  const scope = useRef(0);
+  useEffect(() => {
+    const current = ++scope.current;
+    setEvent(null); setMembers([]); setSelected(''); setReceipt(null); setError('');
+    if (!open) return;
     setLoading(true);
-
-    try {
-      const { data, error } = await supabase.functions.invoke('calendar-create-approval-link', {
-        body: {
-          event_id: eventId,
-          approver_email: approverEmail,
-          message: message || undefined,
+    (async () => {
+      try {
+        const result = await supabase.from('calendar_events').select('id,workspace_id,updated_at,version').eq('id', eventId).single();
+        if (result.error) throw new Error();
+        const snapshot = approvalEvent(result.data);
+        const [team, workspace] = await Promise.all([
+          supabase.from('workspace_members').select('user_id,profiles(email)').eq('workspace_id', snapshot.workspace_id),
+          supabase.from('workspaces').select('owner_id').eq('id', snapshot.workspace_id).single(),
+        ]);
+        if (team.error || workspace.error || !workspace.data?.owner_id) throw new Error();
+        const choices = new Map<string, Reviewer>();
+        choices.set(workspace.data.owner_id, { id: workspace.data.owner_id, label: 'Workspace owner' });
+        for (const row of team.data ?? []) {
+          const profile = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles;
+          choices.set(row.user_id, { id: row.user_id, label: profile?.email || `Workspace member (${row.user_id.slice(-6)})` });
         }
-      });
-
-      if (error) throw error;
-
-      setReviewLink(data.review_url);
-      toast.success("Approval link created!");
-    } catch (error: any) {
-      console.error("Failed to create approval link:", error);
-      toast.error(error.message || "Failed to create approval link");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleCopyLink = () => {
-    if (reviewLink) {
-      navigator.clipboard.writeText(reviewLink);
-      toast.success("Link copied to clipboard!");
-    }
-  };
-
-  const handleSendEmail = () => {
-    if (reviewLink) {
-      const subject = "Content Approval Request";
-      const body = `${message || "Please review and approve this content."}\n\nReview Link: ${reviewLink}`;
-      window.location.href = `mailto:${approverEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-    }
-  };
-
-  const handleClose = () => {
-    setApproverEmail("");
-    setMessage("");
-    setReviewLink(null);
-    onClose();
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Request Approval</DialogTitle>
-        </DialogHeader>
-
-        {!reviewLink ? (
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="approver-email">Approver Email *</Label>
-              <Input
-                id="approver-email"
-                type="email"
-                value={approverEmail}
-                onChange={(e) => setApproverEmail(e.target.value)}
-                placeholder="client@example.com"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="message">Message (optional)</Label>
-              <Textarea
-                id="message"
-                value={message}
-                onChange={(e) => setMessage(e.target.value)}
-                placeholder="Add a note for the approver..."
-                rows={4}
-              />
-            </div>
-
-            <DialogFooter>
-              <Button variant="outline" onClick={handleClose}>
-                Cancel
-              </Button>
-              <Button onClick={handleCreateLink} disabled={loading}>
-                {loading ? "Creating..." : "Create Approval Link"}
-              </Button>
-            </DialogFooter>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            <div className="flex items-center gap-2 text-green-600">
-              <CheckCircle2 className="w-5 h-5" />
-              <span className="font-semibold">Approval link created!</span>
-            </div>
-
-            <div className="space-y-2">
-              <Label>Review Link</Label>
-              <div className="flex gap-2">
-                <Input value={reviewLink} readOnly className="flex-1" />
-                <Button size="sm" variant="outline" onClick={handleCopyLink}>
-                  <Copy className="w-4 h-4" />
-                </Button>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                This link expires in 7 days
-              </p>
-            </div>
-
-            <DialogFooter className="flex-col sm:flex-row gap-2">
-              <Button variant="outline" onClick={handleClose} className="w-full sm:w-auto">
-                Close
-              </Button>
-              <Button onClick={handleSendEmail} className="w-full sm:w-auto">
-                <Mail className="w-4 h-4 mr-2" />
-                Send via Email
-              </Button>
-            </DialogFooter>
-          </div>
-        )}
-      </DialogContent>
-    </Dialog>
-  );
+        if (current !== scope.current) return;
+        setEvent(snapshot); setMembers([...choices.values()]);
+        setExpiresAt(new Date(Date.now() + 3 * 86400000).toISOString());
+      } catch { if (current === scope.current) setError('Could not load the event and its workspace reviewers. Close and reopen to reload.'); }
+      finally { if (current === scope.current) setLoading(false); }
+    })();
+    return () => { scope.current++; };
+  }, [open, eventId]);
+  async function submit() {
+    if (!event || !selected || submitting) return;
+    const current = scope.current;
+    const result = await requestApproval(event, [{ user_id: selected, email: members.find(row => row.id === selected)?.label ?? '' }], expiresAt);
+    if (result && current === scope.current) setReceipt(result);
+  }
+  return <Dialog open={open} onOpenChange={value => { if (!value && !submitting) onClose(); }}>
+    <DialogContent className="max-w-lg">
+      <DialogHeader><DialogTitle>Request a workspace review</DialogTitle></DialogHeader>
+      <p className="text-sm text-muted-foreground">The selected member must sign in to review. Requests expire after three days. Recording an approval does not publish or schedule content.</p>
+      {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+      {receipt ? <div className="space-y-3">
+        <p>Review request recorded. No email has been sent.</p>
+        {receipt.approvals.map(row => <Link key={row.approval_id} className="block underline" to={`/review/request/${row.approval_id}`}>Open signed-in review</Link>)}
+        <p className="text-xs text-muted-foreground">Only the designated reviewer can submit a decision.</p>
+      </div> : <div className="space-y-2">
+        <Label>Workspace reviewer</Label>
+        <Select value={selected} onValueChange={setSelected} disabled={loading || submitting || !event}>
+          <SelectTrigger><SelectValue placeholder={loading ? 'Loading reviewers…' : 'Choose a member'} /></SelectTrigger>
+          <SelectContent>{members.map(row => <SelectItem key={row.id} value={row.id}>{row.label}</SelectItem>)}</SelectContent>
+        </Select>
+      </div>}
+      <DialogFooter>
+        <Button variant="outline" disabled={submitting} onClick={onClose}>Close</Button>
+        {!receipt && <Button disabled={loading || submitting || !event || !selected} onClick={submit}>{submitting ? 'Requesting…' : 'Request review'}</Button>}
+      </DialogFooter>
+    </DialogContent>
+  </Dialog>;
 }

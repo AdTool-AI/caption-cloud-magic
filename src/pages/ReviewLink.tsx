@@ -1,315 +1,80 @@
-import { useEffect, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
-import { toast } from "sonner";
-import { CheckCircle, XCircle, AlertCircle, Loader2 } from "lucide-react";
-import { SEO } from "@/components/SEO";
+import { useEffect, useRef, useState } from 'react';
+import { Link, useParams } from 'react-router-dom';
+import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/hooks/useAuth';
+import { APPROVAL_READ_FIELDS, useCalendarApprovals } from '@/hooks/useCalendarApprovals';
+import { approvalUuid, type ApprovalContext } from '@/lib/calendarApprovalWrite';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Textarea } from '@/components/ui/textarea';
+import { SEO } from '@/components/SEO';
 
+type Review = ApprovalContext & { status: string; token_expires_at: string | null; comment: string | null };
+type Preview = { title: string; brief: string | null; caption: string | null };
 export default function ReviewLink() {
-  const { token } = useParams();
-  const navigate = useNavigate();
-  const [loading, setLoading] = useState(true);
-  const [approval, setApproval] = useState<any>(null);
-  const [event, setEvent] = useState<any>(null);
-  const [comment, setComment] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-
+  const { approvalId } = useParams();
+  const { user, loading: authLoading } = useAuth();
+  const { approveStage, rejectApproval, loading: submitting } = useCalendarApprovals();
+  const [review, setReview] = useState<Review | null>(null);
+  const [preview, setPreview] = useState<Preview | null>(null);
+  const [comment, setComment] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [refresh, setRefresh] = useState(0);
+  const scope = useRef(0);
   useEffect(() => {
-    if (token) {
-      fetchApprovalData();
-    }
-  }, [token]);
-
-  const fetchApprovalData = async () => {
+    const current = ++scope.current;
+    setReview(null); setPreview(null); setComment(''); setError('');
+    // Legacy /review/:token never queries by token, even for signed-in users.
+    if (!user?.id || !approvalUuid(approvalId)) return;
     setLoading(true);
-
-    try {
-      // Fetch approval by token
-      const { data: approvalData, error: approvalError } = await supabase
-        .from("calendar_approvals")
-        .select("*")
-        .eq("review_token", token)
-        .single();
-
-      if (approvalError) throw approvalError;
-
-      // Check if token is expired
-      if (new Date(approvalData.token_expires_at) < new Date()) {
-        toast.error("This review link has expired");
-        setLoading(false);
-        return;
-      }
-
-      // Check if already reviewed
-      if (approvalData.status !== "pending") {
-        setApproval(approvalData);
-        setLoading(false);
-        return;
-      }
-
-      setApproval(approvalData);
-
-      // Fetch associated event
-      const { data: eventData, error: eventError } = await supabase
-        .from("calendar_events")
-        .select("*")
-        .eq("id", approvalData.event_id)
-        .single();
-
-      if (eventError) throw eventError;
-
-      setEvent(eventData);
-    } catch (error: any) {
-      console.error("Failed to load review:", error);
-      toast.error("Failed to load review");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSubmit = async (decision: "approved" | "changes_requested") => {
-    if (!approval) return;
-
-    setSubmitting(true);
-
-    try {
-      // Update approval
-      const { error: approvalError } = await supabase
-        .from("calendar_approvals")
-        .update({
-          status: decision,
-          comment: comment.trim() || null,
-          reviewed_at: new Date().toISOString()
-        })
-        .eq("id", approval.id);
-
-      if (approvalError) throw approvalError;
-
-      // Update event status
-      const newEventStatus = decision === "approved" ? "approved" : "review";
-      
-      const { error: eventError } = await supabase
-        .from("calendar_events")
-        .update({ status: newEventStatus })
-        .eq("id", approval.event_id);
-
-      if (eventError) throw eventError;
-
-      toast.success(
-        decision === "approved"
-          ? "Content approved successfully!"
-          : "Feedback submitted. Team will make changes."
-      );
-
-      // Refresh data
-      fetchApprovalData();
-    } catch (error: any) {
-      console.error("Failed to submit review:", error);
-      toast.error("Failed to submit review");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <SEO
-          title="Review Content"
-          description="Review and approve content"
-        />
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
-      </div>
-    );
+    (async () => {
+      try {
+        const approval = await supabase.from('calendar_approvals').select(APPROVAL_READ_FIELDS).eq('id', approvalId).eq('approver_id', user.id).single();
+        if (approval.error || !approval.data || approval.data.approver_id !== user.id) throw new Error();
+        const event = await supabase.from('calendar_events').select('id,workspace_id,title,brief,caption').eq('id', approval.data.event_id).single();
+        if (event.error || !event.data || !approvalUuid(event.data.workspace_id)) throw new Error();
+        if (current !== scope.current) return;
+        setReview({ approval_id: approval.data.id, event_id: approval.data.event_id, approver_id: approval.data.approver_id, workspace_id: event.data.workspace_id, status: approval.data.status, token_expires_at: approval.data.token_expires_at, comment: approval.data.comment });
+        setPreview({ title: event.data.title, brief: event.data.brief, caption: event.data.caption });
+      } catch { if (current === scope.current) setError('This review is unavailable for your account. Ask the requester to check your workspace membership.'); }
+      finally { if (current === scope.current) setLoading(false); }
+    })();
+    return () => { scope.current++; };
+  }, [approvalId, user?.id, refresh]);
+  async function decide(decision: 'approved' | 'rejected') {
+    if (!review || submitting) return;
+    const current = scope.current;
+    const result = decision === 'approved' ? await approveStage(review, comment.trim() || undefined) : await rejectApproval(review, comment.trim() || undefined);
+    if (result && current === scope.current) setRefresh(value => value + 1);
   }
-
-  if (!approval || !event) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background p-4">
-        <SEO
-          title="Invalid Link"
-          description="This review link is invalid or has expired"
-        />
-        <Card className="max-w-md w-full">
-          <CardHeader>
-            <div className="flex items-center gap-2 text-destructive">
-              <XCircle className="w-5 h-5" />
-              <CardTitle>Invalid or Expired Link</CardTitle>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-muted-foreground">
-              This review link is invalid or has expired. Please contact your team
-              for a new review link.
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  const isReviewed = approval.status !== "pending";
-
-  return (
-    <div className="min-h-screen bg-background p-4">
-      <SEO
-        title="Review Content"
-        description="Review and approve content"
-      />
-      
-      <div className="max-w-3xl mx-auto py-8 space-y-6">
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle>Content Review</CardTitle>
-              {isReviewed ? (
-                <Badge
-                  variant={approval.status === "approved" ? "default" : "secondary"}
-                  className="gap-2"
-                >
-                  {approval.status === "approved" ? (
-                    <>
-                      <CheckCircle className="w-4 h-4" />
-                      Approved
-                    </>
-                  ) : (
-                    <>
-                      <AlertCircle className="w-4 h-4" />
-                      Changes Requested
-                    </>
-                  )}
-                </Badge>
-              ) : (
-                <Badge variant="outline">Pending Review</Badge>
-              )}
-            </div>
-            <CardDescription>
-              {isReviewed
-                ? `Reviewed on ${new Date(approval.reviewed_at).toLocaleDateString()}`
-                : "Please review the content below and provide your feedback"}
-            </CardDescription>
-          </CardHeader>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">{event.title}</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {event.brief && (
-              <div className="space-y-2">
-                <h3 className="text-sm font-semibold">Brief</h3>
-                <p className="text-sm text-muted-foreground whitespace-pre-wrap">
-                  {event.brief}
-                </p>
-              </div>
-            )}
-
-            {event.caption && (
-              <div className="space-y-2">
-                <h3 className="text-sm font-semibold">Caption</h3>
-                <p className="text-sm whitespace-pre-wrap">{event.caption}</p>
-              </div>
-            )}
-
-            {event.channels?.length > 0 && (
-              <div className="space-y-2">
-                <h3 className="text-sm font-semibold">Channels</h3>
-                <div className="flex flex-wrap gap-2">
-                  {event.channels.map((channel: string) => (
-                    <Badge key={channel} variant="outline">
-                      {channel}
-                    </Badge>
-                  ))}
+  const expired = !review?.token_expires_at || !Number.isFinite(Date.parse(review.token_expires_at)) || Date.parse(review.token_expires_at) <= Date.now();
+  return <main className="min-h-screen bg-background p-4">
+    <SEO title="Workspace review" description="Review content with your workspace account" />
+    <div className="max-w-3xl mx-auto py-8 space-y-5">
+      <Card><CardHeader><CardTitle>Workspace review</CardTitle></CardHeader><CardContent className="space-y-4">
+        {!approvalUuid(approvalId) ? <p>This link format is no longer supported. Ask your team for a signed-in workspace review request.</p>
+          : authLoading ? <p role="status">Checking sign-in…</p>
+          : !user ? <><p>Sign in with the account designated to review this request.</p><Link className="underline" to="/auth">Sign in</Link></>
+          : loading ? <p role="status">Loading review…</p>
+          : error ? <><p role="alert">{error}</p><Button variant="outline" onClick={() => setRefresh(value => value + 1)}>Reload review</Button></>
+          : review && preview ? <>
+            <h2 className="text-xl font-semibold">{preview.title}</h2>
+            {preview.brief && <p className="whitespace-pre-wrap">{preview.brief}</p>}
+            {preview.caption && <p className="whitespace-pre-wrap">{preview.caption}</p>}
+            <p className="text-sm text-muted-foreground">A review decision records feedback only. It does not publish, schedule or change the event status. If the content has changed since this request, the server will require a new review.</p>
+            {review.status !== 'pending' ? <><p>Recorded review: {review.status === 'approved' ? 'Approved' : review.status === 'rejected' ? 'Changes requested' : review.status}</p>{review.comment && <p className="whitespace-pre-wrap">{review.comment}</p>}</>
+              : expired ? <p>This request has expired or cannot be reviewed. Ask the requester for a new request.</p>
+              : <>
+                <label htmlFor="review-comment">Feedback (optional)</label>
+                <Textarea id="review-comment" value={comment} onChange={event => setComment(event.target.value)} maxLength={4000} disabled={submitting} />
+                <div className="flex flex-wrap gap-3">
+                  <Button disabled={submitting} onClick={() => decide('approved')}>Record approval</Button>
+                  <Button variant="outline" disabled={submitting} onClick={() => decide('rejected')}>Request changes</Button>
                 </div>
-              </div>
-            )}
-
-            {event.hashtags?.length > 0 && (
-              <div className="space-y-2">
-                <h3 className="text-sm font-semibold">Hashtags</h3>
-                <div className="flex flex-wrap gap-2">
-                  {event.hashtags.map((tag: string, i: number) => (
-                    <Badge key={i} variant="secondary">
-                      {tag}
-                    </Badge>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {event.assets_json?.length > 0 && (
-              <div className="space-y-2">
-                <h3 className="text-sm font-semibold">Assets</h3>
-                <div className="grid grid-cols-2 gap-2">
-                  {event.assets_json.map((asset: any, i: number) => (
-                    <img
-                      key={i}
-                      src={asset.url}
-                      alt={asset.name || `Asset ${i + 1}`}
-                      className="rounded-lg border w-full h-48 object-cover"
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {isReviewed ? (
-          approval.comment && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">Feedback</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm whitespace-pre-wrap">{approval.comment}</p>
-              </CardContent>
-            </Card>
-          )
-        ) : (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Your Feedback</CardTitle>
-              <CardDescription>
-                Provide comments or changes you'd like to see (optional)
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <Textarea
-                value={comment}
-                onChange={(e) => setComment(e.target.value)}
-                placeholder="Add your feedback here..."
-                rows={6}
-              />
-
-              <div className="flex gap-2">
-                <Button
-                  className="flex-1"
-                  onClick={() => handleSubmit("approved")}
-                  disabled={submitting}
-                >
-                  <CheckCircle className="w-4 h-4 mr-2" />
-                  Approve
-                </Button>
-                <Button
-                  variant="outline"
-                  className="flex-1"
-                  onClick={() => handleSubmit("changes_requested")}
-                  disabled={submitting}
-                >
-                  <AlertCircle className="w-4 h-4 mr-2" />
-                  Request Changes
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-      </div>
+              </>}
+          </> : null}
+      </CardContent></Card>
     </div>
-  );
+  </main>;
 }

@@ -5,12 +5,16 @@ import posthog from "posthog-js";
 import { PostHogProvider } from 'posthog-js/react';
 import * as Sentry from "@sentry/react";
 import App from "./App.tsx";
+import { AwsTestBanner } from '@/components/AwsTestBanner';
+import { isAwsTestBackend } from '@/lib/backendTarget';
 import { installFunctionsLangHeader } from "@/lib/functionsLang";
 import "./index.css";
 
 installFunctionsLangHeader();
 
 
+// The AWS validation build does not initialize third-party capture or replay.
+if (!isAwsTestBackend) {
 // Initialize Sentry
 Sentry.init({
   dsn: "https://107ea857a2b43472c3c60ae6da9829b5e@o4510408780480512.ingest.de.sentry.io/4510408787886160",
@@ -82,6 +86,7 @@ if (posthog) {
   Sentry.setUser({
     id: posthog.get_distinct_id(),
   });
+}
 }
 
 // Custom error fallback component
@@ -171,6 +176,7 @@ createRoot(document.getElementById("root")!).render(
   <Sentry.ErrorBoundary fallback={({ error }) => <ErrorFallback error={error} />}>
     <HelmetProvider>
       <PostHogProvider client={posthog}>
+        <AwsTestBanner />
         <App />
       </PostHogProvider>
     </HelmetProvider>

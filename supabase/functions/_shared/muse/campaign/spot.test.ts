@@ -13,7 +13,7 @@ function fullEdit(): SpotEdit {
   e.music = { url: 'https://x/m.mp3', start: 0, duration: 30, volume: 0.6, duck: 0.3 };
   e.sfx = [{ url: 'https://x/sfx.mp3', start: 1, duration: 1, volume: 0.8 }];
   e.subtitles = { from_voiceover_url: 'https://x/vo.mp3', segments: [{ start: 0.5, end: 3, text: 'Hallo' }] };
-  e.logo = { url: 'https://x/logo.svg', source: 'campaign_asset', rights_confirmed: true };
+  e.logo = { url: 'https://x/logo.svg', source: 'campaign_asset', rights_confirmed: true, width: 800, height: 400 };
   return e;
 }
 

@@ -1,3 +1,6 @@
+import { Link } from 'react-router-dom';
+import { useAuth } from '@/hooks/useAuth';
+import { APPROVAL_READ_FIELDS } from '@/hooks/useCalendarApprovals';
 import { dateFnsLocale } from '@/lib/uiLocale';
 import { tx } from '@/lib/i18nText';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -12,12 +15,14 @@ interface ApprovalTimelineProps {
 }
 
 export function ApprovalTimeline({ event_id }: ApprovalTimelineProps) {
-  const { data: approvals, isLoading } = useQuery({
-    queryKey: ['approvals', event_id],
+  const { user } = useAuth();
+  const { data: approvals, isLoading, isError } = useQuery({
+    queryKey: ['approvals', user?.id, event_id],
+    enabled: !!user?.id,
     queryFn: async () => {
       const { data, error } = await supabase
         .from('calendar_approvals')
-        .select('*')
+        .select(APPROVAL_READ_FIELDS)
         .eq('event_id', event_id)
         .order('created_at', { ascending: false });
 
@@ -29,6 +34,8 @@ export function ApprovalTimeline({ event_id }: ApprovalTimelineProps) {
   if (isLoading) {
     return <div className="text-sm text-muted-foreground">{tx({ de: "Lade Approvals...", en: "Loading Approvals...", es: "Cargando Aprobaciones..." })}</div>;
   }
+
+  if (isError) return <p role="alert">Review history could not be loaded.</p>;
 
   if (!approvals || approvals.length === 0) {
     return (
@@ -67,7 +74,8 @@ export function ApprovalTimeline({ event_id }: ApprovalTimelineProps) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-lg">Approval Timeline</CardTitle>
+        <CardTitle className="text-lg">Review history</CardTitle>
+        <p className="text-xs text-muted-foreground">Recorded feedback does not change publishing or event status.</p>
       </CardHeader>
       <CardContent>
         <div className="space-y-4">
@@ -84,7 +92,7 @@ export function ApprovalTimeline({ event_id }: ApprovalTimelineProps) {
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
                     <span className="font-medium text-sm">
-                      {approval.approver_email}
+                      {approval.approver_id === user?.id ? 'Your review' : 'Workspace reviewer'}
                     </span>
                     {getStatusBadge(approval.status)}
                   </div>
@@ -96,17 +104,13 @@ export function ApprovalTimeline({ event_id }: ApprovalTimelineProps) {
                   </span>
                 </div>
 
-                {approval.approver_role && (
-                  <p className="text-xs text-muted-foreground mb-1">
-                    Rolle: {approval.approver_role}
-                  </p>
-                )}
-
                 {approval.comment && (
                   <div className="bg-muted p-2 rounded text-sm mt-2">
                     <p className="text-muted-foreground">{approval.comment}</p>
                   </div>
                 )}
+
+                {approval.approver_id === user?.id && <Link className="block text-sm underline mt-2" to={`/review/request/${approval.id}`}>Open your review</Link>}
 
                 {approval.stage && (
                   <Badge variant="outline" className="mt-2">

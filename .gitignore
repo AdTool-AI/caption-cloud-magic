@@ -10,6 +10,7 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+dist-aws-test
 *.local
 
 # Editor directories and files
@@ -22,5 +23,33 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
-"bun.lock" 
-"bun.lockb" 
+
+# Private migration audit outputs
+/migration-audit.local/
+/tooling/aws-migration/__pycache__/
+
+# AWS-only local configuration and archived development artifacts
+.env
+.env.*
+!.env.example
+!.env.test.example
+!.env.aws-test.example
+/poc/
+/.lovable/
+/.v463/
+/x1/
+/dist-aws-test/
+/.tmp_*.md
+/*.mp4
+/fix_i18n*.py
+/bun.lock
+/bun.lockb
+
+# Migration documentation is maintained outside this checkout
+/tooling/aws-migration/
+/docs/aws-*
+/docs/jenkins-aws-prodtest.md
+/docs/lovable-schema-evidence-gaps.txt
+/docs/new-platform-spec-review.md
+/docs/source-export-provenance.md
+/docs/contracts/LIPSYNC-FEATURE-FREEZE.md

@@ -1,123 +1,60 @@
-import { tx } from "@/lib/i18nText";
-import { useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/hooks/useAuth';
+import { CalendarApprovalError, createCalendarApprovalWriter, type ApprovalContext, type ApprovalEvent } from '@/lib/calendarApprovalWrite';
 
-export interface ApprovalRequest {
-  email: string;
-  role?: string;
-  user_id?: string;
-}
+// Email and role labels are presentation only. Requests designate existing member IDs.
+export interface ApprovalRequest { user_id: string; email: string; }
+export const APPROVAL_READ_FIELDS = 'id,event_id,approver_id,status,stage,comment,created_at,reviewed_at,token_expires_at' as const;
+const messages: Record<string, string> = {
+  UNAUTHORIZED: 'Sign in to review this request.',
+  APPROVAL_FORBIDDEN: 'You do not have permission for this review.',
+  APPROVAL_CONFLICT: 'The content or review changed. Reload it before continuing.',
+  APPROVAL_EXPIRED: 'This review request has expired.',
+  APPROVAL_RECORD_NOT_FOUND: 'This review is unavailable.',
+  APPROVAL_VERSION_REQUIRED: 'Reload the event to get its current version.',
+  REQUEST_ID_REUSED: 'This request identity belongs to different content. Reload the review.',
+  INVALID_APPROVAL_REQUEST: 'Check the reviewers, expiry and comment.',
+  DUPLICATE_APPROVERS: 'Choose each reviewer once.',
+};
 
 export function useCalendarApprovals() {
-  const [loading, setLoading] = useState(false);
+  const { user, session } = useAuth();
+  const actor = useRef(user?.id); actor.current = user?.id;
   const { toast } = useToast();
-
-  const requestApproval = async (event_id: string, approvers: ApprovalRequest[]) => {
-    setLoading(true);
-    try {
-      const { data, error } = await supabase.functions.invoke('calendar-request-approval', {
-        body: { event_id, approvers }
-      });
-
-      if (error) throw error;
-
-      toast({
-        title: '✅ Approval angefordert',
-        description: `${data.approvals} Freigabe-Anfragen versendet`,
-      });
-
-      return true;
-    } catch (error: any) {
-      console.error('Request approval error:', error);
-      toast({
-        title: tx({ de: 'Fehler', en: 'Mistake', es: 'Error' }),
-        description: error.message,
-        variant: 'destructive',
-      });
-      return false;
-    } finally {
-      setLoading(false);
-    }
+  const [pending, setPending] = useState(0);
+  const writer = useMemo(() => createCalendarApprovalWriter(), [user?.id]);
+  useEffect(() => () => writer.clear(), [writer]);
+  const invoke = async (slug: 'calendar-request-approval' | 'calendar-approve-stage' | 'calendar-reject-approval', body: Record<string, unknown>) => {
+    if (!user?.id || actor.current !== user.id || session?.user.id !== user.id || !session.access_token) throw new CalendarApprovalError('APPROVAL_SCOPE_CHANGED');
+    return supabase.functions.invoke(slug, { body, headers: { Authorization: 'Bearer ' + session.access_token } });
   };
-
-  const approveStage = async (approval_id: string, comment?: string, approved_changes?: any) => {
-    setLoading(true);
+  async function run<T>(action: () => Promise<T>, title: string): Promise<T | null> {
+    const scopeActor = user?.id;
+    setPending(count => count + 1);
     try {
-      const { data, error } = await supabase.functions.invoke('calendar-approve-stage', {
-        body: { approval_id, comment, approved_changes }
-      });
-
-      if (error) throw error;
-
-      toast({
-        title: '✅ Freigabe erteilt',
-        description: data.all_approved ? tx({ de: tx({ de: "Alle Freigaben erteilt!", en: "All permissions granted!", es: "¡Todos los permisos concedidos!" }), en: 'All approvals granted!', es: '¡Todas las aprobaciones concedidas!' }) : tx({ de: 'Freigabe erfolgreich', en: 'Release successful', es: 'Lanzamiento exitoso' }),
-      });
-
-      return data;
-    } catch (error: any) {
-      console.error('Approve error:', error);
-      toast({
-        title: tx({ de: 'Fehler', en: 'Mistake', es: 'Error' }),
-        description: error.message,
-        variant: 'destructive',
-      });
-      return null;
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const rejectApproval = async (approval_id: string, comment: string) => {
-    setLoading(true);
-    try {
-      const { error } = await supabase.functions.invoke('calendar-reject-approval', {
-        body: { approval_id, comment }
-      });
-
-      if (error) throw error;
-
-      toast({
-        title: '🚫 Freigabe abgelehnt',
-        description: tx({ de: 'Event wurde zur Überarbeitung zurückgeschickt', en: 'Event sent back for revision', es: 'El evento fue devuelto para revisión' }),
-      });
-
-      return true;
-    } catch (error: any) {
-      console.error('Reject error:', error);
-      toast({
-        title: tx({ de: 'Fehler', en: 'Mistake', es: 'Error' }),
-        description: error.message,
-        variant: 'destructive',
-      });
-      return false;
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const getApprovals = async (event_id: string) => {
-    try {
-      const { data, error } = await supabase
-        .from('calendar_approvals')
-        .select('*')
-        .eq('event_id', event_id)
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      return data || [];
+      const result = await action();
+      if (actor.current !== scopeActor) return null;
+      toast({ title, description: 'Review recorded. Publishing and event status are unchanged.' });
+      return result;
     } catch (error) {
-      console.error('Get approvals error:', error);
-      return [];
-    }
-  };
-
-  return {
-    loading,
-    requestApproval,
-    approveStage,
-    rejectApproval,
-    getApprovals,
-  };
+      const code = error instanceof CalendarApprovalError ? error.code : 'APPROVAL_RETRY_REQUIRED';
+      if (actor.current === scopeActor && code !== 'APPROVAL_SCOPE_CHANGED') toast({ title: 'Review not confirmed', description: messages[code] ?? 'The outcome is not confirmed. Retry the same action without editing it, or reload the review history.', variant: 'destructive' });
+      return null;
+    } finally { setPending(count => Math.max(0, count - 1)); }
+  }
+  const requestApproval = (event: ApprovalEvent, approvers: ApprovalRequest[], expiresAt: string) => run(
+    () => writer.request(user?.id ?? '', event, approvers.map(row => row.user_id), expiresAt, invoke), 'Review requested');
+  const approveStage = (context: ApprovalContext, comment?: string) => run(
+    () => writer.decide(user?.id ?? '', context, 'approved', comment, invoke), 'Approval recorded');
+  const rejectApproval = (context: ApprovalContext, comment?: string) => run(
+    () => writer.decide(user?.id ?? '', context, 'rejected', comment, invoke), 'Changes requested');
+  async function getApprovals(eventId: string) {
+    if (!user) throw new CalendarApprovalError('UNAUTHORIZED');
+    const { data, error } = await supabase.from('calendar_approvals').select(APPROVAL_READ_FIELDS).eq('event_id', eventId).order('created_at', { ascending: false });
+    if (error) throw new CalendarApprovalError('APPROVAL_RETRY_REQUIRED');
+    return data ?? [];
+  }
+  return { loading: pending > 0, requestApproval, approveStage, rejectApproval, getApprovals };
 }

@@ -58,6 +58,7 @@ export function InspectorDrawer({
   }, [block]);
 
   const handleSave = () => {
+    if (block?.status !== "draft") return;
     const startDate = new Date(startAt);
     const endDate = new Date(startDate.getTime() + duration * 1000);
 
@@ -172,16 +173,9 @@ export function InspectorDrawer({
             <div>
               <Label>{tx({ de: "Status", en: "Status", es: "Estado" })}</Label>
               <div className="flex gap-2 mt-2 flex-wrap">
-                {statusOptions.map((s) => (
-                  <Badge
-                    key={s.value}
-                    variant={status === s.value ? "default" : "outline"}
-                    className={`cursor-pointer ${status === s.value ? s.color : ""}`}
-                    onClick={() => setStatus(s.value)}
-                  >
-                    {s.label}
-                  </Badge>
-                ))}
+                <Badge variant="outline" className={statusOptions.find(option => option.value === status)?.color}>
+                  {statusOptions.find(option => option.value === status)?.label ?? status}
+                </Badge>
               </div>
             </div>
 
@@ -217,7 +211,7 @@ export function InspectorDrawer({
 
             {/* Quick Actions */}
             <div className="flex gap-2 pt-4 border-t">
-              <Button onClick={handleSave} className="flex-1">
+              <Button onClick={handleSave} className="flex-1" disabled={block?.status !== "draft" || !Number.isFinite(Date.parse(startAt)) || !Number.isFinite(duration) || duration <= 0}>
                 <Check className="h-4 w-4 mr-2" />
                 {tx({ de: "Speichern", en: "Save", es: "Guardar" })}
               </Button>

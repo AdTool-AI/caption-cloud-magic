@@ -1,1 +1,2 @@
-UPDATE composer_scenes SET clip_error = NULL, lip_sync_status = 'pending', twoshot_stage = 'master_clip', updated_at = now() WHERE id = 'cbfe0e84-520a-42ee-a0de-a3679946ec6c' AND clip_error LIKE '%7.51%';
+
+-- SOURCE EXPORT: historical customer-specific statement omitted; no schema or reusable function removed.

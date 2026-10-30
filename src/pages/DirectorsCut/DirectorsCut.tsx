@@ -797,7 +797,7 @@ export function DirectorsCut() {
 
       let pixelCutTimes: number[] = [];
       if (shouldRunPixelPass) {
-        const proxyUrl = `https://lbunafpxuskwmsrraqxl.supabase.co/functions/v1/proxy-video-bytes?url=${encodeURIComponent(selectedVideo.url)}`;
+        const proxyUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/proxy-video-bytes?url=${encodeURIComponent(selectedVideo.url)}`;
         const extractCandidates = [selectedVideo.url, proxyUrl];
         for (const candidateUrl of extractCandidates) {
           try {

@@ -8,6 +8,5 @@ USING (auth.uid() = id)
 WITH CHECK (auth.uid() = id);
 
 -- Set your account to Pro test mode
-UPDATE public.profiles 
-SET test_mode_plan = 'pro' 
-WHERE id = '9a231d44-847a-4b3a-95e0-7d2b06d62312';
+
+-- SOURCE EXPORT: historical customer-specific statement omitted; no schema or reusable function removed.

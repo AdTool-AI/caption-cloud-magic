@@ -1,5 +1,5 @@
 // QA Agent Setup Test User
-// Idempotent: creates qa-bot@useadtool.ai (Enterprise plan), flags is_test_user,
+// Idempotent: creates REDACTED_ACCOUNT_EMAIL (Enterprise plan), flags is_test_user,
 // allocates the 300€ QA budget, returns the user id so secrets can be saved.
 // Admin-only.
 
