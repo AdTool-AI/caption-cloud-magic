@@ -1,3 +1,5 @@
+import { isAwsTestBackend } from '@/lib/backendTarget';
+import { CalendarDraftDrawer } from './CalendarDraftDrawer';
 import { useState, useEffect } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -18,6 +20,7 @@ import { tx } from '@/lib/i18nText';
 import { uiLocale } from '@/lib/uiLocale';
 
 interface EventDrawerProps {
+  workspaceId?: string | null;
   open: boolean;
   onClose: () => void;
   eventId: string | null;
@@ -45,7 +48,10 @@ const STATUS_META: Record<string, { label: string; dot: string; ring: string; pu
   published:        { label: tx({ de: 'Veröffentlicht', en: 'Published', es: 'Publicado' }),  dot: "bg-fuchsia-300", ring: "border-fuchsia-400/40", pulse: false },
 };
 
-export function EventDrawer({ open, onClose, eventId, onDelete, onUpdate }: EventDrawerProps) {
+export function EventDrawer(props: EventDrawerProps) {
+  return isAwsTestBackend ? <CalendarDraftDrawer {...props} /> : <LegacyEventDrawer {...props} />;
+}
+function LegacyEventDrawer({ open, onClose, eventId, onDelete, onUpdate }: EventDrawerProps) {
   const { t } = useTranslation();
   const isMobile = useIsMobile();
   const [event, setEvent] = useState<any>(null);
