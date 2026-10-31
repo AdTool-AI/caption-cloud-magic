@@ -1,3 +1,5 @@
+import { useAuth } from '@/hooks/useAuth';
+import { usePlannerRequestScope, usePlannerScopedState } from '@/hooks/usePlannerRequestScope';
 import { tx } from "@/lib/i18nText";
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
@@ -40,17 +42,24 @@ interface ContentLibraryProps {
 export function ContentLibrary({ workspaceId, onContentSelect }: ContentLibraryProps) {
   const [searchParams] = useSearchParams();
   const campaignId = searchParams.get("campaign_id");
-  const [items, setItems] = useState<any[]>([]);
+  const { user } = useAuth();
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
-  const [loading, setLoading] = useState(false);
+  // Query identity is UI response ownership, never backend authorization.
+  const readScope = usePlannerRequestScope(user?.id, JSON.stringify([workspaceId, filter, search, campaignId]));
+  const [items, setItems] = usePlannerScopedState<any[]>(readScope, () => []);
+  const [loading, setLoading] = usePlannerScopedState(readScope, () => true);
+  const [loadFailed, setLoadFailed] = usePlannerScopedState(readScope, () => false);
+  const [retry, setRetry] = useState(0);
 
   useEffect(() => {
     loadLibrary();
-  }, [workspaceId, filter, search, campaignId]);
+  }, [readScope, retry]);
 
   const loadLibrary = async () => {
-    setLoading(true);
+    const canCommit = readScope.startRequest('library');
+    if (!canCommit() || !workspaceId) return;
+    setLoading(true); setLoadFailed(false); setItems([]);
     try {
       let allData: any[] = [];
 
@@ -109,7 +118,9 @@ export function ContentLibrary({ workspaceId, onContentSelect }: ContentLibraryP
           aiQuery.order("created_at", { ascending: false })
         ]);
 
-        // Merge all results
+        if (!canCommit()) return;
+        if ([campaignResult, mediaResult, aiResult].some(result => result.error || !Array.isArray(result.data))) throw new Error('LIBRARY_UNAVAILABLE');
+        // Merge only complete successful results
         const campaignData = campaignResult.data || [];
         const mediaData = mediaResult.data || [];
         const aiData = aiResult.data || [];
@@ -131,16 +142,18 @@ export function ContentLibrary({ workspaceId, onContentSelect }: ContentLibraryP
 
         const { data, error } = await query.order("created_at", { ascending: false });
         
-        if (!error && data) {
-          allData = data;
-        }
+        if (!canCommit()) return;
+        if (error || !Array.isArray(data)) throw new Error('LIBRARY_UNAVAILABLE');
+        allData = data;
       }
 
+      if (!canCommit()) return;
+      if (allData.some(row => row.workspace_id !== workspaceId)) throw new Error('LIBRARY_SCOPE_CHANGED');
       setItems(allData);
     } catch (error) {
-      console.error("Error loading library:", error);
+      if (canCommit()) { setItems([]); setLoadFailed(true); }
     } finally {
-      setLoading(false);
+      if (canCommit()) setLoading(false);
     }
   };
 
@@ -187,6 +200,11 @@ export function ContentLibrary({ workspaceId, onContentSelect }: ContentLibraryP
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
         {loading ? (
           <div className="text-center text-sm text-muted-foreground">{tx({ de: "Lädt...", en: "Loading...", es: "Cargando..." })}</div>
+        ) : loadFailed ? (
+          <div role="alert" className="space-y-2 text-sm">
+            <p>{tx({ en: 'Content could not be loaded.', de: 'Inhalte konnten nicht geladen werden.', es: 'No se pudo cargar el contenido.' })}</p>
+            <Button variant="outline" onClick={() => setRetry(value => value + 1)}>{tx({ en: 'Retry', de: 'Erneut versuchen', es: 'Reintentar' })}</Button>
+          </div>
         ) : items.length === 0 ? (
           <EmptyContentLibrary campaignFilter={!!campaignId} />
         ) : (

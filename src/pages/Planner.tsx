@@ -1,3 +1,4 @@
+import { usePlannerRequestScope, usePlannerScopedState } from '@/hooks/usePlannerRequestScope';
 import { PlannerRecommendationsDialog } from '@/components/planner/PlannerRecommendationsDialog';
 import { useState, useEffect, useRef } from "react";
 import { createPlannerBlockWriter, PlannerBlockSaveError } from "@/lib/plannerBlockWrite";
@@ -24,26 +25,27 @@ import { format } from "date-fns";
 import { useUserBehavior } from '@/hooks/useUserBehavior';
 import { tx } from "@/lib/i18nText";
 
-export default function Planner() {
-  const { user } = useAuth();
+function LegacyPlanner() {
+  const { user, session } = useAuth();
+  const accountScope = usePlannerRequestScope(user?.id);
+  const [workspaceId, setWorkspaceId] = usePlannerScopedState<string | null>(accountScope, () => null);
+  const dataScope = usePlannerRequestScope(user?.id, workspaceId);
   const initialPlanRequests = useRef(new Map<string, string>());
   const blockWriter = useRef(createPlannerBlockWriter());
-  const newPlannerUI = useFeatureFlag("enable_new_planner_ui");
   const { trackProjectCreate } = useUserBehavior();
-  const [weekplan, setWeekplan] = useState<any>(null);
-  const [blocks, setBlocks] = useState<any[]>([]);
-  const [selectedBlock, setSelectedBlock] = useState<any>(null);
-  const [selectedBlocks, setSelectedBlocks] = useState<string[]>([]);
-  const [recommendationOpen, setRecommendationOpen] = useState(false);
-  const [recommendations, setRecommendations] = useState<any[]>([]);
-  const [aiOverlayVisible, setAiOverlayVisible] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [workspaceId, setWorkspaceId] = useState<string | null>(null);
-  const [brandKitId, setBrandKitId] = useState<string | null>(null);
-  const [activeId, setActiveId] = useState<string | null>(null);
-  const [pendingDrop, setPendingDrop] = useState<{ date: Date; content: any } | null>(null);
-  const [postsPerDay, setPostsPerDay] = useState<Record<string, { scheduled: number; approved: number }>>({});
+  const [weekplan, setWeekplan] = usePlannerScopedState<any>(dataScope, () => null);
+  const [blocks, setBlocks] = usePlannerScopedState<any[]>(dataScope, () => []);
+  const [selectedBlock, setSelectedBlock] = usePlannerScopedState<any>(dataScope, () => null);
+  const [selectedBlocks, setSelectedBlocks] = usePlannerScopedState<string[]>(dataScope, () => []);
+  const [recommendationOpen, setRecommendationOpen] = usePlannerScopedState(dataScope, () => false);
+  const [recommendations, setRecommendations] = usePlannerScopedState<any[]>(dataScope, () => []);
+  const [aiOverlayVisible, setAiOverlayVisible] = usePlannerScopedState(dataScope, () => false);
+  const [loading, setLoading] = usePlannerScopedState(dataScope, () => true);
+  const [error, setError] = usePlannerScopedState<string | null>(dataScope, () => null);
+  const [brandKitId, setBrandKitId] = usePlannerScopedState<string | null>(accountScope, () => null);
+  const [activeId, setActiveId] = usePlannerScopedState<string | null>(dataScope, () => null);
+  const [pendingDrop, setPendingDrop] = usePlannerScopedState<{ date: Date; content: any } | null>(dataScope, () => null);
+  const [postsPerDay, setPostsPerDay] = usePlannerScopedState<Record<string, { scheduled: number; approved: number }>>(dataScope, () => ({}));
 
   useEffect(() => { blockWriter.current.clear(); }, [user?.id, workspaceId, weekplan?.id]);
 
@@ -51,117 +53,62 @@ export default function Planner() {
     if (user) {
       loadUserWorkspace();
     }
-  }, [user]);
+  }, [accountScope]);
 
   useEffect(() => {
     if (workspaceId) {
       loadOrCreateWeekplan();
     }
-  }, [workspaceId]);
+  }, [dataScope]);
 
   const loadUserWorkspace = async () => {
-    // Timeout to prevent infinite loading
-    const timeoutId = setTimeout(() => {
-      console.error("Workspace load timeout");
-      setError(tx({ de: "Laden dauert zu lange. Bitte Seite neu laden.", en: "Loading takes too long. Please reload the page.", es: "La carga tarda demasiado. Por favor recarga la página." }));
+    const requestCurrent = accountScope.startRequest('membership');
+    let timedOut = false;
+    const canCommit = () => !timedOut && requestCurrent();
+    if (!user || !canCommit()) return;
+    setError(null); setLoading(true);
+    const timeout = setTimeout(() => {
+      if (!canCommit()) return;
+      timedOut = true;
+      setError(tx({ en: 'Workspace loading timed out. Reload the page.', de: 'Das Laden dauert zu lange. Bitte neu laden.', es: 'La carga tardó demasiado. Vuelve a cargar la página.' }));
       setLoading(false);
     }, 10000);
-
     try {
-      // Use array query instead of maybeSingle for better performance
-      const { data: memberships, error } = await supabase
-        .from("workspace_members")
-        .select("workspace_id")
-        .eq("user_id", user?.id)
-        .limit(1);
-
-      if (error) {
-        console.error("Workspace load error:", error);
-        clearTimeout(timeoutId);
-        toast.error(tx({ de: "Fehler beim Laden des Workspace", en: "Failed to load workspace", es: "Error al cargar el workspace" }));
-        setError(tx({ de: "Workspace konnte nicht geladen werden", en: "Workspace could not be loaded", es: "No se pudo cargar el workspace" }));
-        setLoading(false);
-        return;
-      }
-
-      if (!memberships || memberships.length === 0) {
-        console.log("No workspace found, creating default workspace");
-        clearTimeout(timeoutId);
-        await createDefaultWorkspace();
-        return;
-      }
-
-      clearTimeout(timeoutId);
-      setWorkspaceId(memberships[0].workspace_id);
-      
-      // Load active brand kit in parallel (non-blocking)
-      supabase
-        .from("brand_kits")
-        .select("id")
-        .eq("user_id", user?.id)
-        .eq("is_active", true)
-        .limit(1)
-        .then(({ data }) => {
-          if (data && data.length > 0) {
-            setBrandKitId(data[0].id);
-          }
-        });
-    } catch (error: any) {
-      clearTimeout(timeoutId);
-      console.error("Unexpected error loading workspace:", error);
-      toast.error(tx({ de: "Unerwarteter Fehler: ", en: "Unexpected error:", es: "Error inesperado:" }) + error.message);
-      setError(tx({ de: "Ein unerwarteter Fehler ist aufgetreten", en: "An unexpected error occurred", es: "Se ha producido un error inesperado" }));
+      const { data: memberships, error: membershipError } = await supabase.from('workspace_members')
+        .select('workspace_id').eq('user_id', user.id).limit(1);
+      if (!canCommit()) return;
+      if (membershipError || !Array.isArray(memberships) || !memberships[0]?.workspace_id) throw new Error('WORKSPACE_UNAVAILABLE');
+      clearTimeout(timeout); setWorkspaceId(memberships[0].workspace_id);
+      // Workspace provisioning belongs to the account/onboarding backend, never a failed read.
+      const { data: brands, error: brandError } = await supabase.from('brand_kits')
+        .select('id').eq('user_id', user.id).eq('is_active', true).limit(1);
+      if (canCommit() && !brandError && brands?.length) setBrandKitId(brands[0].id);
+    } catch {
+      if (!canCommit()) return;
+      setError(tx({ en: 'The workspace could not be loaded. Check account setup and reload.', de: 'Der Workspace konnte nicht geladen werden. Bitte Kontoeinrichtung prüfen und neu laden.', es: 'No se pudo cargar el espacio de trabajo. Revisa la configuración de la cuenta y vuelve a cargar.' }));
       setLoading(false);
-    }
-  };
-
-  const createDefaultWorkspace = async () => {
-    try {
-      console.log("Creating default workspace for user");
-      
-      const { data: newWorkspace, error } = await supabase
-        .from("workspaces")
-        .insert({
-          name: tx({ de: "Mein Workspace", en: "My Workspace", es: "Mi espacio de trabajo" }),
-          owner_id: user?.id,
-        })
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      await supabase
-        .from("workspace_members")
-        .insert({
-          workspace_id: newWorkspace.id,
-          user_id: user?.id,
-          role: "owner",
-        });
-
-      setWorkspaceId(newWorkspace.id);
-      toast.success(tx({ de: "Workspace erstellt", en: "Workspace created", es: "Espacio de trabajo creado" }));
-    } catch (error: any) {
-      console.error("Error creating workspace:", error);
-      toast.error(tx({ de: "Fehler beim Erstellen des Workspace", en: "Failed to create workspace", es: "Error al crear el workspace" }));
-      setError(tx({ de: "Workspace konnte nicht erstellt werden", en: "Workspace could not be created", es: "No se pudo crear el workspace" }));
-      setLoading(false);
-    }
+    } finally { clearTimeout(timeout); }
   };
 
   const loadOrCreateWeekplan = async () => {
-    setLoading(true);
+    const canCommit = dataScope.startRequest('weekplan');
+    if (!canCommit() || !workspaceId || !user) return;
+    setError(null); setLoading(true);
     try {
       // Try to load the most recent weekplan
-      const { data: plans } = await supabase
+      const { data: plans, error: plansError } = await supabase
         .from("weekplans")
         .select("*")
         .eq("workspace_id", workspaceId)
         .order("created_at", { ascending: false })
         .limit(1);
 
-      if (plans && plans.length > 0) {
+      if (!canCommit()) return;
+      if (plansError || !Array.isArray(plans)) throw new Error('WEEKPLAN_UNAVAILABLE');
+      if (plans.some(plan => plan.workspace_id !== workspaceId)) throw new Error('WEEKPLAN_SCOPE_CHANGED');
+      if (plans.length > 0) {
         setWeekplan(plans[0]);
-        loadBlocks(plans[0].id);
+        await loadBlocks(plans[0].id);
       } else {
         // Create a default 2-week plan
         const startDate = new Date();
@@ -169,7 +116,7 @@ export default function Planner() {
 
         console.log("Creating new weekplan for workspace:", workspaceId);
 
-        if (!user?.id) throw new Error('UNAUTHORIZED');
+        if (!user?.id || session?.user.id !== user.id || !session.access_token || !canCommit()) throw new Error('UNAUTHORIZED');
         const createBody = {
           workspace_id: workspaceId,
           name: tx({ de: "Mein Content Plan", en: "My Content Plan", es: "Mi plan de contenido" }),
@@ -180,10 +127,12 @@ export default function Planner() {
         };
         const { data, error } = await supabase.functions.invoke("planner-upsert-weekplan", {
           body: { ...createBody, request_id: plannerCreateRequestId(initialPlanRequests.current, user.id, workspaceId, createBody) },
+          headers: { Authorization: `Bearer ${session.access_token}` },
         });
 
         // A failed/unknown backend result must never fall back to an untracked direct insert.
-        if (error) throw error;
+        if (!canCommit()) return;
+        if (error || !data?.id || data.workspace_id !== workspaceId) throw new Error('WEEKPLAN_UNAVAILABLE');
         if (data) {
           console.log("Weekplan created via edge function:", data.id);
           setWeekplan(data);
@@ -192,20 +141,26 @@ export default function Planner() {
         }
       }
     } catch (error: any) {
+      if (!canCommit()) return;
+      setError(tx({ en: "The plan could not be loaded or saved. Reload before retrying.", de: "Der Plan konnte nicht geladen oder gespeichert werden. Bitte neu laden.", es: "No se pudo cargar o guardar el plan. Vuelve a cargar antes de intentarlo." }));
       console.error("Error loading/creating weekplan:", error);
       toast.error(tx({ de: "Fehler beim Laden des Plans: ", en: "Failed to load plan: ", es: "Error al cargar el plan: " }) + (error.message || tx({ de: "Unbekannter Fehler", en: "Unknown error", es: "Error desconocido" })));
     } finally {
-      setLoading(false);
+      if (canCommit()) setLoading(false);
     }
   };
 
   const loadBlocks = async (weekplanId: string) => {
-    const { data } = await supabase
+    const canCommit = dataScope.startRequest('blocks');
+    if (!canCommit() || !workspaceId) return;
+    const { data, error: blocksError } = await supabase
       .from("schedule_blocks")
       .select("*, content_items(*)")
       .eq("weekplan_id", weekplanId)
       .order("start_at", { ascending: true });
 
+    if (!canCommit()) return;
+    if (blocksError || !Array.isArray(data) || data.some(block => block.workspace_id !== workspaceId || block.weekplan_id !== weekplanId)) throw new Error('BLOCKS_UNAVAILABLE');
     if (data) {
       setBlocks(data);
       
@@ -227,12 +182,13 @@ export default function Planner() {
   };
 
   const saveDraftBlocks = async (items: any[]) => {
-    if (!user || !workspaceId || !weekplan) throw new PlannerBlockSaveError("INVALID_BLOCK_SCOPE");
+    if (!dataScope.isCurrent() || !user || !workspaceId || !weekplan || session?.user.id !== user.id || !session.access_token) throw new PlannerBlockSaveError("INVALID_BLOCK_SCOPE");
     return blockWriter.current.save(user.id, workspaceId, items,
-      body => supabase.functions.invoke("planner-upsert-blocks", { body }), weekplan.id);
+      body => supabase.functions.invoke("planner-upsert-blocks", { body, headers: { Authorization: `Bearer ${session.access_token}` } }), weekplan.id);
   };
 
   const showBlockSaveError = (error: unknown) => {
+    if (!dataScope.isCurrent()) return;
     const code = error instanceof PlannerBlockSaveError ? error.code : "BLOCK_SAVE_FAILED";
     if (code === "SAVE_SCOPE_CHANGED") return;
     toast.error(code === "STALE_WRITE_RETRY_REQUIRED" || code === "REQUEST_ID_REUSED"
@@ -243,26 +199,31 @@ export default function Planner() {
   };
 
   const handleBlockDrop = async (blockData: any) => {
+    if (!dataScope.isCurrent()) return;
     if (!weekplan || !workspaceId || !user) return;
     try {
       await saveDraftBlocks([blockData]);
       if (!blockData.id) trackProjectCreate('post', weekplan.id);
       await loadBlocks(weekplan.id);
+      if (!dataScope.isCurrent()) return;
       toast.success(tx({ de: "Entwurf gespeichert", en: "Draft saved", es: "Borrador guardado" }));
     } catch (error) { showBlockSaveError(error); }
   };
 
   const handleBlockSave = async (updatedBlock: any) => {
+    if (!dataScope.isCurrent()) return;
     if (!weekplan || !workspaceId || !user) return;
     try {
       await saveDraftBlocks([updatedBlock]);
       await loadBlocks(weekplan.id);
+      if (!dataScope.isCurrent()) return;
       setSelectedBlock(current => current?.id === updatedBlock.id ? null : current);
       toast.success(tx({ de: "Änderungen gespeichert", en: "Changes saved", es: "Cambios guardados" }));
     } catch (error) { showBlockSaveError(error); }
   };
 
   const handleBlockDelete = async (blockId: string) => {
+    if (!dataScope.isCurrent()) return;
     if (!workspaceId || !weekplan) return;
 
     const loadingToast = toast.loading(tx({ de: "Lösche Post...", en: "Deleting post...", es: "Eliminando publicación..." }));
@@ -274,6 +235,7 @@ export default function Planner() {
         .eq("id", blockId)
         .eq("workspace_id", workspaceId);
 
+      if (!dataScope.isCurrent()) { toast.dismiss(loadingToast); return; }
       if (error) {
         console.error("Delete error:", error);
         toast.error(tx({ de: "Fehler beim Löschen: ", en: "Failed to delete: ", es: "Error al eliminar: " }) + error.message, { id: loadingToast });
@@ -281,16 +243,19 @@ export default function Planner() {
       }
 
       await loadBlocks(weekplan.id);
+      if (!dataScope.isCurrent()) return;
       setSelectedBlock(null);
       toast.success(tx({ de: "Post wurde gelöscht", en: "Post deleted", es: "Publicación eliminada" }), { id: loadingToast });
     } catch (error: any) {
+      if (!dataScope.isCurrent()) { toast.dismiss(loadingToast); return; }
       console.error("Unexpected error:", error);
       toast.error(tx({ de: "Unerwarteter Fehler: ", en: "Unexpected error:", es: "Error inesperado:" }) + error.message, { id: loadingToast });
     }
   };
 
   const handleWeeksChange = async (weeks: number) => {
-    if (!weekplan || !workspaceId) return;
+    if (!dataScope.isCurrent()) return;
+    if (!weekplan || !workspaceId || !user || session?.user.id !== user.id || !session.access_token) return;
 
     const { data, error } = await supabase.functions.invoke("planner-upsert-weekplan", {
       body: {
@@ -304,8 +269,10 @@ export default function Planner() {
         timezone: weekplan.timezone,
         default_platforms: weekplan.default_platforms,
       },
+      headers: { Authorization: `Bearer ${session.access_token}` },
     });
 
+    if (!dataScope.isCurrent()) return;
     if (error) {
       toast.error(tx({ de: "Fehler beim Aktualisieren", en: "Failed to update", es: "Error al actualizar" }));
       return;
@@ -318,7 +285,8 @@ export default function Planner() {
   };
 
   const handleApprove = async (blockIds?: string[]) => {
-    if (!weekplan || !workspaceId) return;
+    if (!dataScope.isCurrent()) return;
+    if (!weekplan || !workspaceId || !user || session?.user.id !== user.id || !session.access_token) return;
 
     const idsToApprove = blockIds || blocks
       .filter(b => b.status === "draft" || b.status === "scheduled")
@@ -336,8 +304,10 @@ export default function Planner() {
         block_ids: idsToApprove,
         create_jobs: true,
       },
+      headers: { Authorization: `Bearer ${session.access_token}` },
     });
 
+    if (!dataScope.isCurrent()) return;
     if (error) {
       toast.error(tx({ de: "Fehler beim Genehmigen", en: "Approval failed", es: "Error al aprobar" }));
       return;
@@ -476,17 +446,6 @@ export default function Planner() {
     );
   }
 
-  // Show new UI if feature flag is enabled
-  if (newPlannerUI) {
-    return (
-      <div className="min-h-screen flex flex-col">
-        <div className="container mx-auto px-4 py-8">
-          <PlannerV2 />
-        </div>
-        <Footer />
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -576,4 +535,16 @@ export default function Planner() {
       <Footer />
     </div>
   );
+}
+
+
+export default function Planner() {
+  const newPlannerUI = useFeatureFlag('enable_new_planner_ui');
+  if (newPlannerUI) {
+    return <div className="min-h-screen flex flex-col">
+      <div className="container mx-auto px-4 py-8"><PlannerV2 /></div>
+      <Footer />
+    </div>;
+  }
+  return <LegacyPlanner />;
 }

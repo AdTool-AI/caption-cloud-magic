@@ -1,3 +1,8 @@
+import { isAwsTestBackend } from '@/lib/backendTarget';
+import { useCalendarDraftEdit } from '@/hooks/useCalendarDraftEdit';
+import { calendarDraftMove } from '@/lib/calendarDraftEdit';
+import { usePlannerRequestScope, usePlannerScopedState } from '@/hooks/usePlannerRequestScope';
+import { calendarEventsQueryKey, calendarClientsQueryKey, calendarMembersQueryKey } from '@/lib/calendarQueryKeys';
 import { tx } from "@/lib/i18nText";
 import { useState, useEffect, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -121,36 +126,39 @@ export default function Calendar({ embedded }: { embedded?: boolean } = {}) {
   }, []);
   
   // Scope State
-  const [selectedWorkspace, setSelectedWorkspace] = useState<string>("");
-  const [selectedClient, setSelectedClient] = useState<string>("");
-  const [selectedBrand, setSelectedBrand] = useState<string>("");
+  const accountScope = usePlannerRequestScope(user?.id);
+  const [selectedWorkspace, setSelectedWorkspace] = usePlannerScopedState<string>(accountScope, () => "");
+  const dataScope = usePlannerRequestScope(user?.id, selectedWorkspace || null);
+  const draftEditor = useCalendarDraftEdit(selectedWorkspace || null);
+  const [selectedClient, setSelectedClient] = usePlannerScopedState<string>(dataScope, () => "");
+  const [selectedBrand, setSelectedBrand] = usePlannerScopedState<string>(dataScope, () => "");
   
   // UI State
-  const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
-  const [showEventDetail, setShowEventDetail] = useState(false);
-  const [showCreateDialog, setShowCreateDialog] = useState(false);
-  const [showDayCockpit, setShowDayCockpit] = useState(false);
+  const [selectedEvent, setSelectedEvent] = usePlannerScopedState<CalendarEvent | null>(dataScope, () => null);
+  const [showEventDetail, setShowEventDetail] = usePlannerScopedState(dataScope, () => false);
+  const [showCreateDialog, setShowCreateDialog] = usePlannerScopedState(dataScope, () => false);
+  const [showDayCockpit, setShowDayCockpit] = usePlannerScopedState(dataScope, () => false);
 
-  const [showEventDrawer, setShowEventDrawer] = useState(false);
-  const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
-  const [prefillDate, setPrefillDate] = useState<Date | null>(null);
-  const [userPlan, setUserPlan] = useState<string>("free");
-  const [showUpgrade, setShowUpgrade] = useState(false);
+  const [showEventDrawer, setShowEventDrawer] = usePlannerScopedState(dataScope, () => false);
+  const [selectedEventId, setSelectedEventId] = usePlannerScopedState<string | null>(dataScope, () => null);
+  const [prefillDate, setPrefillDate] = usePlannerScopedState<Date | null>(dataScope, () => null);
+  const [userPlan, setUserPlan] = usePlannerScopedState<string>(accountScope, () => "free");
+  const [showUpgrade, setShowUpgrade] = usePlannerScopedState(dataScope, () => false);
   
   // Sprint 5-6: AI & Automation Dialogs
-  const [showAutoSchedule, setShowAutoSchedule] = useState(false);
-  const [showCampaignTemplates, setShowCampaignTemplates] = useState(false);
-  const [showBlackoutDates, setShowBlackoutDates] = useState(false);
-  const [showHolidays, setShowHolidays] = useState(false);
-  const [showIntegrations, setShowIntegrations] = useState(false);
-  const [selectedEventIds, setSelectedEventIds] = useState<string[]>([]);
+  const [showAutoSchedule, setShowAutoSchedule] = usePlannerScopedState(dataScope, () => false);
+  const [showCampaignTemplates, setShowCampaignTemplates] = usePlannerScopedState(dataScope, () => false);
+  const [showBlackoutDates, setShowBlackoutDates] = usePlannerScopedState(dataScope, () => false);
+  const [showHolidays, setShowHolidays] = usePlannerScopedState(dataScope, () => false);
+  const [showIntegrations, setShowIntegrations] = usePlannerScopedState(dataScope, () => false);
+  const [selectedEventIds, setSelectedEventIds] = usePlannerScopedState<string[]>(dataScope, () => []);
   const [showMetricsDashboard, setShowMetricsDashboard] = useState(true);
-  const [selectedEventForLogs, setSelectedEventForLogs] = useState<string | null>(null);
+  const [selectedEventForLogs, setSelectedEventForLogs] = usePlannerScopedState<string | null>(dataScope, () => null);
   
   // Phase 17: Advanced Scheduling & Workflow
-  const [showNotifications, setShowNotifications] = useState(false);
-  const [showBulkSchedule, setShowBulkSchedule] = useState(false);
-  const [showRecurringRules, setShowRecurringRules] = useState(false);
+  const [showNotifications, setShowNotifications] = usePlannerScopedState(dataScope, () => false);
+  const [showBulkSchedule, setShowBulkSchedule] = usePlannerScopedState(dataScope, () => false);
+  const [showRecurringRules, setShowRecurringRules] = usePlannerScopedState(dataScope, () => false);
 
   // React Query: Events with caching
   const {
@@ -158,7 +166,7 @@ export default function Calendar({ embedded }: { embedded?: boolean } = {}) {
     isLoading: eventsLoading,
     invalidate: invalidateEvents,
   } = useOptimizedCache({
-    queryKey: ['calendar-events', selectedWorkspace, selectedClient, selectedBrand],
+    queryKey: calendarEventsQueryKey(user?.id, selectedWorkspace, selectedClient, selectedBrand),
     queryFn: async () => {
       if (!selectedWorkspace) return [];
       
@@ -179,7 +187,7 @@ export default function Calendar({ embedded }: { embedded?: boolean } = {}) {
     staleTime: 2 * 60 * 1000, // 2 minutes
     cacheTime: 10 * 60 * 1000, // 10 minutes
     refetchOnWindowFocus: true,
-    enabled: !!selectedWorkspace,
+    enabled: !!user?.id && !!selectedWorkspace,
   });
 
   // React Query: Workspaces
@@ -203,7 +211,7 @@ export default function Calendar({ embedded }: { embedded?: boolean } = {}) {
 
   // React Query: Clients
   const { data: clients = [] } = useOptimizedCache({
-    queryKey: ['clients', selectedWorkspace],
+    queryKey: calendarClientsQueryKey(user?.id, selectedWorkspace),
     queryFn: async () => {
       const { data, error } = await supabase
         .from("clients")
@@ -215,7 +223,7 @@ export default function Calendar({ embedded }: { embedded?: boolean } = {}) {
       return data || [];
     },
     staleTime: 5 * 60 * 1000,
-    enabled: !!selectedWorkspace,
+    enabled: !!user?.id && !!selectedWorkspace,
   });
 
   // React Query: Brands
@@ -237,7 +245,7 @@ export default function Calendar({ embedded }: { embedded?: boolean } = {}) {
 
   // React Query: Workspace Members
   const { data: workspaceMembers = [] } = useOptimizedCache({
-    queryKey: ['workspace-members', selectedWorkspace],
+    queryKey: calendarMembersQueryKey(user?.id, selectedWorkspace),
     queryFn: async () => {
       const { data, error } = await supabase
         .from("workspace_members")
@@ -265,7 +273,7 @@ export default function Calendar({ embedded }: { embedded?: boolean } = {}) {
       return data?.map(m => ({ user_id: m.user_id, profiles: { id: m.user_id, email: '' } })) || [];
     },
     staleTime: 5 * 60 * 1000,
-    enabled: !!selectedWorkspace,
+    enabled: !!user?.id && !!selectedWorkspace,
   });
 
   const loading = workspacesLoading || eventsLoading;
@@ -372,13 +380,31 @@ export default function Calendar({ embedded }: { embedded?: boolean } = {}) {
 
 
   const handleEventMove = async (eventId: string, newDate: Date) => {
+    if (isAwsTestBackend) {
+      const row = events.find(event => event.id === eventId);
+      if (!row || !dataScope.isCurrent()) return;
+      const queryKey = calendarEventsQueryKey(user?.id, selectedWorkspace, selectedClient, selectedBrand);
+      try {
+        const receipt = await draftEditor.edit(row, calendarDraftMove(row, newDate));
+        if (!receipt || !dataScope.isCurrent()) return;
+        queryClient.setQueryData<CalendarEvent[]>(queryKey, (old = []) => old.map(event =>
+          event.id === receipt.event.id && event.version === row.version && event.updated_at === row.updated_at
+            ? { ...event, ...receipt.event } as CalendarEvent : event));
+        await queryClient.invalidateQueries({ queryKey });
+        if (dataScope.isCurrent()) toast.success(tx({ en: 'Draft time updated.', de: 'Entwurfszeit aktualisiert.', es: 'Hora del borrador actualizada.' }));
+      } catch {
+        if (dataScope.isCurrent()) toast.error(tx({ en: 'Draft could not be moved. Reload it and try again.', de: 'Entwurf konnte nicht verschoben werden. Neu laden und erneut versuchen.', es: 'No se pudo mover el borrador. Vuelve a cargarlo e inténtalo de nuevo.' }));
+      }
+      return;
+    }
+
     if (!hasCalendarAccess()) {
       setShowUpgrade(true);
       return;
     }
 
     // Optimistic Update
-    const queryKey = ['calendar-events', selectedWorkspace, selectedClient, selectedBrand];
+    const queryKey = calendarEventsQueryKey(user?.id, selectedWorkspace, selectedClient, selectedBrand);
     const previousEvents = queryClient.getQueryData<CalendarEvent[]>(queryKey);
     
     queryClient.setQueryData<CalendarEvent[]>(queryKey, (old = []) =>
@@ -411,13 +437,18 @@ export default function Calendar({ embedded }: { embedded?: boolean } = {}) {
   };
 
   const handleStatusChange = async (eventId: string, newStatus: any) => {
+    if (isAwsTestBackend) {
+      toast.info(tx({ en: 'Status changes are not available yet.', de: 'Statusänderungen sind noch nicht verfügbar.', es: 'Los cambios de estado aún no están disponibles.' }));
+      return;
+    }
+
     if (!hasCalendarAccess()) {
       setShowUpgrade(true);
       return;
     }
 
     // Optimistic Update
-    const queryKey = ['calendar-events', selectedWorkspace, selectedClient, selectedBrand];
+    const queryKey = calendarEventsQueryKey(user?.id, selectedWorkspace, selectedClient, selectedBrand);
     const previousEvents = queryClient.getQueryData<CalendarEvent[]>(queryKey);
     
     queryClient.setQueryData<CalendarEvent[]>(queryKey, (old = []) =>
@@ -799,6 +830,7 @@ export default function Calendar({ embedded }: { embedded?: boolean } = {}) {
 
       {/* Event Drawer (Right Panel) */}
       <EventDrawer
+        workspaceId={selectedWorkspace}
         open={showEventDrawer}
         onClose={() => {
           setShowEventDrawer(false);

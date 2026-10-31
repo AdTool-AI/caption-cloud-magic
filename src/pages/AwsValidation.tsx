@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { readAwsBootstrap, type AwsBootstrapSummary } from '@/lib/awsBootstrap';
+import AwsCalendarReadValidation from '@/components/AwsCalendarReadValidation';
 
 export default function AwsValidation() {
   const { user, session, loading, signIn, signOut, requiresMfa, subscriptionCheckStatus } = useAuth();
@@ -67,6 +68,8 @@ export default function AwsValidation() {
         }}>Sign out</button>
       </section>}
     {message && <p role="alert">{message}</p>}
+    {!loading && !requiresMfa && session?.access_token && session.user.id === user?.id &&
+      <AwsCalendarReadValidation key={session.access_token} session={session} />}
     {visible && <section aria-label="Validation results" className="space-y-2">
       <h2 className="text-lg font-semibold">Selected reads completed</h2>
       <p>Counts are rows returned for this account, not totals for the service. An empty role result grants no global privileges. An empty template catalog can be valid.</p>

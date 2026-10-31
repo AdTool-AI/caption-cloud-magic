@@ -1,3 +1,5 @@
+import { usePlannerRequestScope, usePlannerScopedState } from '@/hooks/usePlannerRequestScope';
+import { useAuth } from '@/hooks/useAuth';
 import { useState, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -39,9 +41,14 @@ import { PostGeneratorInline } from "@/components/campaigns/PostGeneratorInline"
 import { cn } from "@/lib/utils";
 import { useTranslation } from "@/hooks/useTranslation";
 import { tx } from "@/lib/i18nText";
+import { usePlannerHandoff } from "@/hooks/usePlannerHandoff";
+import { plannerHandoffErrorText } from "@/lib/plannerHandoffText";
 
 interface CampaignPost {
   id: string;
+  workspace_id: string;
+  updated_at: string | null;
+  content_id: string | null;
   title_override: string | null;
   caption_override?: string | null;
   platform: string;
@@ -57,6 +64,10 @@ interface CampaignPost {
     post_type?: string;
   } | null;
   content_items?: {
+    id: string;
+    updated_at: string | null;
+    media_id?: string | null;
+    thumb_url?: string | null;
     title: string;
     caption?: string;
     source_id?: string;
@@ -79,16 +90,20 @@ const localeMap = { en: enUS, de, es } as const;
 
 export function CampaignTab({ workspaceId, initialOpenTemplates = false }: CampaignTabProps) {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const dataScope = usePlannerRequestScope(user?.id, workspaceId);
   const { t, language } = useTranslation();
   const dateFnsLocale = localeMap[language] || enUS;
-  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [transferring, setTransferring] = useState<string | null>(null);
-  const [deletingCampaign, setDeletingCampaign] = useState<Campaign | null>(null);
-  const [deleting, setDeleting] = useState(false);
-  const [expandedCampaignId, setExpandedCampaignId] = useState<string | null>(null);
-  const [generatorPost, setGeneratorPost] = useState<CampaignPost | null>(null);
-  const [showTemplateDialog, setShowTemplateDialog] = useState(false);
+  const [campaigns, setCampaigns] = usePlannerScopedState<Campaign[]>(dataScope, () => []);
+  const [loading, setLoading] = usePlannerScopedState(dataScope, () => Boolean(user && workspaceId));
+  const [campaignLoadFailed, setCampaignLoadFailed] = usePlannerScopedState(dataScope, () => false);
+  const [transferring, setTransferring] = usePlannerScopedState<string | null>(dataScope, () => null);
+  const { transfer: transferDrafts, pending: handoffPending } = usePlannerHandoff(workspaceId);
+  const [deletingCampaign, setDeletingCampaign] = usePlannerScopedState<Campaign | null>(dataScope, () => null);
+  const [deleting, setDeleting] = usePlannerScopedState(dataScope, () => false);
+  const [expandedCampaignId, setExpandedCampaignId] = usePlannerScopedState<string | null>(dataScope, () => null);
+  const [generatorPost, setGeneratorPost] = usePlannerScopedState<CampaignPost | null>(dataScope, () => null);
+  const [showTemplateDialog, setShowTemplateDialog] = usePlannerScopedState(dataScope, () => false);
 
   useEffect(() => {
     if (initialOpenTemplates && workspaceId) {
@@ -103,71 +118,46 @@ export function CampaignTab({ workspaceId, initialOpenTemplates = false }: Campa
 
   useEffect(() => {
     fetchCampaigns();
-  }, [workspaceId]);
+  }, [dataScope]);
 
   const fetchCampaigns = async () => {
-    if (!workspaceId) {
-      console.log('[CampaignTab] No workspaceId provided');
-      setLoading(false);
-      return;
-    }
-
-    console.log('[CampaignTab] Fetching campaigns for workspace:', workspaceId);
-    setLoading(true);
-
+    const canCommit = dataScope.startRequest('campaigns');
+    if (!workspaceId || !user || !canCommit()) { setLoading(false); return; }
+    setLoading(true); setCampaignLoadFailed(false);
     try {
-      const { data: blocks, error } = await supabase
-        .from("schedule_blocks")
-        .select("*, content_items(*)")
-        .eq("workspace_id", workspaceId)
-        .order("start_at", { ascending: true });
-
-      if (error) throw error;
-
-      console.log('[CampaignTab] Loaded blocks:', blocks?.length);
-
-      const { data: templates } = await supabase
-        .from("calendar_campaign_templates")
-        .select("id, name");
-
-      const templateMap = new Map(templates?.map(t => [t.id, t.name]) || []);
+      const { data: blocks, error } = await supabase.from('schedule_blocks')
+        .select('*, content_items(*)').eq('workspace_id', workspaceId).order('start_at', { ascending: true });
+      if (!canCommit()) return;
+      if (error || !Array.isArray(blocks) || blocks.some(row => row.workspace_id !== workspaceId)) throw new Error('CAMPAIGNS_UNAVAILABLE');
+      const { data: templates, error: templatesError } = await supabase.from('calendar_campaign_templates').select('id, name');
+      if (!canCommit()) return;
+      if (templatesError || !Array.isArray(templates)) throw new Error('TEMPLATES_UNAVAILABLE');
+      const templateMap = new Map(templates.map(row => [row.id, row.name]));
       const campaignMap = new Map<string, Campaign>();
-
-      blocks?.forEach((block: any) => {
+      blocks.forEach((block: any) => {
         const campaignId = block.meta?.campaign_id || block.meta?.template_id || block.content_items?.source_id;
         if (!campaignId) return;
         const campaignName = block.meta?.campaign_name || templateMap.get(campaignId) || t('planner.campaigns');
-
-        if (!campaignMap.has(campaignId)) {
-          campaignMap.set(campaignId, { templateId: campaignId, name: campaignName, startDate: block.start_at, posts: [] });
-        }
+        if (!campaignMap.has(campaignId)) campaignMap.set(campaignId, { templateId: campaignId, name: campaignName, startDate: block.start_at, posts: [] });
         campaignMap.get(campaignId)!.posts.push(block);
       });
-
       setCampaigns(Array.from(campaignMap.values()));
-    } catch (error) {
-      console.error("[CampaignTab] Error fetching campaigns:", error);
-      toast.error(t('planner.errorLoadingCampaigns'));
-    } finally {
-      setLoading(false);
-    }
+    } catch {
+      if (!canCommit()) return;
+      setCampaignLoadFailed(true); toast.error(t('planner.errorLoadingCampaigns'));
+    } finally { if (canCommit()) setLoading(false); }
   };
 
   const handleTransferToCalendar = async (campaign: Campaign) => {
     if (!workspaceId) return;
     setTransferring(campaign.templateId);
     try {
-      const blockIds = campaign.posts.map(p => p.id);
-      const { data, error } = await supabase.functions.invoke("planner-to-calendar", {
-        body: { blockIds, workspaceId, autoPublish: false }
-      });
-      if (error) throw error;
-      toast.success(`✅ ${t('planner.postsTransferred', { count: data.eventsCreated })}`);
-      fetchCampaigns();
-      setTimeout(() => navigate("/calendar"), 1000);
-    } catch (error: any) {
-      console.error("Transfer error:", error);
-      toast.error(t('planner.errorTransferring'));
+      const result = await transferDrafts(campaign.posts);
+      if (!result || !dataScope.isCurrent()) return;
+      toast.success(tx({ en: `${result.results.length} calendar drafts created. Planner posts are unchanged.`, de: `${result.results.length} Kalenderentwürfe erstellt. Die Planerbeiträge bleiben unverändert.` }));
+      navigate("/calendar");
+    } catch (error) {
+      toast.error(plannerHandoffErrorText(error));
     } finally {
       setTransferring(null);
     }
@@ -179,6 +169,7 @@ export function CampaignTab({ workspaceId, initialOpenTemplates = false }: Campa
     try {
       const blockIds = deletingCampaign.posts.map(p => p.id);
       const { error } = await supabase.from("schedule_blocks").delete().in("id", blockIds);
+      if (!dataScope.isCurrent()) return;
       if (error) throw error;
       toast.success(t('planner.campaignDeleted'));
       setDeletingCampaign(null);
@@ -212,6 +203,15 @@ export function CampaignTab({ workspaceId, initialOpenTemplates = false }: Campa
         </motion.div>
       </div>
     );
+  }
+
+  if (campaignLoadFailed) {
+    return <Card role="alert" className="p-6">
+      <p>{t('planner.errorLoadingCampaigns')}</p>
+      <Button variant="outline" className="mt-3" onClick={fetchCampaigns}>
+        {tx({ en: 'Reload', de: 'Neu laden', es: 'Volver a cargar' })}
+      </Button>
+    </Card>;
   }
 
   if (campaigns.length === 0) {
@@ -378,10 +378,10 @@ export function CampaignTab({ workspaceId, initialOpenTemplates = false }: Campa
                         size="sm" 
                         className="gap-2 w-full bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70 shadow-[0_0_15px_rgba(var(--primary),0.2)] hover:shadow-[0_0_25px_rgba(var(--primary),0.35)] transition-all duration-300"
                         onClick={() => handleTransferToCalendar(campaign)}
-                        disabled={isTransferring}
+                        disabled={Boolean(transferring) || handoffPending}
                       >
                         {isTransferring ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                        {t('planner.transferToCalendar')}
+                        {tx({ en: 'Create calendar drafts', de: 'Kalenderentwürfe erstellen' })}
                       </Button>
                     </motion.div>
                     

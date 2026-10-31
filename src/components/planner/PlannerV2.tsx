@@ -1,3 +1,4 @@
+import { usePlannerRequestScope, usePlannerScopedState } from '@/hooks/usePlannerRequestScope';
 import { PlannerRecommendationsDialog } from './PlannerRecommendationsDialog';
 import { createPlannerBlockWriter, PlannerBlockSaveError } from "@/lib/plannerBlockWrite";
 import { Card } from "@/components/ui/card";
@@ -5,7 +6,9 @@ import { tx } from "@/lib/i18nText";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Switch } from "@/components/ui/switch";
+import { usePlannerHandoff } from "@/hooks/usePlannerHandoff";
+import { PlannerHandoffError } from "@/lib/plannerHandoff";
+import { plannerHandoffErrorText } from "@/lib/plannerHandoffText";
 import { 
   Calendar, 
   Clock, 
@@ -83,6 +86,9 @@ interface ScheduledPost {
   updated_at: string | null;
   meta?: unknown;
   content_items?: {
+    id: string;
+    updated_at: string | null;
+    media_id?: string | null;
     title: string;
     caption?: string | null;
     thumb_url?: string | null;
@@ -116,65 +122,72 @@ export function PlannerV2({ className, embedded, forcedTab }: PlannerV2Props) {
   const { t, language } = useTranslation();
   const dateFnsLocale = localeMap[language] || enUS;
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
-  const [posts, setPosts] = useState<ScheduledPost[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [workspaceId, setWorkspaceId] = useState<string | null>(null);
-  const [recommendationOpen, setRecommendationOpen] = useState(false);
+  const accountScope = usePlannerRequestScope(user?.id);
+  const [membershipReload, setMembershipReload] = usePlannerScopedState(accountScope, () => 0);
+  const [workspaceId, setWorkspaceId] = usePlannerScopedState<string | null>(accountScope, () => null);
+  const dataScope = usePlannerRequestScope(user?.id, workspaceId);
+  const [posts, setPosts] = usePlannerScopedState<ScheduledPost[]>(dataScope, () => []);
+  const [loading, setLoading] = usePlannerScopedState(dataScope, () => Boolean(user));
+  const [postsLoadFailed, setPostsLoadFailed] = usePlannerScopedState(dataScope, () => false);
+  const [postsReload, setPostsReload] = usePlannerScopedState(dataScope, () => 0);
+  const [recommendationOpen, setRecommendationOpen] = usePlannerScopedState(dataScope, () => false);
   
   const [sortBy, setSortBy] = useState<SortOption>("date-asc");
   const [filterPlatform, setFilterPlatform] = useState<FilterPlatform>("all");
   const [filterStatus, setFilterStatus] = useState<FilterStatus>("all");
   
-  const [editingPost, setEditingPost] = useState<ScheduledPost | null>(null);
+  const [editingPost, setEditingPost] = usePlannerScopedState<ScheduledPost | null>(dataScope, () => null);
   const [editTitle, setEditTitle] = useState("");
   const [editPlatform, setEditPlatform] = useState("");
   const [editDate, setEditDate] = useState("");
   const [editStatus, setEditStatus] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [deleting, setDeleting] = useState(false);
+  const [saving, setSaving] = usePlannerScopedState(dataScope, () => false);
+  const [deleting, setDeleting] = usePlannerScopedState(dataScope, () => false);
   
-  const [selectedPosts, setSelectedPosts] = useState<Set<string>>(new Set());
-  const [autoPublish, setAutoPublish] = useState(false);
-  const [transferring, setTransferring] = useState(false);
-  const [transferDialogOpen, setTransferDialogOpen] = useState(false);
+  const [selectedPosts, setSelectedPosts] = usePlannerScopedState<Set<string>>(dataScope, () => new Set());
+  const { transfer: transferDrafts, pending: transferring, timezone: handoffTimezone } = usePlannerHandoff(workspaceId);
+  const [transferDialogOpen, setTransferDialogOpen] = usePlannerScopedState(dataScope, () => false);
+  useEffect(() => { setSelectedPosts(new Set()); setTransferDialogOpen(false); }, [workspaceId, user?.id]);
 
   useEffect(() => { blockWriter.current.clear(); }, [user?.id, workspaceId]);
 
-  // Fetch workspace
+  // Membership and post responses belong to the actor/workspace that requested them.
   useEffect(() => {
-    const fetchWorkspace = async () => {
-      if (!user) return;
-      const { data } = await supabase
-        .from("workspace_members")
-        .select("workspace_id")
-        .eq("user_id", user.id)
-        .limit(1)
-        .single();
-      if (data) setWorkspaceId(data.workspace_id);
-    };
-    fetchWorkspace();
-  }, [user]);
-
-  // Fetch posts
-  useEffect(() => {
-    const fetchPosts = async () => {
-      if (!workspaceId) { setLoading(false); return; }
-      setLoading(true);
-      const { data, error } = await supabase
-        .from("schedule_blocks")
-        .select("*, content_items(*)")
-        .eq("workspace_id", workspaceId)
-        .order("start_at", { ascending: true });
-      if (error) {
-        console.error("Error fetching posts:", error);
-        toast.error(t('planner.errorLoading'));
-      } else {
-        setPosts(data || []);
+    const canCommit = accountScope.startRequest('membership');
+    if (!user) { setLoading(false); return; }
+    setPostsLoadFailed(false); setLoading(true);
+    void (async () => {
+      try {
+        const { data, error } = await supabase.from('workspace_members')
+          .select('workspace_id').eq('user_id', user.id).limit(1).single();
+        if (!canCommit()) return;
+        if (error || !data?.workspace_id) throw new Error('WORKSPACE_UNAVAILABLE');
+        setWorkspaceId(data.workspace_id);
+      } catch {
+        if (!canCommit()) return;
+        setPostsLoadFailed(true); setLoading(false); toast.error(t('planner.errorLoading'));
       }
-      setLoading(false);
-    };
-    fetchPosts();
-  }, [workspaceId]);
+    })();
+  }, [accountScope, membershipReload]);
+
+  useEffect(() => {
+    const canCommit = dataScope.startRequest('posts');
+    setPosts([]); setPostsLoadFailed(false);
+    if (!workspaceId || !user) { setLoading(Boolean(user) && !workspaceId); return; }
+    setLoading(true);
+    void (async () => {
+      try {
+        const { data, error } = await supabase.from('schedule_blocks')
+          .select('*, content_items(*)').eq('workspace_id', workspaceId).order('start_at', { ascending: true });
+        if (!canCommit()) return;
+        if (error || !Array.isArray(data) || data.some(row => row.workspace_id !== workspaceId)) throw new Error('POSTS_UNAVAILABLE');
+        setPosts(data);
+      } catch {
+        if (!canCommit()) return;
+        setPostsLoadFailed(true); toast.error(t('planner.errorLoading'));
+      } finally { if (canCommit()) setLoading(false); }
+    })();
+  }, [dataScope, postsReload]);
 
   const filteredPosts = posts
     .filter(post => {
@@ -236,10 +249,12 @@ export function PlannerV2({ className, embedded, forcedTab }: PlannerV2Props) {
       const [saved] = await blockWriter.current.save(user.id, workspaceId,
         [{ ...snapshot, title_override: editTitle, platform: editPlatform, start_at: startAt, end_at: endAt }],
         body => supabase.functions.invoke("planner-upsert-blocks", { body }));
+      if (!dataScope.isCurrent()) return;
       setPosts(prev => prev.map(post => post.id === saved.id ? { ...post, ...saved } : post));
       toast.success(t('planner.postUpdated'));
       setEditingPost(current => current?.id === snapshot.id ? null : current);
     } catch (error) {
+      if (!dataScope.isCurrent()) return;
       const code = error instanceof PlannerBlockSaveError ? error.code : "BLOCK_SAVE_FAILED";
       if (code !== "SAVE_SCOPE_CHANGED") toast.error(code === "STALE_WRITE_RETRY_REQUIRED" || code === "REQUEST_ID_REUSED"
         ? tx({ de: "Dieser Entwurf wurde geändert. Bitte neu laden und erneut speichern.", en: "This draft changed. Reload it before saving again.", es: "Este borrador cambió. Vuelve a cargarlo antes de guardar." })
@@ -253,10 +268,12 @@ export function PlannerV2({ className, embedded, forcedTab }: PlannerV2Props) {
     try {
       const { error } = await supabase.from("schedule_blocks").delete().eq("id", editingPost.id);
       if (error) throw error;
+      if (!dataScope.isCurrent()) return;
       setPosts(prev => prev.filter(p => p.id !== editingPost.id));
       toast.success(t('planner.postDeleted'));
       closePostEditor();
     } catch (error: any) {
+      if (!dataScope.isCurrent()) return;
       console.error("Delete error:", error);
       toast.error(t('planner.errorDeleting'));
     } finally {
@@ -320,30 +337,17 @@ export function PlannerV2({ className, embedded, forcedTab }: PlannerV2Props) {
 
   const handleTransferToCalendar = async () => {
     if (selectedPosts.size === 0 || !workspaceId) { toast.error(t('planner.noPosts')); return; }
-    setTransferring(true);
     try {
-      const { data, error } = await supabase.functions.invoke("planner-to-calendar", {
-        body: { blockIds: Array.from(selectedPosts), workspaceId, autoPublish }
-      });
-      if (error) throw error;
-      const message = autoPublish
-        ? `✅ ${t('planner.eventsAutoPublish', { count: data.eventsCreated, jobs: data.jobsCreated })}`
-        : `✅ ${t('planner.eventsCreated', { count: data.eventsCreated })}`;
-      toast.success(message);
+      const selected = posts.filter(post => selectedPosts.has(post.id));
+      if (selected.length !== selectedPosts.size) throw new PlannerHandoffError('HANDOFF_VERSION_REQUIRED');
+      const result = await transferDrafts(selected);
+      if (!result || !dataScope.isCurrent()) return;
+      toast.success(tx({ en: `${result.results.length} calendar drafts created. Planner posts are unchanged.`, de: `${result.results.length} Kalenderentwürfe erstellt. Die Planerbeiträge bleiben unverändert.` }));
       setTransferDialogOpen(false);
       setSelectedPosts(new Set());
-      const { data: refreshedPosts } = await supabase
-        .from("schedule_blocks")
-        .select("*, content_items(*)")
-        .eq("workspace_id", workspaceId)
-        .order("start_at", { ascending: true });
-      if (refreshedPosts) setPosts(refreshedPosts);
-      setTimeout(() => navigate("/calendar"), 1500);
-    } catch (error: any) {
-      console.error("Transfer error:", error);
-      toast.error(t('planner.errorTransfer'));
-    } finally {
-      setTransferring(false);
+      navigate("/calendar");
+    } catch (error) {
+      toast.error(plannerHandoffErrorText(error));
     }
   };
 
@@ -495,6 +499,13 @@ export function PlannerV2({ className, embedded, forcedTab }: PlannerV2Props) {
       {loading ? (
         <Card className="p-12 flex items-center justify-center">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </Card>
+      ) : postsLoadFailed ? (
+        <Card role="alert" className="p-6">
+          <p>{t('planner.errorLoading')}</p>
+          <Button variant="outline" className="mt-3" onClick={() => workspaceId ? setPostsReload(value => value + 1) : setMembershipReload(value => value + 1)}>
+            {tx({ en: 'Reload', de: 'Neu laden', es: 'Volver a cargar' })}
+          </Button>
         </Card>
       ) : filteredPosts.length === 0 ? (
         <Card className="p-12 text-center">
@@ -663,34 +674,23 @@ export function PlannerV2({ className, embedded, forcedTab }: PlannerV2Props) {
       <Dialog open={transferDialogOpen} onOpenChange={setTransferDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{t('planner.transferToCalendar')}</DialogTitle>
+            <DialogTitle>{tx({ en: 'Create calendar drafts', de: 'Kalenderentwürfe erstellen' })}</DialogTitle>
             <DialogDescription>
-              {selectedPosts.size} {t('planner.transferDesc')}
+              {tx({ en: `${selectedPosts.size} selected · ${handoffTimezone}`, de: `${selectedPosts.size} ausgewählt · ${handoffTimezone}` })}
             </DialogDescription>
           </DialogHeader>
           
           <div className="py-4 space-y-4">
-            <div className="flex items-center justify-between p-4 rounded-lg bg-muted/50">
-              <div>
-                <Label className="font-medium">{t('planner.autoPublish')}</Label>
-                <p className="text-sm text-muted-foreground">{t('planner.autoPublishDesc')}</p>
-              </div>
-              <Switch checked={autoPublish} onCheckedChange={setAutoPublish} />
-            </div>
-            
-            {autoPublish && (
-              <div className="p-3 rounded-lg bg-primary/10 border border-primary/20 text-sm">
-                <p className="font-medium text-primary">⚡ {t('planner.autoPublishActive')}</p>
-                <p className="text-muted-foreground mt-1">{t('planner.autoPublishActiveDesc')}</p>
-              </div>
-            )}
+            <p className="text-sm text-muted-foreground">
+              {tx({ en: 'Create up to 50 text-only drafts. Planner posts stay unchanged. Nothing is scheduled or published.', de: 'Bis zu 50 reine Textentwürfe erstellen. Planerbeiträge bleiben unverändert. Es wird nichts eingeplant oder veröffentlicht.' })}
+            </p>
           </div>
           
           <DialogFooter>
             <Button variant="outline" onClick={() => setTransferDialogOpen(false)}>{t('planner.cancel')}</Button>
             <Button onClick={handleTransferToCalendar} disabled={transferring}>
               {transferring ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />}
-              {autoPublish ? t('planner.transferAndPublish') : t('planner.toCalendar')}
+              {tx({ en: 'Create drafts', de: 'Entwürfe erstellen' })}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -702,14 +702,7 @@ export function PlannerV2({ className, embedded, forcedTab }: PlannerV2Props) {
         </TabsContent>
       </Tabs>
       <PlannerRecommendationsDialog open={recommendationOpen} onOpenChange={setRecommendationOpen}
-        workspaceId={workspaceId} onApplied={() => {
-          if (!workspaceId) return;
-          void supabase.from('schedule_blocks').select('*, content_items(*)').eq('workspace_id', workspaceId)
-            .order('start_at', { ascending: true }).then(({ data, error }) => {
-              if (error) toast.error(t('planner.errorLoading'));
-              else if (data) setPosts(data);
-            });
-        }} />
+        workspaceId={workspaceId} onApplied={() => setPostsReload(value => value + 1)} />
     </div>
   );
 }

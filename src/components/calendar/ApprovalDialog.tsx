@@ -1,3 +1,4 @@
+import { useAuth } from '@/hooks/useAuth';
 import { useEffect, useRef, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -9,7 +10,13 @@ import { approvalEvent, type ApprovalEvent, type ApprovalReceipt } from '@/lib/c
 import { Link } from 'react-router-dom';
 
 type Reviewer = { id: string; label: string };
-export function ApprovalDialog({ eventId, open, onClose }: { eventId: string; open: boolean; onClose: () => void }) {
+export function ApprovalDialog(props: { eventId: string; open: boolean; onClose: () => void }) {
+  const { user } = useAuth();
+  if (!user) return null;
+  return <ApprovalDialogContent key={JSON.stringify([user?.id, props.eventId, props.open])} {...props} />;
+}
+
+function ApprovalDialogContent({ eventId, open, onClose }: { eventId: string; open: boolean; onClose: () => void }) {
   const { requestApproval, loading: submitting } = useCalendarApprovals();
   const [event, setEvent] = useState<ApprovalEvent | null>(null);
   const [members, setMembers] = useState<Reviewer[]>([]);
@@ -27,6 +34,7 @@ export function ApprovalDialog({ eventId, open, onClose }: { eventId: string; op
     (async () => {
       try {
         const result = await supabase.from('calendar_events').select('id,workspace_id,updated_at,version').eq('id', eventId).single();
+        if (current !== scope.current) return;
         if (result.error) throw new Error();
         const snapshot = approvalEvent(result.data);
         const [team, workspace] = await Promise.all([
