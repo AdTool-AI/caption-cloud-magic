@@ -10,7 +10,7 @@ export default defineConfig(({ mode }) => {
     name: 'aws-test-backend-stamp',
     generateBundle() {
       this.emitFile({type:'asset',fileName:'backend-profile.json',source:JSON.stringify({
-        target:'aws-test',backendOrigin:aws.url,scope:'bootstrap-read-validation',publicCutover:false,
+        target:'aws-test',backendOrigin:aws.url,scope:'application-read-preview',publicCutover:false,
       },null,2)});
     },
   } : null;

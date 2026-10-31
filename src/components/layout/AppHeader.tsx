@@ -16,10 +16,16 @@ import { StreakBadge } from "@/components/streak/StreakBadge";
 import { WalletBadge } from "@/components/layout/WalletBadge";
 import { EnhanceJobCenter } from "@/components/jobs/EnhanceJobCenter";
 import { FounderCrest } from "@/components/founders/FounderCrest";
+import { isAwsTestBackend } from '@/lib/backendTarget';
+import { toast } from 'sonner';
 
 export function AppHeader() {
   const { toggleSidebar } = useSidebar();
-  const { user } = useAuth();
+  const { user, signOut } = useAuth();
+
+  if (isAwsTestBackend) return <header role="banner" className="sticky top-0 z-[70] flex h-14 items-center justify-between gap-4 border-b bg-background/90 px-4 backdrop-blur-xl">
+    <Brand compact/><div className="flex items-center gap-3"><span className="hidden text-sm text-muted-foreground sm:block">{user?.email}</span><ThemeToggle/><Button variant="outline" size="sm" onClick={()=>void signOut().catch(()=>toast.error('Sign-out could not complete.'))}>Sign out</Button></div>
+  </header>;
 
   return (
     <motion.header

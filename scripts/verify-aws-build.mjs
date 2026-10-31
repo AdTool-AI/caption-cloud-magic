@@ -6,8 +6,8 @@ export function verifyAwsProfile(profile) {
   if (!profile || typeof profile !== 'object' || Array.isArray(profile) ||
       Object.keys(profile).sort().join(',') !== 'backendOrigin,publicCutover,scope,target' ||
       profile.target !== 'aws-test' || profile.backendOrigin !== 'https://api-prod.useadtool.ai' ||
-      profile.scope !== 'bootstrap-read-validation' || profile.publicCutover !== false) {
-    throw new Error('Artifact is not the approved AWS bootstrap validation profile.');
+      profile.scope !== 'application-read-preview' || profile.publicCutover !== false) {
+    throw new Error('Artifact is not the approved AWS read-only application profile.');
   }
   return profile;
 }
@@ -26,9 +26,9 @@ if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.m
     const [mode, path, ...extra] = process.argv.slice(2);
     if (!path || extra.length || !['--dir', '--profile'].includes(mode)) throw new Error('Use --dir <artifact-directory> or --profile <downloaded-profile.json>.');
     const profile = mode === '--dir' ? verifyBuildDirectory(path) : verifyProfileFile(path);
-    console.log(`Verified AWS bootstrap frontend: ${profile.backendOrigin}`);
+    console.log(`Verified AWS read-only application frontend: ${profile.backendOrigin}`);
   } catch {
-    console.error('AWS artifact verification failed: expected api-prod bootstrap profile and a valid build artifact.');
+    console.error('AWS artifact verification failed: expected api-prod read-only application profile and a valid build artifact.');
     process.exitCode = 1;
   }
 }

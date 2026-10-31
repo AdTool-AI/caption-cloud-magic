@@ -186,13 +186,13 @@ export function MonthView({
                       {dayPosts.length} {t("calendar.mobile.events")}
                     </div>
                   </div>
-                  <Button
+                  {!readOnly && onDateClick && <Button
                     variant="outline"
                     size="sm"
                     onClick={() => onDateClick?.(day)}
                   >
                     <Plus className="w-4 h-4" />
-                  </Button>
+                  </Button>}
                 </div>
 
                 <div className="space-y-2">
@@ -299,7 +299,7 @@ export function MonthView({
           return (
             <motion.div
               key={day.toISOString()}
-              onClick={() => isCurrentMonth && onDateClick?.(day)}
+              onClick={() => !readOnly && isCurrentMonth && onDateClick?.(day)}
               onDragOver={isCurrentMonth ? handleDragOver : undefined}
               onDrop={isCurrentMonth ? (e) => handleDrop(e, day) : undefined}
               whileHover={isCurrentMonth ? { y: -2 } : undefined}
@@ -362,7 +362,7 @@ export function MonthView({
                       {dayPosts.length}
                     </span>
                   )}
-                  {isCurrentMonth && (
+                  {!readOnly && onDateClick && isCurrentMonth && (
                     <Button
                       variant="ghost"
                       size="icon"

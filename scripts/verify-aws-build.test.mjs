@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname, basename } from 'node:path';
 import { verifyAwsProfile, verifyBuildDirectory, verifyProfileFile } from './verify-aws-build.mjs';
-const valid = {target:'aws-test',backendOrigin:'https://api-prod.useadtool.ai',scope:'bootstrap-read-validation',publicCutover:false};
+const valid = {target:'aws-test',backendOrigin:'https://api-prod.useadtool.ai',scope:'application-read-preview',publicCutover:false};
 function cleanup(root,prefix) {
   const target=resolve(root);
   assert.equal(dirname(target),resolve(tmpdir()));
