@@ -41,12 +41,12 @@ function WorkspaceHub() {
 }
 function SignedInLayout() {
   const {user,session,loading,requiresMfa}=useAuth();const [menu,setMenu]=useState(false);
-  if (loading) return <p role="status" className="p-8">Checking session…</p>;
+  if (loading) return <p role="status" className="p-8">Checking sessionâ€¦</p>;
   if (!user || !session || session.user.id!==user.id || requiresMfa) return <AwsValidation/>;
   return <SidebarProvider><div className="flex min-h-screen w-full min-w-0">
     <AppSidebar/>
     <div className="flex min-w-0 flex-1 flex-col"><AppHeader/>
-      <div className="border-b bg-muted/50 px-4 py-2 text-sm">AWS · Calendar reads available. Editing, generation and publishing are still being connected.</div>
+      <div className="border-b bg-muted/50 px-4 py-2 text-sm">AWS Â· Calendar reads available. Editing, generation and publishing are still being connected.</div>
       <nav aria-label="Workspace navigation" className="flex flex-wrap items-center gap-4 border-b px-4 py-3">
         <Link to="/home">Home</Link><Link to="/hub/planen">Planning</Link><Link to="/calendar">Calendar</Link><Link to="/connection-check">Connection check</Link>
         <button onClick={()=>setMenu(!menu)} className="md:hidden" aria-expanded={menu}>More sections</button>

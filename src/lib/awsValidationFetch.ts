@@ -16,7 +16,8 @@ export function createAwsValidationFetch(fetcher: typeof fetch, backend: string)
       '/auth/v1/logout', '/auth/v1/logout?scope=local', '/auth/v1/logout?scope=global',
     ].includes(uri);
     const catalog = method === 'GET' && uri === '/functions/v1/pricing-catalog' || method === 'POST' && uri === '/functions/v1/get-video-templates';
-    if (!rest && !auth && !catalog) throw new Error('This request is outside the AWS validation scope.');
+    const draft = method === 'POST' && ['/functions/v1/calendar-create-draft','/functions/v1/calendar-edit-draft','/functions/v1/calendar-delete-draft'].includes(uri);
+    if (!rest && !auth && !catalog && !draft) throw new Error('This request is outside the AWS validation scope.');
     const headers = new Headers(input instanceof Request ? input.headers : undefined);
     new Headers(init.headers).forEach((value, key) => headers.set(key, value));
     if (headers.has('Content-Profile') || headers.has('Accept-Profile') && (!rest || headers.get('Accept-Profile') !== 'public')) {
