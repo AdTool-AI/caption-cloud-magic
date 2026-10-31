@@ -1,0 +1,15 @@
+import { act,fireEvent,render,screen,waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
+import { beforeEach,expect,it,vi } from 'vitest';
+import Page from '../AwsPlannerPage';
+const mocks=vi.hoisted(()=>({members:vi.fn(),read:vi.fn()}));
+const actor='10000000-0000-4000-8000-000000000001',workspace='20000000-0000-4000-8000-000000000002',other='30000000-0000-4000-8000-000000000003';
+vi.mock('@/hooks/useAuth',()=>({useAuth:()=>({session:{user:{id:actor},access_token:'synthetic'}})}));
+vi.mock('@/integrations/supabase/client',()=>({supabase:{}}));
+vi.mock('@/lib/awsCalendarRead',()=>({readAwsCalendarMemberships:mocks.members}));
+vi.mock('@/lib/awsPlannerRead',()=>({readAwsPlanner:mocks.read}));
+const result={userId:actor,workspaceId:workspace,workspaceName:'My workspace',pages:{plans:0,blocks:0,content:0},plans:[],plan:null,blocks:[],content:[]};
+beforeEach(()=>{vi.clearAllMocks();mocks.members.mockResolvedValue([{user_id:actor,workspace_id:workspace,role:'owner'},{user_id:actor,workspace_id:other,role:'viewer'}]);mocks.read.mockResolvedValue(result);});
+it('loads bounded planner reads and shows empty states without create controls',async()=>{render(<MemoryRouter><Page/></MemoryRouter>);await screen.findByText('No weekplans were returned on this page.');expect(screen.getByText('No content items were returned on this page.')).toBeInTheDocument();expect(screen.queryByRole('button',{name:/create|save|publish|transfer/i})).not.toBeInTheDocument();expect(mocks.read).toHaveBeenCalledWith({},expect.objectContaining({access_token:'synthetic'}),workspace,result.pages,'');});
+it('shows a read failure rather than an empty planner',async()=>{mocks.read.mockRejectedValue(Error('PRIVATE'));render(<MemoryRouter><Page/></MemoryRouter>);await screen.findByRole('alert');expect(screen.queryByText('No weekplans were returned on this page.')).not.toBeInTheDocument();expect(screen.queryByText('PRIVATE')).not.toBeInTheDocument();});
+it('discards a late response from the previously selected workspace',async()=>{let resolve!:(v:unknown)=>void;mocks.read.mockReturnValueOnce(new Promise(r=>resolve=r)).mockResolvedValueOnce({...result,workspaceId:other,workspaceName:'Second workspace'});render(<MemoryRouter><Page/></MemoryRouter>);await waitFor(()=>expect(mocks.read).toHaveBeenCalledTimes(1));fireEvent.change(screen.getByLabelText('Planner workspace'),{target:{value:other}});await screen.findByRole('option',{name:'Second workspace'});await act(async()=>resolve(result));expect(screen.queryByRole('option',{name:'My workspace'})).not.toBeInTheDocument();});
