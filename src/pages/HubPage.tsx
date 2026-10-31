@@ -10,6 +10,7 @@ import { PageWrapper } from "@/components/layout/PageWrapper";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
+import { isAwsTestBackend } from '@/lib/backendTarget';
 
 /* ── Floating particle positions ── */
 const particles = [
@@ -48,7 +49,7 @@ export default function HubPage() {
   const [userPlan, setUserPlan] = useState("free");
 
   useEffect(() => {
-    if (user) {
+    if (user && !isAwsTestBackend) {
       supabase
         .from("profiles")
         .select("plan, test_mode_plan")
