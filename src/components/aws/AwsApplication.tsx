@@ -1,3 +1,4 @@
+import AwsPlannerPage from '@/pages/AwsPlannerPage';
 import { useState } from 'react';
 import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -33,7 +34,7 @@ function Unavailable() {
 }
 function CommandCenter() {
   const location=useLocation();const view=new URLSearchParams(location.search).get('view');
-  return !view || view==='calendar' ? <AwsCalendarPage/> : <Unavailable/>;
+  return !view || view==='calendar' ? <AwsCalendarPage/> : view==='posts'||view==='planner' ? <AwsPlannerPage/> : <Unavailable/>;
 }
 function WorkspaceHub() {
   const {hubKey}=useParams();
@@ -41,14 +42,14 @@ function WorkspaceHub() {
 }
 function SignedInLayout() {
   const {user,session,loading,requiresMfa}=useAuth();const [menu,setMenu]=useState(false);
-  if (loading) return <p role="status" className="p-8">Checking sessionâ€¦</p>;
+  if (loading) return <p role="status" className="p-8">Checking session...</p>;
   if (!user || !session || session.user.id!==user.id || requiresMfa) return <AwsValidation/>;
   return <SidebarProvider><div className="flex min-h-screen w-full min-w-0">
     <AppSidebar/>
     <div className="flex min-w-0 flex-1 flex-col"><AppHeader/>
-      <div className="border-b bg-muted/50 px-4 py-2 text-sm">AWS Â· Calendar reads available. Editing, generation and publishing are still being connected.</div>
+      <div className="border-b bg-muted/50 px-4 py-2 text-sm">AWS - Calendar text drafts and planner reads available. Generation and publishing are still being connected.</div>
       <nav aria-label="Workspace navigation" className="flex flex-wrap items-center gap-4 border-b px-4 py-3">
-        <Link to="/home">Home</Link><Link to="/hub/planen">Planning</Link><Link to="/calendar">Calendar</Link><Link to="/connection-check">Connection check</Link>
+        <Link to="/home">Home</Link><Link to="/hub/planen">Planning</Link><Link to="/calendar">Calendar</Link><Link to="/planner">Planner</Link><Link to="/connection-check">Connection check</Link>
         <button onClick={()=>setMenu(!menu)} className="md:hidden" aria-expanded={menu}>More sections</button>
         {menu && hubDefinitions.filter(h=>!h.adminOnly&&!h.comingSoon).map(h=><Link key={h.key} to={'/hub/'+h.key} onClick={()=>setMenu(false)}>{h.key}</Link>)}
       </nav>
@@ -57,6 +58,7 @@ function SignedInLayout() {
         <Route path="/auth" element={<Navigate to="/home" replace/>}/>
         <Route path="/hub/:hubKey" element={<WorkspaceHub/>}/>
         <Route path="/calendar" element={<AwsCalendarPage key={session.access_token}/>}/>
+        <Route path="/planner" element={<AwsPlannerPage key={session.access_token}/>}/>
         <Route path="/command-center" element={<CommandCenter key={session.access_token}/>}/>
         <Route path="/connection-check" element={<AwsValidation/>}/>
         <Route path="*" element={<Unavailable/>}/>

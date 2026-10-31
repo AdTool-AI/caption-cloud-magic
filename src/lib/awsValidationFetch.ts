@@ -1,3 +1,4 @@
+import { isCanonicalPlannerReadUri } from './plannerReadContract';
 import { isCanonicalCalendarReadUri } from './calendarReadContract';
 const TABLES = new Set(['profiles', 'user_roles', 'workspaces', 'workspace_members']);
 /** Browser compatibility guard for the limited validation build, not server authorization. */
@@ -9,7 +10,7 @@ export function createAwsValidationFetch(fetcher: typeof fetch, backend: string)
     const method = (init.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase();
     const uri = url.pathname + url.search;
     const table = url.pathname.split('/').pop() ?? '';
-    const calendar = method === 'GET' && isCanonicalCalendarReadUri(uri);
+    const calendar = method === 'GET' && (isCanonicalCalendarReadUri(uri) || isCanonicalPlannerReadUri(uri));
     const rest = calendar || url.pathname === `/rest/v1/${table}` && TABLES.has(table) && ['GET', 'HEAD'].includes(method) && ['', '?select=*'].includes(url.search);
     const auth = method === 'GET' && uri === '/auth/v1/user' || method === 'POST' && [
       '/auth/v1/token?grant_type=password', '/auth/v1/token?grant_type=refresh_token',
