@@ -1,0 +1,125 @@
+name: Claude Code
+
+# Disabled until a repository administrator sets the Actions variable
+# CLAUDE_ENABLED to the exact value "true" after completing the setup guide.
+# Never expose AWS, Jenkins or Supabase service-role credentials to this job.
+# Setup and safe testing: docs/security/claude-code-github-action.md
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  pull_request_review:
+    types: [submitted]
+  issues:
+    types: [opened, labeled]
+
+# The job token is read-only. The separate Claude GitHub App token can write
+# comments and code: branch/tag protections must also constrain the App.
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+  id-token: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.issue.number || github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  claude:
+    # Initial rollout: only the two human maintainer identities named in PR #10.
+    # The API preflight below also requires current repository write permission.
+    # For labels, authorize the actor applying the label, not the issue author.
+    if: |
+      github.repository == 'AdTool-AI/caption-cloud-magic' &&
+      vars.CLAUDE_ENABLED == 'true' &&
+      github.event.sender.type == 'User' &&
+      contains(fromJSON('["rjavahegde","AdToolAI"]'), github.actor) &&
+      (
+        (github.event_name == 'issue_comment' &&
+          contains(github.event.comment.body, '@claude')) ||
+        (github.event_name == 'pull_request_review_comment' &&
+          contains(github.event.comment.body, '@claude')) ||
+        (github.event_name == 'pull_request_review' &&
+          contains(github.event.review.body, '@claude')) ||
+        (github.event_name == 'issues' && github.event.action == 'opened' &&
+          (contains(github.event.issue.body, '@claude') ||
+           contains(github.event.issue.title, '@claude'))) ||
+        (github.event_name == 'issues' && github.event.action == 'labeled' &&
+          github.event.label.name == 'claude')
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Verify current human actor and repository permission
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          # Repeat the allowlist here so authorization remains explicit even if
+          # someone later changes the job condition. No issue text is executed.
+          case "${GITHUB_ACTOR,,}" in
+            rjavahegde|adtoolai) ;;
+            *) echo '::error::Actor is not an approved Claude operator.'; exit 1 ;;
+          esac
+
+          actor_type=$(gh api "users/${GITHUB_ACTOR}" --jq '.type')
+          if [[ "$actor_type" != 'User' ]]; then
+            echo '::error::Only human GitHub user accounts may invoke Claude.'
+            exit 1
+          fi
+
+          permission=$(gh api \
+            "repos/${GITHUB_REPOSITORY}/collaborators/${GITHUB_ACTOR}/permission" \
+            --jq '.permission')
+          case "$permission" in
+            admin|write) echo 'Human operator and current write access verified.' ;;
+            *) echo '::error::Current repository write permission is required.'; exit 1 ;;
+          esac
+
+      - name: Validate exactly one Claude authentication method
+        shell: bash
+        env:
+          CLAUDE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          CLAUDE_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$CLAUDE_OAUTH_TOKEN" && -n "$CLAUDE_API_KEY" ]]; then
+            echo '::error::Configure only one Claude authentication secret.'
+            exit 1
+          fi
+          if [[ -z "$CLAUDE_OAUTH_TOKEN" && -z "$CLAUDE_API_KEY" ]]; then
+            echo '::error::Configure one Claude authentication secret before enabling.'
+            exit 1
+          fi
+          echo 'Exactly one authentication method is configured.'
+
+      - name: Checkout code
+        # Official actions/checkout v4 commit resolved on 19 October 2026.
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Run Claude Code
+        # Official anthropics/claude-code-action v1 commit resolved on 19 October 2026.
+        uses: anthropics/claude-code-action@5eb090f3c3afd701a0672cd32981197ca27688f6
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          trigger_phrase: '@claude'
+          label_trigger: 'claude'
+          base_branch: 'main'
+          branch_prefix: 'claude/'
+          allowed_bots: ''
+          allowed_non_write_users: ''
+          display_report: 'false'
+          show_full_output: 'false'
+          # Turn/time limits reduce exposure but are NOT a billing cap.
+          # See the setup guide for OAuth quotas and API spending controls.
+          claude_args: '--max-turns 10'
