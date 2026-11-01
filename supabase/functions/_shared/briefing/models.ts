@@ -1,105 +1,68 @@
-/**
- * Single model policy for the whole briefing-analysis pipeline.
- *
- * Before this file each briefing function shipped its own model chain
- * (storyboard ran a *preview* model in the main path, parse ran 2.5-flash,
- * deep-parse ran a third chain). One policy = one place to change, and the
- * same reliability characteristics for every entry point.
- */
-
-export const GATEWAY_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
-
-/** Transient gateway statuses that are worth retrying. 429/402/4xx never are. */
-export const TRANSIENT_STATUSES = new Set([500, 502, 503, 504]);
-
-/**
- * Ordered attempt plan shared by every briefing call.
- * Stable models only — no `-preview` ids in a customer-facing main path.
- */
-export const BRIEFING_MODEL_CHAIN = [
-  "google/gemini-2.5-flash",
-  "google/gemini-2.5-flash",
-  "google/gemini-2.5-pro",
-] as const;
-
-/** Cheap, fast model used for the structured-output repair round. */
-export const BRIEFING_REPAIR_MODEL = "google/gemini-2.5-flash";
-
-export const BRIEFING_BACKOFF_MS = [0, 800, 1600];
-
-export interface GatewayAttemptResult {
-  response: Response;
-  model: string;
-  attempt: number;
-}
-
+/** Shared, host-owned briefing transport. No platform credential fallback. */
 export class GatewayError extends Error {
-  status: number;
-  body: string;
-  constructor(status: number, message: string, body = "") {
-    super(message);
-    this.status = status;
-    this.body = body;
+  readonly body = "";
+  readonly retryable = false;
+  constructor(public status: number, message: string) { super(message); }
+}
+export interface GatewayAttemptResult { response: Response; model: string; attempt: number; }
+
+export function getBriefingProvider(): {endpoint: string; key: string; model: string; repairModel: string} {
+  const base = Deno.env.get("BRIEFING_API_BASE_URL")?.replace(/\/+$/, "");
+  const key = Deno.env.get("BRIEFING_API_KEY");
+  const model = Deno.env.get("BRIEFING_MODEL");
+  const repairModel = Deno.env.get("BRIEFING_REPAIR_MODEL") || model;
+  if (!base || !key?.trim() || !model?.trim() || !repairModel?.trim() || /[\r\n]/.test(key + model + repairModel)) {
+    throw new GatewayError(503, "Briefing provider is not configured.");
   }
+  try {
+    const endpoint = new URL(base);
+    const host = endpoint.hostname.toLowerCase();
+    if (endpoint.protocol !== "https:" || endpoint.username || endpoint.password || endpoint.search || endpoint.hash ||
+        ["lovable.dev", "lovable.app", "lovableproject.com", "supabase.co"].some(d => host === d || host.endsWith("." + d))) throw new Error();
+  } catch { throw new GatewayError(503, "Briefing provider endpoint is invalid."); }
+  return {endpoint: `${base}/chat/completions`, key, model, repairModel};
 }
 
-/**
- * Runs the shared model chain against the Lovable AI Gateway.
- *
- * No artificial timeout is applied — generation takes as long as it takes and
- * aborting only throws away work that is billed anyway.
- */
-export async function callBriefingGateway(
-  apiKey: string,
-  buildBody: (model: string) => unknown,
-  label = "briefing",
-): Promise<GatewayAttemptResult> {
-  let lastStatus = 0;
-  let lastBody = "";
-
-  for (let i = 0; i < BRIEFING_MODEL_CHAIN.length; i++) {
-    const model = BRIEFING_MODEL_CHAIN[i];
-    const backoff = BRIEFING_BACKOFF_MS[i] ?? 1600;
-    if (backoff > 0) {
-      await new Promise((r) => setTimeout(r, backoff + Math.floor(Math.random() * 200)));
-    }
-    console.log(`[${label}] gateway attempt ${i + 1} model=${model}`);
-
-    let response: Response;
-    try {
-      response = await fetch(GATEWAY_URL, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify(buildBody(model)),
-      });
-    } catch (netErr) {
-      lastStatus = 0;
-      lastBody = (netErr as Error).message ?? "network error";
-      console.warn(`[${label}] network error attempt ${i + 1}: ${lastBody}`);
-      continue;
-    }
-
-    // Never retry these — retrying makes rate limits and billing worse.
-    if (response.status === 429 || response.status === 402) {
-      throw new GatewayError(response.status, `gateway ${response.status}`);
-    }
-    if (response.ok) return { response, model, attempt: i + 1 };
-
-    lastStatus = response.status;
-    lastBody = await response.text().catch(() => "");
-    if (!TRANSIENT_STATUSES.has(response.status)) {
-      throw new GatewayError(response.status, `gateway ${response.status}`, lastBody.slice(0, 400));
-    }
-    console.warn(`[${label}] transient gateway ${response.status} on attempt ${i + 1}`);
+async function requestBriefing(buildBody: (model: string) => unknown, repair: boolean): Promise<GatewayAttemptResult> {
+  const settings = getBriefingProvider();
+  const model = repair ? settings.repairModel : settings.model;
+  const body = buildBody(model);
+  if (!body || typeof body !== "object" || Array.isArray(body)) throw new GatewayError(400, "Invalid briefing request.");
+  let response: Response;
+  try {
+    response = await fetch(settings.endpoint, {
+      method: "POST",
+      headers: {Authorization: `Bearer ${settings.key}`, "Content-Type": "application/json"},
+      body: JSON.stringify({...body, model}),
+      redirect: "error",
+    });
+  } catch {
+    // A timeout/network error can happen after provider acceptance. Do not
+    // repeat a potentially billed request or reveal provider error details.
+    throw new GatewayError(503, "Briefing provider unavailable.");
   }
-
-  throw new GatewayError(lastStatus || 503, `gateway unavailable (${lastStatus})`, lastBody.slice(0, 400));
+  if (!response.ok) {
+    const status = response.status === 402 || response.status === 429 ? response.status : 503;
+    void response.body?.cancel().catch(() => {});
+    throw new GatewayError(status, "Briefing provider request failed.");
+  }
+  return {response, model, attempt: 1};
 }
 
-/** Extracts the first tool-call argument object from a chat-completions body. */
+/** One attempt per extraction; schema repair is a separate explicit call. */
+export function callBriefingGateway(buildBody: (model: string) => unknown, _label = "briefing"): Promise<GatewayAttemptResult> {
+  return requestBriefing(buildBody, false);
+}
+export function callBriefingRepair(buildBody: (model: string) => unknown): Promise<GatewayAttemptResult> {
+  return requestBriefing(buildBody, true);
+}
+
+/** Decode tool arguments; schema validation remains the caller's responsibility. */
 export function readToolCallArguments(json: unknown): Record<string, unknown> {
-  const call = (json as any)?.choices?.[0]?.message?.tool_calls?.[0];
-  const args = call?.function?.arguments;
-  if (!args) throw new Error("no tool call returned");
-  return JSON.parse(args);
+  const args = (json as any)?.choices?.[0]?.message?.tool_calls?.[0]?.function?.arguments;
+  if (typeof args !== "string") throw new GatewayError(502, "No structured briefing output returned.");
+  let value: unknown;
+  try { value = JSON.parse(args); } catch { throw new GatewayError(502, "Invalid structured briefing output."); }
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new GatewayError(502, "Invalid structured briefing output.");
+  return value as Record<string, unknown>;
 }

@@ -1,3 +1,4 @@
+import { isAwsTestBackend } from '@/lib/backendTarget';
 import { tx } from '@/lib/i18nText';
 import { Link } from "react-router-dom";
 import { useState } from "react";
@@ -69,7 +70,7 @@ export const BlackTieHero = () => {
               to="/pricing"
               className="inline-block text-sm text-muted-foreground/70 hover:text-primary transition-colors duration-300 mb-8"
             >
-              {t('landing.hero.pricingHint')}
+              {isAwsTestBackend ? tx({de:'Beta-Basic: monatliches Abonnement. Funktionen werden schrittweise verbunden.',en:'Beta-Basic: monthly subscription. Features are being connected in stages.',es:'Beta-Basic: suscripción mensual. Las funciones se conectan por etapas.'}) : t('landing.hero.pricingHint')}
             </Link>
 
             {/* CTA Group */}
@@ -79,8 +80,8 @@ export const BlackTieHero = () => {
                 size="lg" 
                 className="bg-gradient-to-r from-primary to-gold-dark text-primary-foreground font-semibold shadow-[var(--shadow-glow-gold)] hover:shadow-[0_0_50px_hsla(43,90%,68%,0.5)] transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] border-0 h-12 px-8"
               >
-                <Link to="/ai-text-studio">
-                  {t('landing.hero.ctaPrimary')}
+                <Link to={isAwsTestBackend ? "/auth" : "/ai-text-studio"}>
+                  {isAwsTestBackend ? t('auth.login') : t('landing.hero.ctaPrimary')}
                 </Link>
               </Button>
               <Button 

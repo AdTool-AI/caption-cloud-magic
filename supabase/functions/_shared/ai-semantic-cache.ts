@@ -45,37 +45,37 @@ async function hashPrompt(text: string): Promise<string> {
 }
 
 /**
- * Generate embedding via Lovable AI Gateway (OpenAI text-embedding-3-small)
+ * Optional independently configured embedding provider. The existing cache
+ * vectors are text-embedding-3-small / 1536 dimensions, so a different model
+ * requires a separate cache migration rather than mixing vector spaces.
+ * Missing or invalid configuration leaves exact caching available.
  */
-async function generateEmbedding(text: string): Promise<number[] | null> {
-  const apiKey = Deno.env.get("LOVABLE_API_KEY");
-  if (!apiKey) {
-    console.warn("[ai-semantic-cache] No LOVABLE_API_KEY — skipping embedding");
-    return null;
-  }
+export async function generateCacheEmbedding(text: string): Promise<number[] | null> {
+  const base = Deno.env.get("CACHE_EMBEDDINGS_BASE_URL")?.replace(/\/+$/, "");
+  const apiKey = Deno.env.get("CACHE_EMBEDDINGS_API_KEY");
+  const model = Deno.env.get("CACHE_EMBEDDINGS_MODEL");
+  if (!base || !apiKey || model !== "text-embedding-3-small") return null;
 
   try {
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/embeddings", {
+    const endpoint = new URL(base);
+    const host = endpoint.hostname.toLowerCase();
+    const blocked = ["lovable.dev", "lovable.app", "lovableproject.com", "supabase.co"];
+    if (endpoint.protocol !== "https:" || endpoint.username || endpoint.password || endpoint.search || endpoint.hash ||
+        blocked.some(domain => host === domain || host.endsWith("." + domain))) return null;
+    const response = await fetch(`${base}/embeddings`, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "openai/text-embedding-3-small",
-        input: text.slice(0, 8000),
-      }),
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ model, input: text.slice(0, 8000) }),
+      redirect: "error",
+      signal: AbortSignal.timeout(10_000),
     });
-
-    if (!response.ok) {
-      console.warn(`[ai-semantic-cache] Embedding failed: ${response.status}`);
-      return null;
-    }
-
+    if (!response.ok) return null;
     const data = await response.json();
-    return data?.data?.[0]?.embedding ?? null;
-  } catch (e) {
-    console.warn("[ai-semantic-cache] Embedding error:", e);
+    const vector = data?.data?.[0]?.embedding;
+    if (!Array.isArray(vector) || vector.length !== 1536 || !vector.every(value => typeof value === "number" && Number.isFinite(value))) return null;
+    return vector;
+  } catch {
+    // A cache miss must not expose provider responses, credentials or prompts.
     return null;
   }
 }
@@ -140,7 +140,7 @@ export async function lookupAiCache<T = any>(
     }
 
     // 2. Semantic similarity match
-    const embedding = opts.semantic === false ? null : await generateEmbedding(opts.promptText);
+    const embedding = opts.semantic === false ? null : await generateCacheEmbedding(opts.promptText);
     if (!embedding) {
       await recordStat(opts.endpoint, false, Date.now() - start);
       return { hit: false, data: null };
@@ -195,7 +195,7 @@ export async function storeAiCache(
   try {
     const supabase = getServiceClient();
     const promptHash = await hashPrompt(opts.promptText);
-    const embedding = opts.semantic === false ? null : await generateEmbedding(opts.promptText);
+    const embedding = opts.semantic === false ? null : await generateCacheEmbedding(opts.promptText);
     const ttlHours = opts.ttlHours ?? DEFAULT_TTL_HOURS;
     const expiresAt = new Date(Date.now() + ttlHours * 3600 * 1000).toISOString();
 

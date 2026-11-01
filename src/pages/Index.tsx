@@ -1,3 +1,4 @@
+import { isAwsTestBackend } from '@/lib/backendTarget';
 import { tx } from "@/lib/i18nText";
 import { useState } from "react";
 import { SEO } from "@/components/SEO";
@@ -89,7 +90,8 @@ const Index = () => {
           ogImage="/og-home.jpg"
         />
       
-        <main className="flex-1">
+        <main className="flex-1" id="main-content">
+          {isAwsTestBackend && <p className="container max-w-7xl px-4 pt-4 text-sm text-muted-foreground">{tx({de:"Produktvorschau während der AWS-Migration. Kalenderentwürfe und Planung sind verfügbar. Registrierung, Generierung und Veröffentlichung werden noch verbunden.",en:"Product preview during the AWS migration. Calendar drafts and planning are available. Registration, generation and publishing are still being connected.",es:"Vista previa durante la migración a AWS. Los borradores del calendario y la planificación están disponibles. El registro, la generación y la publicación aún se están conectando."})}</p>}
           {/* Trial Promise Strip — top of page, above hero */}
           <section className="px-4 pt-4 pb-0">
             <div className="container max-w-7xl mx-auto [&>div]:mb-0">
@@ -110,13 +112,13 @@ const Index = () => {
           <SocialProofStrip />
 
           {/* Mission Features - Why This Tool Wins */}
-          <MissionFeatures />
+          <div id="features"><MissionFeatures /></div>
 
           {/* Live Demo Showcase - Before/After */}
           <LiveDemoShowcase />
 
           {/* Instant Avatar Try-On — interactive eyecatcher */}
-          <InstantAvatarDemo />
+          {!isAwsTestBackend && <InstantAvatarDemo />}
 
           {/* UDC — Consistency-First moat */}
           <UDCShowcase />

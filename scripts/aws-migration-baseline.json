@@ -1,0 +1,1067 @@
+{
+  "schemaVersion": 1,
+  "scope": "static_source_inventory_not_live_acceptance",
+  "legacyDependencies": [
+    {
+      "path": "supabase/functions/_shared/briefing/deep/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/_shared/generate-script-inline.ts",
+      "categories": [
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/_shared/identity-audit.ts",
+      "categories": [
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/_shared/license-mapping.ts",
+      "categories": [
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/_shared/plate-face-detect.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/_shared/plate-face-identity.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/_shared/twoshot-face-map.ts",
+      "categories": [
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/agent-video-qa/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/ai-companion/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/ai-queue-worker/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/ai-superuser-test-runner/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/analyze-brand-consistency/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/analyze-brand-voice/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/analyze-comments/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/analyze-goal-progress/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/analyze-image-caption/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/analyze-logo/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/analyze-performance-strategy/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/analyze-performance/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/analyze-post-optimization/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/analyze-posting-times/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/analyze-scene-subject/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/analyze-script-for-video/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/analyze-script/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/analyze-style-reference/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/analyze-superuser-anomalies/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/analyze-trend/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/analyze-video-scenes/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/auth-email-hook/index.ts",
+      "categories": [
+        "lovable_provider_key"
+      ]
+    },
+    {
+      "path": "supabase/functions/auto-director-compose/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/auto-generate-universal-video/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/auto-match-music-to-video/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/autopilot-analyze-asset/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/autopilot-anchor-gate/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/autopilot-generate-slot/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/autopilot-ideas/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/autopilot-lounge-feed/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/autopilot-plan-week/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/autopilot-prompt-shield/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/autopilot-qa-gate/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/autopilot-treatment/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/autopilot-weekly-review/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/brand-consistency-scan/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/brand-trends-radar/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/calendar-holiday-suggestions/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/coach-chat/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/comments-summary/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/community-moderate/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/companion-transcribe/index.ts",
+      "categories": [
+        "lovable_provider_key"
+      ]
+    },
+    {
+      "path": "supabase/functions/compare-lab-judge/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/compose-dialog-segments/index.ts",
+      "categories": [
+        "lovable_provider_key"
+      ]
+    },
+    {
+      "path": "supabase/functions/compose-scene-anchor/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/compose-video-clips/index.ts",
+      "categories": [
+        "lovable_provider_key"
+      ]
+    },
+    {
+      "path": "supabase/functions/dashboard-goals-summary/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/detect-scene-drift/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/director-cut-audio-mixing/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/director-cut-auto-cut/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/director-cut-auto-enhance/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/director-cut-beat-sync/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/director-cut-chroma-key/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/director-cut-copilot/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/director-cut-detect-subtitle-band/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/director-cut-object-removal/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/director-cut-restoration/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/director-cut-smart-crop/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/director-cut-sound-design/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/director-cut-style-transfer/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/director-cut-transitions/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/extract-asset-from-frame/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/extract-brand-dna/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/extract-character-identity/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/extract-location-identity/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/extract-subtitle-keywords/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/generate-ad-script/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/generate-avatar-portrait/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/generate-avatar-poses/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/generate-avatar-wardrobe/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/generate-background-scenes/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/generate-bio/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/generate-brand-asset-pack/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/generate-brand-asset/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/generate-brand-kit/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/generate-campaign/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/generate-carousel-slides/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/generate-carousel/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/generate-character-sheet/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/generate-composer-image-scene/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/generate-cross-post-captions/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/generate-email-campaign/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/generate-first-video-prompts/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/generate-followup-question/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/generate-image-prompt/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/generate-location-props/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/generate-location-vibes/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/generate-long-form-script/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/generate-music-lyrics/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/generate-optimized-prompt/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/generate-post-caption/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/generate-post-design/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/generate-post-v2/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/generate-post/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/generate-reply-suggestions/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/generate-scene-dialog/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/generate-scene-still/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/generate-scene-visual/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/generate-starter-plan/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/generate-studio-image/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/generate-subtitle-script/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/generate-universal-script/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/generate-video-script/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/generate-voiceover-script/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/generate-wardrobe-perspectives/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/generate-week-strategy/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/generate-world-asset/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/instant-avatar-demo/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/motion-studio-director/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/motion-studio-superuser/index.ts",
+      "categories": [
+        "lovable_provider_key"
+      ]
+    },
+    {
+      "path": "supabase/functions/optimize-video-prompt/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/process-email-queue/index.ts",
+      "categories": [
+        "lovable_provider_key"
+      ]
+    },
+    {
+      "path": "supabase/functions/qa-gemini-mp4-url-probe/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/qa-live-sweep-bootstrap/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/refine-asset-photo/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/rewrite-caption/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/scene-director/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/seed-preset-avatars/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/seed-wardrobe-catalog/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/seed-world-catalog/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/send-email-campaign-test/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/structured-prompt-compose/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/suggest-video-music/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/text-studio-chat/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/text-studio-compare/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/translate-and-voiceover/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/translate-to-english/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/translate-video/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/triage-support-ticket/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/twitch-bits/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/twitch-channel-update/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/twitch-chatters/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/twitch-clip-create/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/twitch-clips/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/twitch-followers/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/twitch-games-search/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/twitch-hype-train/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/twitch-polls/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/twitch-predictions/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/twitch-rewards/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/twitch-schedule/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/twitch-send-chat/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/twitch-stream/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/twitch-user/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/universal-video-consultant/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    },
+    {
+      "path": "supabase/functions/validate-frame-face/index.ts",
+      "categories": [
+        "lovable_provider_key",
+        "lovable_runtime_endpoint"
+      ]
+    }
+  ]
+}

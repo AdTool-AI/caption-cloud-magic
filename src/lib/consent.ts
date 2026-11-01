@@ -1,3 +1,4 @@
+import { isAwsTestBackend } from '@/lib/backendTarget';
 /**
  * DSGVO-konformes Cookie-Consent-Management
  * Speichert Präferenzen in localStorage, blockiert Scripts bis zur Einwilligung
@@ -105,6 +106,7 @@ export function hasConsent(category: ConsentCategory): boolean {
  * Aktiviert blockierte Scripts basierend auf Consent
  */
 function enableConsentedScripts(consent: Consent): void {
+  if (isAwsTestBackend) return;
   document.querySelectorAll<HTMLScriptElement>('script[type="text/plain"][data-category]').forEach(script => {
     const category = script.dataset.category as ConsentCategory;
     
@@ -138,6 +140,7 @@ function enableConsentedScripts(consent: Consent): void {
  * Google Consent Mode v2 Update
  */
 function updateGoogleConsentMode(consent: Consent): void {
+  if (isAwsTestBackend) return;
   if (typeof window.gtag === 'function') {
     window.gtag('consent', 'update', {
       analytics_storage: consent.analytics ? 'granted' : 'denied',

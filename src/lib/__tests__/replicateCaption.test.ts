@@ -97,3 +97,36 @@ it('caption cache misses fail closed when the Replicate key is absent',async()=>
 it.each([402,429,500])('caption provider failure %s does not save a fabricated caption',async status=>{
  const f=handlerFixture({status});expect((await f.handler(request())).status).toBe(status===500?503:status);expect(f.inserts).toEqual([]);expect(f.cache.storeAiCache).not.toHaveBeenCalled();
 });
+
+function embeddingFixture(overrides: Record<string,string|undefined> = {}) {
+ const values: Record<string,string|undefined> = {CACHE_EMBEDDINGS_BASE_URL:'https://embeddings.example.invalid/v1',CACHE_EMBEDDINGS_API_KEY:'synthetic-owned-key',CACHE_EMBEDDINGS_MODEL:'text-embedding-3-small',...overrides};
+ const env=vi.fn((name:string)=>values[name]);
+ const fetch=vi.fn().mockResolvedValue({ok:true,json:async()=>({data:[{embedding:Array(1536).fill(0.01)}]})});
+ vi.stubGlobal('fetch',fetch);
+ const api=load(readFileSync(resolve(root,'_shared/ai-semantic-cache.ts'),'utf8'),{'npm:@supabase/supabase-js@2':{createClient:vi.fn()}},env);
+ return {api,env,fetch};
+}
+it('cache embeddings use only independently configured endpoint, model and key without redirects',async()=>{
+ const f=embeddingFixture();expect(await f.api.generateCacheEmbedding('x'.repeat(9000))).toHaveLength(1536);
+ expect(f.fetch).toHaveBeenCalledTimes(1);
+ const [url,options]=f.fetch.mock.calls[0] as any;
+ expect(url).toBe('https://embeddings.example.invalid/v1/embeddings');expect(options.redirect).toBe('error');
+ expect(options.headers.Authorization).toBe('Bearer synthetic-owned-key');
+ expect(JSON.parse(options.body)).toEqual({model:'text-embedding-3-small',input:'x'.repeat(8000)});
+ expect(f.env).not.toHaveBeenCalledWith('LOVABLE_API_KEY');
+});
+it.each(['CACHE_EMBEDDINGS_BASE_URL','CACHE_EMBEDDINGS_API_KEY','CACHE_EMBEDDINGS_MODEL'])('missing %s skips embedding without falling back',async key=>{
+ const f=embeddingFixture({[key]:undefined});expect(await f.api.generateCacheEmbedding('p')).toBeNull();expect(f.fetch).not.toHaveBeenCalled();
+});
+it.each(['https://ai.gateway.lovable.dev/v1','https://preview.lovable.app/v1','https://legacy.supabase.co/v1','http://example.invalid/v1','https://key@example.invalid/v1','https://example.invalid/v1?key=secret'])('rejects unapproved cache provider configuration %s',async base=>{
+ const f=embeddingFixture({CACHE_EMBEDDINGS_BASE_URL:base});expect(await f.api.generateCacheEmbedding('p')).toBeNull();expect(f.fetch).not.toHaveBeenCalled();
+});
+it('does not mix a new model with the existing semantic vector space',async()=>{
+ const f=embeddingFixture({CACHE_EMBEDDINGS_MODEL:'different-model'});expect(await f.api.generateCacheEmbedding('p')).toBeNull();expect(f.fetch).not.toHaveBeenCalled();
+});
+it.each([null,[],Array(1535).fill(0),[...Array(1535).fill(0),NaN],[...Array(1535).fill(0),'0']])('rejects incompatible embedding response %#',async vector=>{
+ const f=embeddingFixture();f.fetch.mockResolvedValue({ok:true,json:async()=>({data:[{embedding:vector}]})});expect(await f.api.generateCacheEmbedding('p')).toBeNull();
+});
+it('provider errors become a cache miss without exposing the error or retrying',async()=>{
+ const f=embeddingFixture();f.fetch.mockRejectedValue(Error('private provider response'));expect(await f.api.generateCacheEmbedding('p')).toBeNull();expect(f.fetch).toHaveBeenCalledTimes(1);
+});

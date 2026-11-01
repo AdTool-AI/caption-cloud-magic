@@ -181,11 +181,6 @@ export function handleStoryboard(
       });
     }
 
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) {
-      throw new Error("LOVABLE_API_KEY is not configured");
-    }
-
     const structure = CATEGORY_STRUCTURES[category] || CATEGORY_STRUCTURES["custom"];
     const targetSceneCount = Math.max(4, Math.min(10, Math.round(briefing.duration / 8)));
 
@@ -495,12 +490,11 @@ Generate the storyboard using the create_storyboard function.`;
       tool_choice: { type: "function", function: { name: "create_storyboard" } },
     });
 
-    // One shared model chain + one shared, localised error surface for the
+    // One shared provider contract + one shared, localised error surface for the
     // whole briefing pipeline (see _shared/briefing/models.ts).
     let response: Response;
     try {
       const attempt = await callBriefingGateway(
-        LOVABLE_API_KEY,
         (model) => JSON.parse(buildBody(model)),
         "storyboard",
       );

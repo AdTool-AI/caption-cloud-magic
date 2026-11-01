@@ -8,7 +8,7 @@
     "build": "vite build --mode aws-test",
     "build:aws-test": "vite build --mode aws-test",
     "build:aws": "vite build --mode aws-test",
-    "test:aws-test-config": "node --test scripts/aws-test-config.test.mjs scripts/verify-aws-build.test.mjs",
+    "test:aws-test-config": "node --test scripts/aws-test-config.test.mjs scripts/verify-aws-build.test.mjs scripts/audit-aws-migration.test.mjs",
     "verify:aws-build": "node scripts/verify-aws-build.mjs --dir dist-aws-test",
     "build:dev": "vite build --mode aws-test",
     "lint": "eslint .",
@@ -19,7 +19,8 @@
     "test:e2e:install": "playwright install --with-deps chromium",
     "dev:local": "node scripts/dev-local.mjs",
     "test:local:proxy": "node --test scripts/aws-local-proxy.test.mjs",
-    "test:local": "vitest run src/components/aws/__tests__/AwsPlannerEditor.test.tsx src/lib/__tests__/awsPlannerMutations.test.ts src/lib/__tests__/awsPlannerRead.test.ts src/pages/__tests__/AwsPlannerPage.test.tsx src/lib/__tests__/awsDraftMutations.test.ts src/lib/__tests__/awsCalendarRead.test.ts src/lib/__tests__/awsValidationFetch.test.ts src/lib/__tests__/plannerHandoff.test.ts src/lib/__tests__/awsAcceptedBackendHandlers.test.ts src/lib/__tests__/awsMediaCallback.test.ts src/lib/__tests__/replicateCaption.test.ts src/lib/__tests__/replicateGptImage.test.ts src/config/__tests__/pictureModelCapabilities.test.ts src/config/__tests__/picturePromptBuilder.test.ts src/lib/__tests__/awsPrivateMedia.test.ts src/lib/__tests__/mediaReadContract.test.ts src/components/aws/__tests__/AwsMediaPreviewCheck.test.tsx src/lib/__tests__/stripeCreditFulfillment.test.ts src/lib/__tests__/billingCheckoutGuard.test.ts src/lib/__tests__/stripeSubscriptionFulfillment.test.ts src/lib/__tests__/stripeCreditWebhookOwnership.test.ts src/lib/__tests__/awsBilling.test.ts src/pages/__tests__/AwsBillingPage.test.tsx"
+    "test:local": "vitest run src/lib/__tests__/awsEmailAuth.test.ts src/lib/__tests__/awsRecoveryPassword.test.ts src/pages/__tests__/AwsEmailRecovery.test.tsx src/components/aws/__tests__/AwsPlannerEditor.test.tsx src/lib/__tests__/awsPlannerMutations.test.ts src/lib/__tests__/awsPlannerRead.test.ts src/pages/__tests__/AwsPlannerPage.test.tsx src/lib/__tests__/awsDraftMutations.test.ts src/lib/__tests__/awsCalendarRead.test.ts src/lib/__tests__/awsValidationFetch.test.ts src/lib/__tests__/plannerHandoff.test.ts src/lib/__tests__/awsAcceptedBackendHandlers.test.ts src/lib/__tests__/awsMediaCallback.test.ts src/lib/__tests__/replicateCaption.test.ts src/lib/__tests__/replicateGptImage.test.ts src/config/__tests__/pictureModelCapabilities.test.ts src/config/__tests__/picturePromptBuilder.test.ts src/lib/__tests__/awsPrivateMedia.test.ts src/lib/__tests__/mediaReadContract.test.ts src/components/aws/__tests__/AwsMediaPreviewCheck.test.tsx src/lib/__tests__/stripeCreditFulfillment.test.ts src/lib/__tests__/billingCheckoutGuard.test.ts src/lib/__tests__/stripeSubscriptionFulfillment.test.ts src/lib/__tests__/stripeCreditWebhookOwnership.test.ts src/lib/__tests__/awsBilling.test.ts src/pages/__tests__/AwsBillingPage.test.tsx src/pages/__tests__/AwsAuthPage.test.tsx src/pages/__tests__/AwsApplication.test.tsx src/pages/__tests__/AwsPublicSite.test.tsx src/lib/__tests__/ambientAudio.test.ts src/lib/__tests__/faceCount.test.ts src/lib/__tests__/briefingProvider.test.ts",
+    "audit:aws": "node scripts/audit-aws-migration.mjs --check-no-new-legacy"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

@@ -11,12 +11,11 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { BriefingManifest, BRIEFING_TOOL_PARAMETERS } from "./manifestSchema.ts";
-import { callBriefingGateway, readToolCallArguments, GatewayError, GATEWAY_URL, BRIEFING_REPAIR_MODEL } from "./models.ts";
+import { callBriefingGateway, callBriefingRepair, readToolCallArguments } from "./models.ts";
 import { briefingErrorResponse, statusFromError } from "./errors.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
-const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY")!;
 
 const TOOL_DEFINITION = {
   type: "function",
@@ -74,7 +73,6 @@ export async function analyzeFreeformBriefing(
   briefing: string,
 ): Promise<{ manifest: unknown; model: string; repaired: boolean }> {
   const { response, model } = await callBriefingGateway(
-    LOVABLE_API_KEY,
     (m) => buildBody(m, briefing),
     "briefing-manifest",
   );
@@ -87,19 +85,14 @@ export async function analyzeFreeformBriefing(
   const note = formatIssues(parsed.error.issues as any);
   console.warn("[briefing-manifest] schema invalid, running repair round:", note);
 
-  const repairRes = await fetch(GATEWAY_URL, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify(buildBody(BRIEFING_REPAIR_MODEL, briefing, note)),
-  });
-  if (repairRes.status === 429 || repairRes.status === 402) {
-    throw new GatewayError(repairRes.status, `gateway ${repairRes.status}`);
-  }
+  const {response: repairRes, model: repairModel} = await callBriefingRepair(
+    (m) => buildBody(m, briefing, note),
+  );
   if (repairRes.ok) {
     raw = readToolCallArguments(await repairRes.json());
     parsed = BriefingManifest.safeParse(raw);
     if (parsed.success) {
-      return { manifest: parsed.data, model: BRIEFING_REPAIR_MODEL, repaired: true };
+      return { manifest: parsed.data, model: repairModel, repaired: true };
     }
   }
 

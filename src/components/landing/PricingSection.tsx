@@ -1,3 +1,5 @@
+import { isAwsTestBackend } from '@/lib/backendTarget';
+import { tx } from '@/lib/i18nText';
 import { motion } from "framer-motion";
 import { Check, Crown } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -42,7 +44,7 @@ export const PricingSection = () => {
             </span>
           </h2>
           <p className="text-muted-foreground max-w-2xl mx-auto text-lg">
-            {t("landing.pricing.subtitle")}
+            {isAwsTestBackend ? tx({de:"Monatliches Abonnement. Die verfügbaren AWS-Funktionen werden schrittweise erweitert.",en:"Monthly subscription. Available AWS features are being expanded in stages.",es:"Suscripción mensual. Las funciones disponibles en AWS se amplían por etapas."}) : t("landing.pricing.subtitle")}
           </p>
         </motion.div>
 
@@ -69,10 +71,10 @@ export const PricingSection = () => {
                 </div>
                 <div>
                   <h3 className="text-2xl font-semibold text-foreground mb-1">
-                    {t("landing.pricing.singlePlanTitle")}
+                    {isAwsTestBackend ? "Beta-Basic" : t("landing.pricing.singlePlanTitle")}
                   </h3>
                   <p className="text-sm text-muted-foreground mb-3 max-w-md">
-                    {t("landing.pricing.singlePlanDescription")}
+                    {isAwsTestBackend ? tx({de:"Kalenderentwürfe und Planung sind verfügbar. Generierung und Veröffentlichung sind noch nicht aktiviert.",en:"Calendar drafts and planning are available. Generation and publishing are not enabled yet.",es:"Los borradores del calendario y la planificación están disponibles. La generación y publicación aún no están habilitadas."}) : t("landing.pricing.singlePlanDescription")}
                   </p>
                   <div className="flex items-baseline gap-2 flex-wrap">
                     <span className="text-lg text-muted-foreground/60 line-through tabular-nums">
@@ -106,10 +108,10 @@ export const PricingSection = () => {
                   size="lg"
                   className="bg-gradient-to-r from-primary to-gold-dark text-primary-foreground font-semibold shadow-[var(--shadow-glow-gold)] hover:shadow-[0_0_50px_hsla(43,90%,68%,0.5)] transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] border-0 h-12 px-8"
                 >
-                  <Link to="/pricing">{t("landing.pricing.start")}</Link>
+                  <Link to={isAwsTestBackend ? "/billing" : "/pricing"}>{isAwsTestBackend ? tx({de:"Zur Abrechnung anmelden",en:"Sign in for billing",es:"Inicia sesión para facturación"}) : t("landing.pricing.start")}</Link>
                 </Button>
                 <p className="text-xs text-muted-foreground sm:text-right max-w-xs">
-                  {t("landing.pricing.trialNote")}
+                  {isAwsTestBackend ? tx({de:"Monatliches Abonnement. Prüfe den Gesamtbetrag bei Stripe vor der Zahlung.",en:"Monthly subscription. Review the total on Stripe before paying.",es:"Suscripción mensual. Revisa el total en Stripe antes de pagar."}) : t("landing.pricing.trialNote")}
                 </p>
               </div>
             </div>

@@ -32,3 +32,17 @@ test('unsupported charset is rejected without forwarding',async t=>{
  const r=await fetch('http://127.0.0.1:'+server.address().port+'/auth/v1/token?grant_type=password',{method:'POST',headers:{Origin:LOCAL_FRONTEND,'Content-Type':'application/json;charset=ISO-8859-1'},body:'{}'});
  assert.equal(r.status,415);assert.equal(calls,0);
 });
+
+
+test('permits the reviewed password-update PUT and preflight without broadening other methods',async t=>{
+ const calls=[];const server=createAwsLocalProxy({allow:async(path,method)=>{if(path!=='/auth/v1/user'||method!=='PUT')throw Error('denied');},upstream:async(...args)=>{calls.push(args);return {status:401,headers:{'content-type':'application/json'},body:Buffer.from('{}')};}});
+ await new Promise(r=>server.listen(0,'127.0.0.1',r));t.after(()=>new Promise(r=>{server.closeAllConnections();server.close(r);}));const url='http://127.0.0.1:'+server.address().port;
+ const pre=await fetch(url+'/auth/v1/user',{method:'OPTIONS',headers:{Origin:LOCAL_FRONTEND,'Access-Control-Request-Method':'PUT','Access-Control-Request-Headers':'authorization,apikey,content-type'}});assert.equal(pre.status,204);assert.equal(pre.headers.get('access-control-allow-methods'),'PUT');assert.equal(calls.length,0);
+ const body=JSON.stringify({password:'synthetic-proxy-only'});const response=await fetch(url+'/auth/v1/user',{method:'PUT',headers:{Origin:LOCAL_FRONTEND,'Content-Type':'application/json',Authorization:'Bearer synthetic',apikey:'synthetic-public'},body});assert.equal(response.status,401);assert.equal(calls.length,1);assert.equal(calls[0][1],'PUT');assert.equal(calls[0][3].toString(),body);
+});
+test('denies PUT to other paths even when the injected policy is permissive',async t=>{
+ let count=0;const server=createAwsLocalProxy({allow:async()=>{},upstream:async()=>{count++;throw Error('must not forward');}});await new Promise(r=>server.listen(0,'127.0.0.1',r));t.after(()=>new Promise(r=>{server.closeAllConnections();server.close(r);}));const url='http://127.0.0.1:'+server.address().port;
+ assert.equal((await fetch(url+'/rest/v1/profiles',{method:'PUT',headers:{Origin:LOCAL_FRONTEND}})).status,404);
+ assert.equal((await fetch(url+'/auth/v1/user',{method:'PATCH',headers:{Origin:LOCAL_FRONTEND}})).status,404);
+ assert.equal(count,0);
+});

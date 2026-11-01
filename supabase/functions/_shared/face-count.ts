@@ -1,5 +1,5 @@
 /**
- * Shared face-count helper. Asks Gemini Vision how many distinct human
+ * Shared face-count helper. Asks an independently configured vision model how many distinct human
  * faces are visible in a given image or first-frame URL. Used by:
  *  - `compose-video-clips` → pre-flight check on composed scene anchor
  *    BEFORE handing it to i2v (catches "Nano Banana rendered only one
@@ -11,28 +11,54 @@
  * "skip the check" or "fail loud".
  */
 
-const GATEWAY = "https://ai.gateway.lovable.dev/v1/chat/completions";
+/** Server-owned provider settings only; never forward a caller/legacy credential. */
+function provider(): {endpoint: string; key: string; model: string} | null {
+  const base = Deno.env.get("QA_API_BASE_URL")?.replace(/\/+$/, "");
+  const key = Deno.env.get("QA_API_KEY");
+  const model = Deno.env.get("QA_MODEL");
+  if (!base || !key?.trim() || !model?.trim() || /[\r\n]/.test(key + model)) return null;
+  try {
+    const u = new URL(base);
+    const host = u.hostname.toLowerCase();
+    if (u.protocol !== "https:" || u.username || u.password || u.search || u.hash ||
+        ["lovable.dev", "lovable.app", "lovableproject.com", "supabase.co"].some(d => host === d || host.endsWith("." + d))) return null;
+    return {endpoint: `${base}/chat/completions`, key, model};
+  } catch { return null; }
+}
+function countFromResponse(json: unknown, field: "faces" | "humans"): number | null {
+  const text = (json as any)?.choices?.[0]?.message?.content;
+  if (typeof text !== "string") return null;
+  const match = text.match(/\{[\s\S]*?\}/);
+  if (!match) return null;
+  const count = JSON.parse(match[0])?.[field];
+  return typeof count === "number" && Number.isSafeInteger(count) && count >= 0 ? count : null;
+}
+function deadline(value: number | undefined): number {
+  return typeof value === "number" && Number.isFinite(value) ? Math.min(60_000, Math.max(1_000, value)) : 20_000;
+}
 
 export async function countFacesInImage(
   url: string,
-  lovableKey: string,
+  _unusedLegacyKey: string,
   opts: { kind?: "image" | "video"; timeoutMs?: number } = {},
 ): Promise<number | null> {
   const kind = opts.kind ?? "image";
-  const timeoutMs = opts.timeoutMs ?? 20_000;
-  // Lovable AI Gateway's `image_url` cannot decode MP4 URLs — calling Gemini
+  const timeoutMs = deadline(opts.timeoutMs);
+  // This image-only contract cannot safely interpret MP4 URLs — calling vision
   // with a video URL returns 0 silently. Callers must extract a first frame
   // before invoking this helper for video sources.
   if (kind === "video") return null;
+  const settings = provider();
+  if (!settings) return null;
   try {
-    const resp = await fetch(GATEWAY, {
+    const resp = await fetch(settings.endpoint, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${lovableKey}`,
+        Authorization: `Bearer ${settings.key}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
+        model: settings.model,
         messages: [
           {
             role: "user",
@@ -40,9 +66,7 @@ export async function countFacesInImage(
               {
                 type: "text",
                 text:
-                  (kind === "video"
-                    ? "You see the FIRST FRAME of a video. "
-                    : "You see a single image. ") +
+                  "You see a single image. " +
                   "Count the DISTINCT human faces that are clearly visible and identifiable " +
                   "(eyes, nose and mouth all discernible). Do NOT count back-of-head shots, " +
                   "heavily occluded faces, blurred background faces, or faces shown only in profile " +
@@ -54,17 +78,11 @@ export async function countFacesInImage(
           },
         ],
       }),
+      redirect: "error",
       signal: AbortSignal.timeout(timeoutMs),
     });
     if (!resp.ok) return null;
-    const j = await resp.json();
-    const txt = j?.choices?.[0]?.message?.content ?? "";
-    const m = String(txt).match(/\{[\s\S]*?\}/);
-    if (!m) return null;
-    const parsed = JSON.parse(m[0]);
-    const n = Number(parsed?.faces);
-    if (!Number.isFinite(n) || n < 0) return null;
-    return Math.round(n);
+    return countFromResponse(await resp.json(), "faces");
   } catch {
     return null;
   }
@@ -77,19 +95,21 @@ export async function countFacesInImage(
  */
 export async function countHumansInImage(
   url: string,
-  lovableKey: string,
+  _unusedLegacyKey: string,
   opts: { timeoutMs?: number } = {},
 ): Promise<number | null> {
-  const timeoutMs = opts.timeoutMs ?? 20_000;
+  const timeoutMs = deadline(opts.timeoutMs);
+  const settings = provider();
+  if (!settings) return null;
   try {
-    const resp = await fetch(GATEWAY, {
+    const resp = await fetch(settings.endpoint, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${lovableKey}`,
+        Authorization: `Bearer ${settings.key}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
+        model: settings.model,
         messages: [
           {
             role: "user",
@@ -109,17 +129,11 @@ export async function countHumansInImage(
           },
         ],
       }),
+      redirect: "error",
       signal: AbortSignal.timeout(timeoutMs),
     });
     if (!resp.ok) return null;
-    const j = await resp.json();
-    const txt = j?.choices?.[0]?.message?.content ?? "";
-    const m = String(txt).match(/\{[\s\S]*?\}/);
-    if (!m) return null;
-    const parsed = JSON.parse(m[0]);
-    const n = Number(parsed?.humans);
-    if (!Number.isFinite(n) || n < 0) return null;
-    return Math.round(n);
+    return countFromResponse(await resp.json(), "humans");
   } catch {
     return null;
   }
