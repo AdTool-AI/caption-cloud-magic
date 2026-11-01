@@ -62,12 +62,22 @@ export function ambientBedAllowed(audioPlan: unknown): boolean {
  * `allowed: false`.
  */
 export async function runAmbientSpeechGate(clipUrl: string): Promise<AmbientGateResult> {
-  const apiKey = Deno.env.get("LOVABLE_API_KEY");
-  if (!apiKey) return { allowed: false, reason: "not_configured" };
+  const base = Deno.env.get("AMBIENT_TRANSCRIPTION_BASE_URL")?.replace(/\/+$/, "");
+  const apiKey = Deno.env.get("AMBIENT_TRANSCRIPTION_API_KEY");
+  const model = Deno.env.get("AMBIENT_TRANSCRIPTION_MODEL");
+  if (!base || !apiKey || !model) return { allowed: false, reason: "not_configured" };
+  try {
+    const endpoint = new URL(base);
+    const host = endpoint.hostname.toLowerCase();
+    if (endpoint.protocol !== "https:" || endpoint.username || endpoint.password || endpoint.search || endpoint.hash ||
+        ["lovable.dev", "lovable.app", "lovableproject.com", "supabase.co"].some(domain => host === domain || host.endsWith("." + domain))) {
+      return { allowed: false, reason: "not_configured" };
+    }
+  } catch { return { allowed: false, reason: "not_configured" }; }
 
   let bytes: Uint8Array;
   try {
-    const res = await fetch(clipUrl);
+    const res = await fetch(clipUrl, { redirect: "error", signal: AbortSignal.timeout(15_000) });
     if (!res.ok) return { allowed: false, reason: "fetch_failed" };
     const buf = new Uint8Array(await res.arrayBuffer());
     if (buf.byteLength > GATE_MAX_BYTES) return { allowed: false, reason: "too_large" };
@@ -81,19 +91,23 @@ export async function runAmbientSpeechGate(clipUrl: string): Promise<AmbientGate
     // The transcription endpoint reads the audio track out of an MP4
     // container directly, so no ffmpeg step is needed in the edge runtime.
     form.append("file", new Blob([bytes], { type: "video/mp4" }), "plate.mp4");
-    form.append("model", "openai/gpt-4o-mini-transcribe");
+    form.append("model", model);
 
-    const res = await fetch("https://ai.gateway.lovable.dev/v1/audio/transcriptions", {
+    const res = await fetch(`${base}/audio/transcriptions`, {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}` },
       body: form,
+      redirect: "error",
+      signal: AbortSignal.timeout(30_000),
     });
     if (!res.ok) {
       console.warn(`[ambient-gate] transcription failed ${res.status}`);
       return { allowed: false, reason: "stt_failed" };
     }
     const json = await res.json().catch(() => null);
-    const transcript = String((json as any)?.text ?? "").trim();
+    // A successful HTTP response without a transcript is not proof of silence.
+    if (!json || typeof (json as any).text !== "string") return { allowed: false, reason: "stt_failed" };
+    const transcript = (json as { text: string }).text.trim();
     // Transcribers happily hallucinate a stray token on pure room tone, so a
     // couple of characters are not treated as speech — two real words are.
     const words = transcript.split(/\s+/).filter((w) => /\p{L}{2,}/u.test(w));
@@ -101,8 +115,8 @@ export async function runAmbientSpeechGate(clipUrl: string): Promise<AmbientGate
       return { allowed: false, reason: "speech_detected", transcript: transcript.slice(0, 300) };
     }
     return { allowed: true, reason: "no_speech", transcript: transcript.slice(0, 300) };
-  } catch (err) {
-    console.warn("[ambient-gate] unexpected failure", err);
+  } catch {
+    console.warn("[ambient-gate] transcription unavailable");
     return { allowed: false, reason: "stt_failed" };
   }
 }

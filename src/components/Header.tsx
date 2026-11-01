@@ -1,3 +1,4 @@
+import { isAwsTestBackend } from '@/lib/backendTarget';
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { LanguageSwitcher } from "./LanguageSwitcher";
@@ -17,7 +18,7 @@ export const Header = () => {
 
   useEffect(() => {
     const checkTestMode = async () => {
-      if (!user) return;
+      if (!user || isAwsTestBackend) return;
       try {
         const { data, error } = await supabase
           .from('profiles')
@@ -96,18 +97,18 @@ export const Header = () => {
           )}
           <ThemeToggle />
           <LanguageSwitcher />
-          {user && (
+          {user && !isAwsTestBackend && (
             <Button asChild variant="ghost" size="icon" className="hidden sm:inline-flex" aria-label="Community">
               <Link to="/community">
                 <MessageSquare className="h-4 w-4" aria-hidden="true" />
               </Link>
             </Button>
           )}
-          {user && <NotificationBell />}
+          {user && !isAwsTestBackend && <NotificationBell />}
           {user ? (
             <>
               <Button asChild variant="ghost" size="sm" aria-label={t("auth.account")}>
-                <Link to="/account">
+                <Link to={isAwsTestBackend ? "/home" : "/account"}>
                   <User className="h-4 w-4 sm:mr-2" aria-hidden="true" />
                   <span className="hidden sm:inline">{t("auth.account")}</span>
                 </Link>
@@ -125,11 +126,11 @@ export const Header = () => {
           ) : (
 
             <>
-              <Button asChild variant="ghost" size="sm" aria-label={t("auth.login")}>
+              <Button asChild variant="ghost" size="sm" className={isAwsTestBackend ? "sm:hidden" : undefined} aria-label={t("auth.login")}>
                 <Link to="/auth">{t("auth.login")}</Link>
               </Button>
-              <Button asChild size="sm" className="hidden sm:flex" aria-label={t("hero.cta")}>
-                <Link to="/auth">{t("hero.cta")}</Link>
+              <Button asChild size="sm" className="hidden sm:flex" aria-label={isAwsTestBackend ? t("auth.login") : t("hero.cta")}>
+                <Link to="/auth">{isAwsTestBackend ? t("auth.login") : t("hero.cta")}</Link>
               </Button>
             </>
           )}

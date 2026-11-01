@@ -1,6 +1,7 @@
+import { isAwsTestBackend } from '@/lib/backendTarget';
 import { tx } from "@/lib/i18nText";
-import { useState, useEffect } from "react";
-import { Navigate, useNavigate } from "react-router-dom";
+import { useState, useEffect, useRef } from "react";
+import { Link, Navigate, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -21,7 +22,7 @@ import { GoogleSignInButton } from "@/components/auth/GoogleSignInButton";
 
 const Auth = () => {
   const { t } = useTranslation();
-  const { user, signUp, signIn, loading: authLoading, requiresMfa, clearMfaRequirement } = useAuth();
+  const { user, session, signUp, signIn, loading: authLoading, requiresMfa, clearMfaRequirement, signOut } = useAuth();
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -32,10 +33,12 @@ const Auth = () => {
   const [rememberMe, setRememberMe] = useState(false);
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const submitPending = useRef(false);
+  const [loginError, setLoginError] = useState("");
 
   // Redirect if already logged in
   useEffect(() => {
-    if (user) {
+    if (user && !isAwsTestBackend) {
       // Check if there's a pending composer import
       const composerImport = localStorage.getItem('composer_import');
       
@@ -50,6 +53,19 @@ const Auth = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isAwsTestBackend) {
+      if (submitPending.current || requiresMfa) return;
+      submitPending.current = true; setLoading(true); setLoginError("");
+      try {
+        const result = await signIn(email.trim(), password);
+        if (result.error) setLoginError(tx({de:"Anmeldung fehlgeschlagen. Bitte überprüfe deine Zugangsdaten.",en:"Sign-in failed. Please check your account details.",es:"No se pudo iniciar sesión. Comprueba tus datos."}));
+      } catch {
+        setLoginError(tx({de:"Anmeldung derzeit nicht möglich. Bitte versuche es erneut.",en:"Sign-in could not complete. Please try again.",es:"No se pudo completar el inicio de sesión. Inténtalo de nuevo."}));
+      } finally {
+        setPassword(""); setLoading(false); submitPending.current = false;
+      }
+      return;
+    }
     
     if (!email || !password) {
       toast.error(tx({ de: "Bitte fülle alle Felder aus", en: "Please fill in all fields", es: "Rellena todos los campos" }));
@@ -110,17 +126,17 @@ const Auth = () => {
     );
   }
 
-  if (user) {
+  if (user && !requiresMfa && (!isAwsTestBackend || session?.user.id === user.id)) {
     const composerImport = localStorage.getItem('composer_import');
-    const redirectTo = composerImport ? '/composer' : '/ai-text-studio';
+    const redirectTo = isAwsTestBackend ? '/home' : composerImport ? '/composer' : '/ai-text-studio';
     return <Navigate to={redirectTo} replace />;
   }
 
   return (
     <div className="min-h-screen flex flex-col bg-background relative overflow-hidden">
       <SEO
-        title="Sign In or Create Account"
-        description="Sign in to AdTool AI or create a free account to generate AI-powered social media captions, schedule posts, and grow your audience across every platform."
+        title={isAwsTestBackend ? "Sign In" : "Sign In or Create Account"}
+        description={isAwsTestBackend ? "Sign in to your AdTool AI account." : "Sign in to AdTool AI or create a free account to generate AI-powered social media captions, schedule posts, and grow your audience across every platform."}
         canonical="/auth"
         noindex
       />
@@ -176,10 +192,14 @@ const Auth = () => {
               </motion.div>
             </CardHeader>
             
-            <form onSubmit={handleSubmit}>
+            {isAwsTestBackend && requiresMfa ? <CardContent className="space-y-5">
+              <p role="alert">{tx({de:"Für dieses Konto ist eine zusätzliche Verifizierung erforderlich. Die Anmeldung kann hier noch nicht abgeschlossen werden.",en:"This account requires additional verification. Sign-in cannot be completed here yet.",es:"Esta cuenta requiere verificación adicional. El inicio de sesión aún no se puede completar aquí."})}</p>
+              <Button className="w-full" variant="outline" onClick={()=>void signOut()}>{tx({de:"Abmelden",en:"Sign out",es:"Cerrar sesión"})}</Button>
+            </CardContent> : <form onSubmit={handleSubmit}>
+
               <CardContent className="space-y-5">
                 {/* Google one-click */}
-                <div className="space-y-4">
+                {!isAwsTestBackend && <div className="space-y-4">
                   <GoogleSignInButton disabled={loading} />
                   <div className="flex items-center gap-3">
                     <span className="h-px flex-1 bg-border/60" />
@@ -188,7 +208,7 @@ const Auth = () => {
                     </span>
                     <span className="h-px flex-1 bg-border/60" />
                   </div>
-                </div>
+                </div>}
 
                 {/* Email Field */}
                 <motion.div 
@@ -308,7 +328,7 @@ const Auth = () => {
                 )}
 
                 {/* Remember Me & Forgot Password (Login only) */}
-                {isLogin && (
+                {isLogin && !isAwsTestBackend && (
                   <motion.div 
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
@@ -339,6 +359,8 @@ const Auth = () => {
                   </motion.div>
                 )}
 
+                {isAwsTestBackend && <Link to="/forgot-password" className="block text-right text-sm font-medium text-primary underline">{tx({de:'Passwort vergessen?',en:'Forgot password?',es:'¿Olvidaste tu contraseña?'})}</Link>}
+
                 {/* Submit Button */}
                 <motion.div
                   initial={{ opacity: 0, y: 10 }}
@@ -368,11 +390,13 @@ const Auth = () => {
                   className="flex items-center justify-center gap-2 text-xs text-muted-foreground/70"
                 >
                   <Shield className="h-3.5 w-3.5" />
-                  <span>{tx({ de: "Geschützt durch 2-Faktor-Authentifizierung", en: "Protected by two-factor authentication", es: "Protegido por autenticación de dos factores" })}</span>
+                  <span>{isAwsTestBackend ? tx({de:"Sichere Anmeldung",en:"Secure sign-in",es:"Inicio de sesión seguro"}) : tx({ de: "Geschützt durch 2-Faktor-Authentifizierung", en: "Protected by two-factor authentication", es: "Protegido por autenticación de dos factores" })}</span>
                 </motion.div>
 
+                {loginError && <p role="alert" className="text-sm text-destructive">{loginError}</p>}
+                {isAwsTestBackend && <p className="text-center text-xs text-muted-foreground">{tx({de:"Melde dich mit deinem bestehenden AdTool-Konto an.",en:"Sign in with your existing AdTool account.",es:"Inicia sesión con tu cuenta existente de AdTool."})}</p>}
                 {/* Toggle Login/Signup */}
-                <motion.div 
+                {!isAwsTestBackend && <motion.div
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   transition={{ delay: 0.9, duration: 0.3 }}
@@ -393,15 +417,15 @@ const Auth = () => {
                       {isLogin ? t('btn_signup') : t('btn_login')}
                     </button>
                   </p>
-                </motion.div>
+                </motion.div>}
               </CardContent>
-            </form>
+            </form>}
           </Card>
         </motion.div>
       </main>
 
       {/* 2FA Challenge Modal */}
-      <TwoFactorChallenge
+      {!isAwsTestBackend && <TwoFactorChallenge
         open={requiresMfa}
         onSuccess={() => {
           clearMfaRequirement();
@@ -410,10 +434,10 @@ const Auth = () => {
         onCancel={() => {
           clearMfaRequirement();
         }}
-      />
+      />}
 
       <BlackTieFooter />
-      <AuthStatusIndicator />
+      {!isAwsTestBackend && <AuthStatusIndicator />}
     </div>
   );
 };

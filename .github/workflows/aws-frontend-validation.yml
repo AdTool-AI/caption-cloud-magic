@@ -24,16 +24,27 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run test:aws-test-config
+      - run: npm run audit:aws
       - run: node node_modules/typescript/bin/tsc --noEmit -p tsconfig.app.json
       - run: node node_modules/typescript/bin/tsc --noEmit -p tsconfig.node.json
       - name: Scoped frontend checks (no live backend requests)
         run: >-
           node node_modules/vitest/vitest.mjs run
+          src/lib/__tests__/awsEmailAuth.test.ts
+          src/lib/__tests__/awsRecoveryPassword.test.ts
+          src/pages/__tests__/AwsEmailRecovery.test.tsx
           src/lib/__tests__/awsBootstrap.test.ts
           src/lib/__tests__/awsValidationFetch.test.ts
+          src/lib/__tests__/replicateCaption.test.ts
+          src/lib/__tests__/ambientAudio.test.ts
+          src/lib/__tests__/faceCount.test.ts
+          src/lib/__tests__/briefingProvider.test.ts
           src/hooks/__tests__/awsBootstrapAuth.test.tsx
           src/hooks/__tests__/awsUserRoles.test.ts
           src/integrations/supabase/__tests__/awsTestClient.test.ts
           src/pages/__tests__/AwsValidation.test.tsx
+          src/pages/__tests__/AwsAuthPage.test.tsx
+          src/pages/__tests__/AwsApplication.test.tsx
+          src/pages/__tests__/AwsPublicSite.test.tsx
       # Jenkins owns the credential-bound build and Amplify deployment.
       # Legacy full-app/load/visual workflows are archived until their contracts migrate.

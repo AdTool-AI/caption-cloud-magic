@@ -32,12 +32,12 @@ export function createAwsLocalProxy({allow,upstream=awsRequest}){
   if(req.method==='OPTIONS'){
    const method=req.headers['access-control-request-method'];
    const names=String(req.headers['access-control-request-headers']??'').toLowerCase().split(',').map(s=>s.trim()).filter(Boolean);
-   if(!['GET','HEAD','POST'].includes(method)||names.some(n=>!HEADER_NAMES.includes(n)&&n!=='accept-profile'))return send(403,{error:'PREFLIGHT_UNAVAILABLE'});
+   if(!(['GET','HEAD','POST'].includes(method)||method==='PUT'&&req.url==='/auth/v1/user')||names.some(n=>!HEADER_NAMES.includes(n)&&n!=='accept-profile'))return send(403,{error:'PREFLIGHT_UNAVAILABLE'});
    // Validate route and method even for preflight; public schema header is removed by the browser client.
    try{await allow(req.url,method,{});}catch{return send(404,{error:'ROUTE_UNAVAILABLE'});}
    res.writeHead(204,{'Access-Control-Allow-Methods':method,'Access-Control-Allow-Headers':HEADER_NAMES.concat('accept-profile').join(','),'Access-Control-Max-Age':'60'});return res.end();
   }
-  if(!['GET','HEAD','POST'].includes(req.method))return send(404,{error:'ROUTE_UNAVAILABLE'});
+  if(!(['GET','HEAD','POST'].includes(req.method)||req.method==='PUT'&&req.url==='/auth/v1/user'))return send(404,{error:'ROUTE_UNAVAILABLE'});
   try{
    await allow(req.url,req.method,req.headers);
   }catch{return send(404,{error:'ROUTE_UNAVAILABLE'});}

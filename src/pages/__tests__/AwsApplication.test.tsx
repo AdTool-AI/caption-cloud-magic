@@ -11,6 +11,10 @@ vi.mock('@/components/ui/sidebar',()=>({SidebarProvider:({children}:any)=>childr
 vi.mock('@/components/ui/sonner',()=>({Toaster:()=>null}));
 vi.mock('@/pages/HubPage',()=>({default:()=> <h1>Original hub page</h1>}));
 vi.mock('@/pages/AwsCalendarPage',()=>({default:()=> <h1>Workspace calendar</h1>}));
+vi.mock('@/components/Header',()=>({Header:()=> <header>Public header</header>}));
+vi.mock('@/components/CookieConsent',()=>({CookieConsent:()=>null}));
+vi.mock('@/pages/Index',()=>({default:()=> <h1>Public homepage</h1>}));
+vi.mock('@/pages/Auth',()=>({default:()=> <h1>AdTool sign in</h1>}));
 vi.mock('@/pages/AwsValidation',()=>({default:()=> <h1>Sign in or verify session</h1>}));
 vi.mock('@/config/hubConfig',()=>({hubDefinitions:[{key:'planen',titleKey:'Planning hub',descKey:'Plan content',items:[]},{key:'admin',adminOnly:true,titleKey:'Admin',items:[]}]}));
 vi.mock('@/config/hubCovers',()=>({hubCovers:{}}));
@@ -28,5 +32,16 @@ it('does not silently send unsupported command-center tabs to the calendar',()=>
  window.history.replaceState({},'','/command-center?view=campaigns');render(<Application/>);expect(screen.queryByRole('heading',{name:'Workspace calendar'})).not.toBeInTheDocument();expect(screen.getByRole('heading',{name:'This feature is being connected to AWS'})).toBeInTheDocument();
 });
 it('does not mount application pages for signed-out or MFA-incomplete sessions',()=>{
- mocks.auth.current.requiresMfa=true;render(<Application/>);expect(screen.getByRole('heading',{name:'Sign in or verify session'})).toBeInTheDocument();expect(screen.queryByText('Original sidebar')).not.toBeInTheDocument();
+ mocks.auth.current.requiresMfa=true;render(<Application/>);expect(screen.getByRole('heading',{name:'AdTool sign in'})).toBeInTheDocument();expect(screen.queryByText('Original sidebar')).not.toBeInTheDocument();
+});
+
+it('shows branded sign-in before loading any workspace when signed out',()=>{
+ mocks.auth.current={user:null,session:null,loading:false,requiresMfa:false};render(<Application/>);expect(screen.getByRole('heading',{name:'AdTool sign in'})).toBeInTheDocument();expect(screen.queryByText('Original sidebar')).not.toBeInTheDocument();
+});
+
+it('opens the public homepage at the default URL without requiring sign-in',()=>{
+ window.history.replaceState({},'','/');mocks.auth.current={user:null,session:null,loading:false,requiresMfa:false};render(<Application/>);expect(screen.getByRole('heading',{name:'Public homepage'})).toBeInTheDocument();expect(screen.getByText('Public header')).toBeInTheDocument();expect(screen.queryByRole('heading',{name:'AdTool sign in'})).not.toBeInTheDocument();
+});
+it('renders the public header around the sign-in route',()=>{
+ window.history.replaceState({},'','/auth');mocks.auth.current={user:null,session:null,loading:false,requiresMfa:false};render(<Application/>);expect(screen.getByText('Public header')).toBeInTheDocument();expect(screen.getByRole('heading',{name:'AdTool sign in'})).toBeInTheDocument();
 });

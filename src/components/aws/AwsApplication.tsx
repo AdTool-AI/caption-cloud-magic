@@ -1,3 +1,5 @@
+import AwsPublicSite, { AwsPublicFrame, isAwsPublicPath } from '@/components/aws/AwsPublicSite';
+import Auth from '@/pages/Auth';
 import AwsBillingPage from '@/pages/AwsBillingPage';
 import AwsPlannerPage from '@/pages/AwsPlannerPage';
 import { useState } from 'react';
@@ -42,9 +44,11 @@ function WorkspaceHub() {
   return hubDefinitions.find(h=>h.key===hubKey)?.adminOnly ? <Unavailable/> : <HubPage/>;
 }
 function SignedInLayout() {
-  const {user,session,loading,requiresMfa}=useAuth();const [menu,setMenu]=useState(false);
+  const {user,session,loading,requiresMfa}=useAuth();const [menu,setMenu]=useState(false);const location=useLocation();
+  const signedIn=!!user&&!!session&&session.user.id===user.id&&!requiresMfa;
+  if (isAwsPublicPath(location.pathname,signedIn)) return <AwsPublicSite/>;
   if (loading) return <p role="status" className="p-8">Checking session...</p>;
-  if (!user || !session || session.user.id!==user.id || requiresMfa) return <AwsValidation/>;
+  if (!user || !session || session.user.id!==user.id || requiresMfa) return <AwsPublicFrame><Auth/></AwsPublicFrame>;
   return <SidebarProvider><div className="flex min-h-screen w-full min-w-0">
     <AppSidebar/>
     <div className="flex min-w-0 flex-1 flex-col"><AppHeader/>

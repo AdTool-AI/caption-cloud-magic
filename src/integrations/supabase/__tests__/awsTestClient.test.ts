@@ -11,3 +11,5 @@ it('uses only the AWS origin, namespaced local session and scoped transport',asy
 it('has no OAuth fallback button before native OAuth is configured',async()=>{
  const {GoogleSignInButton}=await import('@/components/auth/GoogleSignInButton');expect(GoogleSignInButton({})).toBeNull();expect(mocks.create).not.toHaveBeenCalled();
 });
+
+it('does not consume arbitrary URL fragments outside an email callback',async()=>{window.history.replaceState({},'','/home#access_token=untrusted');await import('../client');expect(mocks.create.mock.calls[0][2].auth.detectSessionInUrl).toBe(false);window.history.replaceState({},'','/');});

@@ -1,3 +1,5 @@
+import { isAwsTestBackend } from '@/lib/backendTarget';
+import { tx } from '@/lib/i18nText';
 import { motion } from "framer-motion";
 import { CalendarCheck, Gift, ShieldCheck, Clock } from "lucide-react";
 import { useTranslation } from "@/hooks/useTranslation";
@@ -5,7 +7,12 @@ import { useTranslation } from "@/hooks/useTranslation";
 export const TrialPromiseStrip = () => {
   const { t } = useTranslation();
 
-  const items = [
+  const items = isAwsTestBackend ? [
+    {icon:CalendarCheck,title:tx({de:"Kalender",en:"Calendar",es:"Calendario"}),desc:tx({de:"Textentwürfe erstellen und bearbeiten.",en:"Create and edit text drafts.",es:"Crea y edita borradores de texto."})},
+    {icon:Gift,title:tx({de:"Planung",en:"Planning",es:"Planificación"}),desc:tx({de:"Wochenpläne und Textblöcke.",en:"Weekplans and text blocks.",es:"Planes semanales y bloques de texto."})},
+    {icon:ShieldCheck,title:tx({de:"Private Medien",en:"Private media",es:"Medios privados"}),desc:tx({de:"Geschützter Zugriff auf eigene Dateien.",en:"Protected access to your files.",es:"Acceso protegido a tus archivos."})},
+    {icon:Clock,title:tx({de:"Weitere Funktionen folgen",en:"More features being connected",es:"Más funciones en preparación"}),desc:tx({de:"Generierung und Veröffentlichung stehen noch aus.",en:"Generation and publishing remain pending.",es:"La generación y publicación siguen pendientes."})},
+  ] : [
     {
       icon: CalendarCheck,
       title: t("landing.pricing.trialPromise.p1Title"),
@@ -44,7 +51,7 @@ export const TrialPromiseStrip = () => {
           <div className="flex items-center gap-1.5 lg:border-r lg:border-primary/15 lg:pr-4 flex-shrink-0">
             <span className="w-1 h-1 rounded-full bg-primary animate-pulse" />
             <h3 className="text-[10px] uppercase tracking-[0.18em] text-primary/80 font-semibold whitespace-nowrap">
-              {t("landing.pricing.trialPromise.title")}
+              {isAwsTestBackend ? tx({de:"AWS-Vorschau",en:"AWS preview",es:"Vista previa de AWS"}) : t("landing.pricing.trialPromise.title")}
             </h3>
           </div>
 

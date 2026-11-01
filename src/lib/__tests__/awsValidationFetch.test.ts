@@ -44,3 +44,10 @@ it('keeps direct webhook submission and generation outside the browser client',a
  for(const path of ['/functions/v1/stripe-webhook','/functions/v1/generate-image-replicate'])await expect(call(origin+path,{method:'POST',body:'{}'})).rejects.toThrow('scope');
  expect(fetcher).not.toHaveBeenCalled();
 });
+
+it.each(['https://legacy.supabase.co','https://ai.gateway.lovable.dev','https://api-prod.useadtool.ai.evil.example','https://user:pass@api-prod.useadtool.ai','https://api-prod.useadtool.ai/rest/v1','http://127.0.0.1:9999'])('refuses a non-AWS client configuration %s before network',backend=>{
+ expect(()=>createAwsValidationFetch(fetcher,backend)).toThrow('approved AWS');expect(fetcher).not.toHaveBeenCalled();
+});
+it('permits the fixed local AWS proxy as the development client origin',async()=>{
+ await createAwsValidationFetch(fetcher,'http://127.0.0.1:4174')('http://127.0.0.1:4174/auth/v1/user');expect(fetcher).toHaveBeenCalledOnce();
+});

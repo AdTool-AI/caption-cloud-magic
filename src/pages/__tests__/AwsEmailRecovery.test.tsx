@@ -1,0 +1,26 @@
+import {act,fireEvent,render,screen,waitFor} from '@testing-library/react';
+import {beforeEach,expect,it,vi} from 'vitest';
+import {MemoryRouter} from 'react-router-dom';
+import {AwsForgotPassword,AwsEmailCallbackPage} from '../AwsEmailRecovery';
+vi.unmock('react-router-dom');
+const m=vi.hoisted(()=>({callback:{kind:'recovery',accessToken:'verified-token'} as any,state:{} as any,getSession:vi.fn(),getUser:vi.fn(),reset:vi.fn(),sdkSignOut:vi.fn(),signOut:vi.fn(),update:vi.fn()}));
+vi.mock('@/integrations/supabase/client',()=>({awsEmailCallback:m.callback,supabase:{auth:{getSession:m.getSession,getUser:m.getUser,resetPasswordForEmail:m.reset,signOut:m.sdkSignOut}}}));
+vi.mock('@/hooks/useAuth',()=>({useAuth:()=>({...m.state,signOut:m.signOut})}));
+vi.mock('@/lib/awsRecoveryPassword',()=>({updateAwsRecoveryPassword:m.update}));
+vi.mock('@/lib/i18nText',()=>({tx:(v:any)=>v.en}));
+vi.mock('@/components/landing/BlackTieFooter',()=>({BlackTieFooter:()=> <footer>Original footer</footer>}));
+const session=()=>({data:{session:{access_token:'verified-token',user:{id:'owner'}}},error:null});
+const mount=(callback=true)=>render(<MemoryRouter>{callback?<AwsEmailCallbackPage/>:<AwsForgotPassword/>}</MemoryRouter>);
+beforeEach(()=>{vi.clearAllMocks();window.history.replaceState({},'','/auth/callback#access_token=private-token');Object.assign(m.callback,{kind:'recovery',accessToken:'verified-token'});m.state={user:{id:'owner'},session:session().data.session,loading:false,requiresMfa:false};m.getSession.mockResolvedValue(session());m.getUser.mockResolvedValue({data:{user:{id:'owner'}},error:null});m.reset.mockResolvedValue({error:null});m.sdkSignOut.mockResolvedValue({error:null});m.update.mockResolvedValue({sessionsEnded:true});});
+it('requests recovery using only the fixed AWS callback and shows a generic receipt',async()=>{
+ mount(false);fireEvent.change(screen.getByLabelText('Email'),{target:{value:'owner@example.invalid'}});fireEvent.click(screen.getByRole('button',{name:'Send recovery link'}));await screen.findByText(/If an account exists/);expect(m.reset).toHaveBeenCalledWith('owner@example.invalid',{redirectTo:'https://prodtest.useadtool.ai/auth/callback'});expect(screen.getByText('Original footer')).toBeInTheDocument();
+});
+it('does not disclose backend recovery failures',async()=>{m.reset.mockRejectedValue(Error('private-provider-message'));mount(false);fireEvent.change(screen.getByLabelText('Email'),{target:{value:'owner@example.invalid'}});fireEvent.click(screen.getByRole('button',{name:'Send recovery link'}));await screen.findByRole('alert');expect(screen.queryByText(/private-provider/)).not.toBeInTheDocument();});
+it('verifies identity before showing the password form and clears fragment tokens',async()=>{mount();expect(screen.queryByLabelText('New password')).not.toBeInTheDocument();await screen.findByLabelText('New password');expect(m.getUser).toHaveBeenCalledWith('verified-token');expect(window.location.hash).toBe('');expect(document.body.textContent).not.toContain('private-token');});
+it('blocks a normal signed-in session without a recovery link',async()=>{m.callback.kind='none';delete m.callback.accessToken;mount();await screen.findByRole('alert');expect(m.getUser).not.toHaveBeenCalled();expect(screen.queryByLabelText('New password')).not.toBeInTheDocument();});
+it('blocks a foreign or unverified identity',async()=>{m.getUser.mockResolvedValue({data:{user:{id:'foreign'}},error:null});mount();await screen.findByRole('alert');expect(screen.queryByLabelText('New password')).not.toBeInTheDocument();});
+it('keeps MFA-incomplete sessions blocked',async()=>{m.state.requiresMfa=true;mount();await screen.findByText(/requires additional verification/);expect(screen.queryByLabelText('New password')).not.toBeInTheDocument();expect(m.update).not.toHaveBeenCalled();});
+it('rejects a replaced SDK session before submitting a password',async()=>{mount();await screen.findByLabelText('New password');m.getSession.mockResolvedValue({data:{session:{access_token:'changed',user:{id:'foreign'}}},error:null});fireEvent.change(screen.getByLabelText('New password'),{target:{value:'LongEnough123!'}});fireEvent.change(screen.getByLabelText('Confirm password'),{target:{value:'LongEnough123!'}});fireEvent.click(screen.getByRole('button',{name:'Update password'}));await screen.findByRole('alert');expect(m.update).not.toHaveBeenCalled();});
+it('submits once and distinguishes password success from logout failure',async()=>{
+ let finish!:(value:any)=>void;m.update.mockReturnValue(new Promise(resolve=>finish=resolve));mount();await screen.findByLabelText('New password');fireEvent.change(screen.getByLabelText('New password'),{target:{value:'LongEnough123!'}});fireEvent.change(screen.getByLabelText('Confirm password'),{target:{value:'LongEnough123!'}});const button=screen.getByRole('button',{name:'Update password'});fireEvent.click(button);fireEvent.click(button);await waitFor(()=>expect(m.update).toHaveBeenCalledOnce());await act(async()=>finish({sessionsEnded:false}));await screen.findByText(/Your password was updated. Please sign out/);expect(screen.queryByLabelText('New password')).not.toBeInTheDocument();expect(m.update).toHaveBeenCalledWith('owner','verified-token','LongEnough123!');
+});

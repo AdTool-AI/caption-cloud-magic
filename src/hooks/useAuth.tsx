@@ -103,6 +103,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [requiresMfa, setRequiresMfa] = useState(false);
 
   const clearMfaRequirement = useCallback(() => {
+    if (isAwsTestBackend) return;
     setRequiresMfa(false);
   }, []);
 
@@ -174,41 +175,58 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, [checkSubscription]);
 
   useEffect(() => {
-    // Set up auth state listener
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, session) => {
-        setSession(session);
-        setUser(session?.user ?? null);
-        setLoading(false);
-        
-        if (session?.user) {
-          // Use cached data immediately, then background refresh
-          setTimeout(() => {
-            checkSubscription(false);
-          }, 0);
-        } else {
-          setSubscribed(false);
-          setProductId(null);
-          setSubscriptionEnd(null);
-          setSubscriptionCheckStatus('signed_out');
-          if (isAwsTestBackend) setRequiresMfa(false);
-          clearSubscriptionCache();
-        }
+    let disposed = false;
+    let generation = 0;
+    let authEventReceived = false;
+    const acceptSession = (candidate: Session | null) => {
+      const revision = ++generation;
+      setSession(candidate);
+      setUser(candidate?.user ?? null);
+      if (isAwsTestBackend && candidate) {
+        setRequiresMfa(true);
+        setLoading(true);
+        // Run after the auth callback releases the SDK lock. Bind verification to
+        // this exact token; a late response cannot authorize a newer session.
+        setTimeout(async () => {
+          if (disposed || revision !== generation) return;
+          let allowed = false;
+          try {
+            const {data, error} = await supabase.auth.mfa.getAuthenticatorAssuranceLevel(candidate.access_token);
+            allowed = !error && !!data && (
+              data.currentLevel === 'aal2' && data.nextLevel === 'aal2' ||
+              data.currentLevel === 'aal1' && data.nextLevel === 'aal1'
+            );
+          } catch { /* Keep additional verification required. */ }
+          if (disposed || revision !== generation) return;
+          setRequiresMfa(!allowed);
+          setLoading(false);
+          void checkSubscription(false);
+        }, 0);
+        return;
       }
-    );
-
-    // Check for existing session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
       setLoading(false);
-      
-      if (session?.user) {
-        checkSubscription(false);
+      if (candidate?.user) {
+        setTimeout(() => { if (!disposed && revision === generation) void checkSubscription(false); }, 0);
+      } else {
+        setSubscribed(false);
+        setProductId(null);
+        setSubscriptionEnd(null);
+        setSubscriptionCheckStatus('signed_out');
+        if (isAwsTestBackend) setRequiresMfa(false);
+        clearSubscriptionCache();
       }
+    };
+    const {data: {subscription}} = supabase.auth.onAuthStateChange((_event, candidate) => {
+      if (disposed) return;
+      authEventReceived = true;
+      acceptSession(candidate);
     });
-
-    return () => subscription.unsubscribe();
+    supabase.auth.getSession().then(({data: {session: candidate}}) => {
+      if (!disposed && !authEventReceived) acceptSession(candidate);
+    }).catch(() => {
+      if (!disposed && !authEventReceived) acceptSession(null);
+    });
+    return () => { disposed = true; generation++; subscription.unsubscribe(); };
   }, [checkSubscription]);
 
   // Auto-refresh subscription status every 5 minutes (was 60 seconds)
@@ -277,6 +295,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       return { error };
     }
     
+    // AWS session publication and assurance checks are owned by the auth-state
+    // listener, including reload, refresh and account changes.
+    if (isAwsTestBackend) return { error: null };
+
     // Check if MFA is required
     if (data.user) {
       const { data: aalData, error: aalError } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
