@@ -44,7 +44,7 @@ export default function AwsCalendarPage() {
       {memberships.map(row=><option key={row.workspace_id} value={row.workspace_id}>{visible?.workspaceId===row.workspace_id?visible.workspaceName:row.workspace_id}</option>)}
     </select></label>}
     {memberships.length===100&&<p className="text-sm text-muted-foreground">Showing the first 100 workspace memberships.</p>}
-    {busy&&<p role="status">Loading your calendarâ€¦</p>}
+    {busy&&<p role="status">Loading your calendarÃ¢â‚¬Â¦</p>}
     {error&&<p role="alert" className="rounded border border-destructive/50 p-4">{error}</p>}
     {!busy&&!error&&!memberships.length&&<p>No workspace memberships were found for this account.</p>}
     {visible&&<>

@@ -17,16 +17,27 @@
 
 const SECRET_ENV = "WEBHOOK_SHARED_SECRET";
 
-export function getWebhookSecret(): string | null {
-  const s = Deno.env.get(SECRET_ENV);
+export function getWebhookSecret(env: (name:string)=>string|undefined = name=>Deno.env.get(name)): string | null {
+  const s = env(SECRET_ENV);
   return s && s.length >= 16 ? s : null;
 }
 
-export function appendWebhookToken(url: string): string {
-  const secret = getWebhookSecret();
-  if (!secret) return url;
-  const sep = url.includes("?") ? "&" : "?";
-  return `${url}${sep}token=${encodeURIComponent(secret)}`;
+export function appendWebhookToken(url: string, env: (name:string)=>string|undefined = name=>Deno.env.get(name)): string {
+  const secret = getWebhookSecret(env);
+  if (!secret) throw new Error('WEBHOOK_SHARED_SECRET_REQUIRED');
+  // Database/API traffic uses SUPABASE_URL internally. Providers need the public HTTPS origin.
+  const configured = env('PUBLIC_API_URL');
+  let origin: URL;
+  try { origin = new URL(configured ?? ''); } catch { throw new Error('WEBHOOK_PUBLIC_ORIGIN_REQUIRED'); }
+  if (origin.origin !== 'https://api-prod.useadtool.ai' || origin.username || origin.password ||
+      origin.pathname !== '/' || origin.search || origin.hash) throw new Error('WEBHOOK_PUBLIC_ORIGIN_REQUIRED');
+  let supplied: URL;
+  try { supplied = new URL(url); } catch { throw new Error('INVALID_WEBHOOK_PATH'); }
+  if (supplied.username || supplied.password || supplied.hash || url.length>8192 ||
+      !/^\/functions\/v1\/[a-z][a-z0-9-]{0,99}$/.test(supplied.pathname)) throw new Error('INVALID_WEBHOOK_PATH');
+  const result = new URL(supplied.pathname + supplied.search, origin);
+  result.searchParams.set('token', secret);
+  return result.href;
 }
 
 /**

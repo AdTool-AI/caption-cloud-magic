@@ -32,3 +32,15 @@ it('permits pricing GET and rejects pricing POST before network',async()=>{
  await expect(call(origin+'/functions/v1/pricing-catalog',{method:'POST',body:'{}'})).rejects.toThrow('scope');
  expect(fetcher).not.toHaveBeenCalled();
 });
+
+it.each(['create-checkout','ai-video-purchase-credits','ai-video-verify-purchase'])('permits only exact browser billing POST %s',async slug=>{
+ const call=createAwsValidationFetch(fetcher,origin);const path=origin+'/functions/v1/'+slug;
+ await call(path,{method:'POST',body:'{}'});expect(fetcher).toHaveBeenCalledOnce();fetcher.mockClear();
+ for(const [url,method] of [[path,'GET'],[path+'?override=true','POST'],[path+'/','POST']] as const)await expect(call(url,{method})).rejects.toThrow('scope');
+ expect(fetcher).not.toHaveBeenCalled();
+});
+it('keeps direct webhook submission and generation outside the browser client',async()=>{
+ const call=createAwsValidationFetch(fetcher,origin);
+ for(const path of ['/functions/v1/stripe-webhook','/functions/v1/generate-image-replicate'])await expect(call(origin+path,{method:'POST',body:'{}'})).rejects.toThrow('scope');
+ expect(fetcher).not.toHaveBeenCalled();
+});

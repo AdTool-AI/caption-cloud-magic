@@ -1,3 +1,6 @@
+import {fulfillBasicSubscriptionEvent} from '../_shared/stripeSubscriptionFulfillment.ts';
+import {fulfillCreditTopupEvent,creditBalance,CreditPurchaseError} from '../_shared/stripeCreditFulfillment.ts';
+import {requireManagedCreditWebhookSession,UnmanagedCreditWebhook} from '../_shared/stripeCreditWebhookOwnership.ts';
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import Stripe from "npm:stripe@18.5.0";
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
@@ -44,7 +47,8 @@ serve(withTelemetry('stripe-webhook', async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
-  if (isQaMockRequest(req)) return qaMockJson(corsHeaders, { name: "stripe-webhook" });
+  if(req.method!=='POST')return new Response(JSON.stringify({error:'METHOD_NOT_ALLOWED'}),{status:405,headers:{...corsHeaders,'Content-Type':'application/json'}});
+  if([...req.headers.keys()].some(name=>name.startsWith('x-qa-')||name==='x-real-spend'))return new Response(JSON.stringify({error:'TEST_FLAGS_DENIED'}),{status:403,headers:{...corsHeaders,'Content-Type':'application/json'}});
 
 
   try {
@@ -89,6 +93,60 @@ serve(withTelemetry('stripe-webhook', async (req) => {
     }
 
     console.log('[STRIPE-WEBHOOK] Event type:', event.type);
+
+    // Credit fulfillment is session-atomic. A failed grant must not be hidden by
+    // the legacy event marker: Stripe must be able to deliver this session again.
+    if (['checkout.session.completed','checkout.session.async_payment_succeeded'].includes(event.type) &&
+        (event.data.object as Stripe.Checkout.Session).mode==='payment' &&
+        (event.data.object as Stripe.Checkout.Session).metadata?.type==='ai_video_credits') {
+      try {
+        if (!/^(sk|rk)_(live|test)_/.test(stripeKey)) throw new CreditPurchaseError(503,'PAYMENT_CONFIGURATION_UNAVAILABLE');
+        const creditState=await fulfillCreditTopupEvent(event as any,{
+          expectedLiveMode:/^(sk|rk)_live_/.test(stripeKey),
+          loadSession:async id=>{
+            const session=await stripe.checkout.sessions.retrieve(id);
+            if(Deno.env.get('AWS_BASIC_SUBSCRIPTION_CONTRACT')==='true'){
+              await requireManagedCreditWebhookSession(session,id,/^(sk|rk)_live_/.test(stripeKey),async actor=>{
+                const {data,error}=await supabaseAdmin.auth.admin.getUserById(actor);
+                return {user:data.user,error};
+              });
+            }
+            return session;
+          },
+          loadLineItems:async id=>await stripe.checkout.sessions.listLineItems(id,{limit:2}),
+          grantOnce:async grant=>{
+            const {data,error}=await supabaseAdmin.rpc('grant_verified_ai_credit_purchase',grant);
+            if(error)throw new CreditPurchaseError(503,'CREDIT_GRANT_REVIEW_REQUIRED');return creditBalance(data);
+          },
+        });
+        return new Response(JSON.stringify({received:true,creditState}),{status:200,headers:{...corsHeaders,'Content-Type':'application/json'}});
+      } catch (error) {
+        if(error instanceof UnmanagedCreditWebhook)return new Response(JSON.stringify({received:true,creditState:'unmanaged'}),{status:200,headers:{...corsHeaders,'Content-Type':'application/json'}});
+        return new Response(JSON.stringify({error:'CREDIT_FULFILLMENT_RETRY_REQUIRED'}),{status:503,headers:{...corsHeaders,'Content-Type':'application/json'}});
+      }
+    }
+
+    // AWS path remains disabled until its SQL/HTTP acceptance and installation complete.
+    if(Deno.env.get('AWS_BASIC_SUBSCRIPTION_CONTRACT')==='true'){
+      try{
+        if(!/^(sk|rk)_(live|test)_/.test(stripeKey))throw new Error('SUBSCRIPTION_CONFIGURATION_UNAVAILABLE');
+        const subscriptionState=await fulfillBasicSubscriptionEvent(event as any,body,{
+          expectedLiveMode:/^(sk|rk)_live_/.test(stripeKey),
+          loadCheckout:async id=>await stripe.checkout.sessions.retrieve(id),
+          loadSubscription:async id=>await stripe.subscriptions.retrieve(id),
+          loadInvoice:async id=>await stripe.invoices.retrieve(id),
+          loadInvoiceLines:async id=>await stripe.invoices.listLineItems(id,{limit:2}),
+          findActor:async customer=>{
+            const {data,error}=await supabaseAdmin.from('profiles').select('id').eq('stripe_customer_id',customer).limit(2);
+            if(error||!Array.isArray(data)||data.length>1)throw new Error('SUBSCRIPTION_ACTOR_LOOKUP_UNAVAILABLE');
+            return data.length===1?data[0].id:null;
+          },
+          apply:async args=>{const {data,error}=await supabaseAdmin.rpc('apply_verified_basic_subscription_event',args);if(error)throw new Error('SUBSCRIPTION_APPLY_RETRY_REQUIRED');return data;},
+        });
+        // AWS mode owns only the reviewed credit/Basic paths; never enter legacy side effects.
+        return new Response(JSON.stringify({received:true,subscriptionState}),{status:200,headers:{...corsHeaders,'Content-Type':'application/json'}});
+      }catch{return new Response(JSON.stringify({error:'SUBSCRIPTION_FULFILLMENT_RETRY_REQUIRED'}),{status:503,headers:{...corsHeaders,'Content-Type':'application/json'}});}
+    }
 
     // Idempotency guard — Stripe retries deliver the same event.id.
     if (await isDuplicateStripeEvent(event.id, event.type, { livemode: event.livemode })) {
@@ -287,49 +345,7 @@ serve(withTelemetry('stripe-webhook', async (req) => {
         }
       }
 
-      // === Credit Top-up (mode=payment) ===
-      // Bisher wurden Credits NUR gutgeschrieben, wenn der Nutzer nach dem Checkout
-      // in die App zurückkehrte (ai-video-verify-purchase). Schließt er den Tab,
-      // war die Zahlung erfolgt, aber das Guthaben fehlte. Der Webhook bucht jetzt
-      // serverseitig — die RPC ist über stripe_checkout_session_id idempotent.
-      if (session.mode === 'payment' && session.metadata?.type === 'ai_video_credits') {
-        try {
-          if (session.payment_status !== 'paid') {
-            console.log('[STRIPE-WEBHOOK] Top-up not paid yet, skipping:', session.id);
-          } else {
-            const md = session.metadata;
-            const { data: newBalance, error: creditError } = await supabaseAdmin.rpc('add_ai_video_credits', {
-              p_user_id: md.user_id,
-              p_currency: md.currency || 'EUR',
-              p_base_amount: parseFloat(md.base_amount || '0'),
-              p_bonus_amount: parseFloat(md.bonus_amount || '0'),
-              p_pack_size: md.pack_id,
-              p_bonus_percent: parseInt(md.bonus_percent || '0', 10),
-              p_stripe_session_id: session.id,
-            });
-            if (creditError) {
-              console.error('[STRIPE-WEBHOOK] Top-up credit grant failed:', creditError);
-              return new Response(JSON.stringify({ error: 'Failed to grant credits' }), {
-                status: 500,
-                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-              });
-            }
-            console.log('[STRIPE-WEBHOOK] Top-up credits granted:', { user: md.user_id, pack: md.pack_id, newBalance });
-            await trackBusinessEvent('credit_topup_completed', md.user_id, {
-              amount: (session.amount_total || 0) / 100,
-              currency: session.currency,
-              pack_id: md.pack_id,
-              session_id: session.id,
-            });
-          }
-        } catch (topupError) {
-          console.error('[STRIPE-WEBHOOK] Top-up handling error:', topupError);
-          return new Response(JSON.stringify({ error: 'Top-up handling failed' }), {
-            status: 500,
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          });
-        }
-      }
+
     }
 
 

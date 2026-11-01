@@ -1,11 +1,14 @@
 import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
+import { LOCAL_API } from "./scripts/aws-local-proxy.mjs";
 import { resolveAwsTestConfig } from "./scripts/aws-test-config.mjs";
 
 // https://vitejs.dev/config/
-export default defineConfig(({ mode }) => {
-  const aws = resolveAwsTestConfig(loadEnv(mode, process.cwd(), 'VITE_'));
+export default defineConfig(({ mode,command }) => {
+  const localAws=mode==='aws-local';
+  if(localAws&&command!=='serve')throw new Error('aws-local is development-only. Use build:aws for deployment.');
+  const aws = resolveAwsTestConfig(loadEnv(localAws?'aws-test':mode, process.cwd(), 'VITE_'));
   const backendStamp: Plugin | null = aws ? {
     name: 'aws-test-backend-stamp',
     generateBundle() {
@@ -16,17 +19,19 @@ export default defineConfig(({ mode }) => {
   } : null;
   return ({
   define: {
+    'import.meta.env.VITE_LOCAL_REAL_AWS': JSON.stringify(localAws?'true':'false'),
     'import.meta.env.VITE_BACKEND_TARGET': JSON.stringify(aws ? 'aws-test' : 'legacy'),
     ...(aws ? {
-      'import.meta.env.VITE_SUPABASE_URL': JSON.stringify(aws.url),
+      'import.meta.env.VITE_SUPABASE_URL': JSON.stringify(localAws?LOCAL_API:aws.url),
       'import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY': JSON.stringify(aws.anonKey),
       'import.meta.env.VITE_SUPABASE_ANON_KEY': JSON.stringify(aws.anonKey),
       'import.meta.env.VITE_SUPABASE_PROJECT_ID': JSON.stringify('aws-test'),
     } : {}),
   },
   server: {
-    host: "::",
-    port: 8080,
+    host: localAws?"127.0.0.1":"::",
+    port: localAws?5173:8080,
+    strictPort: localAws,
   },
   plugins: [react(), backendStamp].filter(Boolean),
   resolve: {
@@ -77,20 +82,20 @@ export default defineConfig(({ mode }) => {
         },
       },
     },
-    // CSS Code Splitting für bessere Performance
+    // CSS Code Splitting fÃ¼r bessere Performance
     cssCodeSplit: true,
-    // Chunk Size Warnings erhöhen für vendor bundles
+    // Chunk Size Warnings erhÃ¶hen fÃ¼r vendor bundles
     chunkSizeWarningLimit: 1000,
     // Source Maps nur in Development
     sourcemap: mode === 'development',
-    // Minify für Production
+    // Minify fÃ¼r Production
     minify: mode === 'production' || mode === 'aws-test' ? 'esbuild' : false,
-    // Target moderne Browser für kleinere Bundles
+    // Target moderne Browser fÃ¼r kleinere Bundles
     target: 'es2020',
     // Asset inlining threshold (reduce HTTP requests)
     assetsInlineLimit: 4096,
   },
-  // Optimierung für Production
+  // Optimierung fÃ¼r Production
   optimizeDeps: {
     include: ['react', 'react-dom', 'react-router-dom'],
   },

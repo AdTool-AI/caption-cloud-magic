@@ -1,3 +1,4 @@
+import {validateBillingCheckout,founderCouponMatches} from '../_shared/billingCheckoutGuard.ts';
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import Stripe from "npm:stripe@18.5.0";
 import { createClient } from "npm:@supabase/supabase-js@2.57.0";
@@ -23,7 +24,8 @@ serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
-  if (isQaMockRequest(req)) return qaMockJson(corsHeaders, { name: "create-checkout" });
+  const checkoutDenied=await validateBillingCheckout(req,'subscription',Deno.env.get('APP_URL'));
+  if(checkoutDenied)return checkoutDenied;
 
 
   try {
@@ -47,7 +49,7 @@ serve(async (req) => {
     );
 
     const { data: { user }, error: userError } = await supabaseClient.auth.getUser();
-    if (userError || !user) throw new Error("Not authenticated");
+    if (userError || !user || user.role!=="authenticated" || user.is_anonymous) return new Response(JSON.stringify({error:"UNAUTHORIZED"}),{status:401,headers:{...corsHeaders,"Content-Type":"application/json"}});
 
     const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY") || "", {
       apiVersion: STRIPE_API_VERSION,
@@ -76,10 +78,11 @@ serve(async (req) => {
         metadata: { userId: user.id },
       });
       customerId = customer.id;
-      await supabaseClient
+      const {error:customerLinkError}=await supabaseAdmin
         .from("profiles")
         .update({ stripe_customer_id: customerId })
         .eq("id", user.id);
+      if(customerLinkError)throw new Error("Customer profile link unavailable");
     }
 
     // === Founders-Slot ===

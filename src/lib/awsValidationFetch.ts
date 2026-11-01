@@ -1,3 +1,4 @@
+import { isCanonicalMediaReadUri } from './mediaReadContract';
 import { isCanonicalPlannerReadUri } from './plannerReadContract';
 import { isCanonicalCalendarReadUri } from './calendarReadContract';
 const TABLES = new Set(['profiles', 'user_roles', 'workspaces', 'workspace_members']);
@@ -17,8 +18,9 @@ export function createAwsValidationFetch(fetcher: typeof fetch, backend: string)
       '/auth/v1/logout', '/auth/v1/logout?scope=local', '/auth/v1/logout?scope=global',
     ].includes(uri);
     const catalog = method === 'GET' && uri === '/functions/v1/pricing-catalog' || method === 'POST' && uri === '/functions/v1/get-video-templates';
-    const draft = method === 'POST' && ['/functions/v1/calendar-create-draft','/functions/v1/calendar-edit-draft','/functions/v1/calendar-delete-draft'].includes(uri);
-    if (!rest && !auth && !catalog && !draft) throw new Error('This request is outside the AWS validation scope.');
+    const billing = method === 'POST' && ['/functions/v1/create-checkout','/functions/v1/ai-video-purchase-credits','/functions/v1/ai-video-verify-purchase'].includes(uri);
+    const draft = method === 'POST' && ['/functions/v1/calendar-create-draft','/functions/v1/calendar-edit-draft','/functions/v1/calendar-delete-draft','/functions/v1/planner-upsert-weekplan','/functions/v1/planner-upsert-blocks','/functions/v1/planner-to-calendar'].includes(uri);
+    if (!rest && !auth && !catalog && !draft && !billing && !isCanonicalMediaReadUri(uri,method)) throw new Error('This request is outside the AWS validation scope.');
     const headers = new Headers(input instanceof Request ? input.headers : undefined);
     new Headers(init.headers).forEach((value, key) => headers.set(key, value));
     if (headers.has('Content-Profile') || headers.has('Accept-Profile') && (!rest || headers.get('Accept-Profile') !== 'public')) {

@@ -1,3 +1,4 @@
+import AwsMediaPreviewCheck from '@/components/aws/AwsMediaPreviewCheck';
 import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
@@ -70,6 +71,7 @@ export default function AwsValidation() {
     {message && <p role="alert">{message}</p>}
     {!loading && !requiresMfa && session?.access_token && session.user.id === user?.id &&
       <AwsCalendarReadValidation key={session.access_token} session={session} />}
+    {!loading && !requiresMfa && session?.access_token && session.user.id === user?.id && <AwsMediaPreviewCheck key={'media-'+session.access_token} userId={user.id}/> }
     {visible && <section aria-label="Validation results" className="space-y-2">
       <h2 className="text-lg font-semibold">Selected reads completed</h2>
       <p>Counts are rows returned for this account, not totals for the service. An empty role result grants no global privileges. An empty template catalog can be valid.</p>
