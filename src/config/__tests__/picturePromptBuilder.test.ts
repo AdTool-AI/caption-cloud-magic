@@ -86,7 +86,8 @@ describe('strength polarity', () => {
       strength: 10,
     });
     expect(close.strengthValue).toBeUndefined();
-    expect(close.segments.find((s) => s.source === 'intent')?.text).toContain('Keep the reference image exactly');
+    expect(close.segments.find((s) => s.source === 'intent')?.text).toContain('unaffected details');
+    expect(close.segments.find((s) => s.source === 'intent')?.text).toContain('fully applying the changes described above');
     expect(close.notices.some((n) => n.code === 'STRENGTH_AS_LANGUAGE')).toBe(true);
 
     const free = buildPictureRequest({
@@ -97,7 +98,7 @@ describe('strength polarity', () => {
       subjectRefs: ['https://example.test/a.jpg'],
       strength: 90,
     });
-    expect(free.segments.find((s) => s.source === 'intent')?.text).toContain('loose inspiration');
+    expect(free.segments.find((s) => s.source === 'intent')?.text).toContain('allowing the broader changes described above');
   });
 
   it('buckets the slider consistently', () => {

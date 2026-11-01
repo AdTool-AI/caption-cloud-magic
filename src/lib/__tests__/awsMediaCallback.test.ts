@@ -1,0 +1,14 @@
+import {afterEach,expect,it,vi} from 'vitest';
+import {appendWebhookToken,getWebhookSecret,verifyWebhookRequest} from '../../../supabase/functions/_shared/webhook-auth';
+const secret='synthetic-callback-secret-32-characters';
+const settings:Record<string,string>={WEBHOOK_SHARED_SECRET:secret,PUBLIC_API_URL:'https://api-prod.useadtool.ai'};
+const env=(name:string)=>settings[name];
+afterEach(()=>vi.unstubAllGlobals());
+it('uses the public AWS origin for callbacks built from the private gateway URL',()=>{const url=new URL(appendWebhookToken('http://api-gw:8000/functions/v1/replicate-webhook',env));expect(url.origin).toBe('https://api-prod.useadtool.ai');expect(url.pathname).toBe('/functions/v1/replicate-webhook');expect(url.searchParams.get('token')).toBe(secret);});
+it('preserves callback job parameters and replaces stale tokens',()=>{const url=new URL(appendWebhookToken('http://api-gw:8000/functions/v1/remotion-webhook?job_id=synthetic&token=old',env));expect(url.searchParams.get('job_id')).toBe('synthetic');expect(url.searchParams.getAll('token')).toEqual([secret]);});
+it('fails closed without the webhook secret',()=>{expect(()=>appendWebhookToken('http://api-gw:8000/functions/v1/replicate-webhook',name=>name==='PUBLIC_API_URL'?settings.PUBLIC_API_URL:undefined)).toThrow('WEBHOOK_SHARED_SECRET_REQUIRED');});
+it('rejects a short callback secret',()=>{expect(getWebhookSecret(()=> 'short')).toBeNull();});
+it('does not fall back to the internal API when public configuration is absent',()=>{expect(()=>appendWebhookToken('http://api-gw:8000/functions/v1/replicate-webhook',name=>name==='WEBHOOK_SHARED_SECRET'?secret:undefined)).toThrow('WEBHOOK_PUBLIC_ORIGIN_REQUIRED');});
+it('rejects legacy, internal, path-bearing and insecure callback origins',()=>{for(const value of ['http://api-prod.useadtool.ai','http://api-gw:8000','https://legacy.supabase.co','https://api-prod.useadtool.ai/functions','https://user:pass@api-prod.useadtool.ai','https://api-prod.useadtool.ai/?token=x'])expect(()=>appendWebhookToken('http://api-gw:8000/functions/v1/replicate-webhook',name=>name==='PUBLIC_API_URL'?value:secret)).toThrow('WEBHOOK_PUBLIC_ORIGIN_REQUIRED');});
+it('rejects nonfunction paths, encoded slashes, URL credentials and fragments',()=>{for(const url of ['http://api-gw:8000/rest/v1/wallets','http://api-gw:8000/functions/v1/a%2fb','http://api-gw:8000/functions/v1/replicate-webhook#x','http://user:pass@api-gw:8000/functions/v1/replicate-webhook'])expect(()=>appendWebhookToken(url,env)).toThrow('INVALID_WEBHOOK_PATH');});
+it('receiver accepts the configured callback token and rejects a forged token',async()=>{vi.stubGlobal('Deno',{env:{get:env}});expect(verifyWebhookRequest(new Request(appendWebhookToken('http://api-gw:8000/functions/v1/replicate-webhook',env)))).toBeNull();expect(verifyWebhookRequest(new Request('https://api-prod.useadtool.ai/functions/v1/replicate-webhook?token=forged'))?.status).toBe(401);});

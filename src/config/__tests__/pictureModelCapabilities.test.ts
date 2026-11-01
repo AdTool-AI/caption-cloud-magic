@@ -84,7 +84,7 @@ describe('picture model capability matrix', () => {
 
   it('ignores exact sizes for ratio and preset models', () => {
     expect(resolveSize('ultra', '1:1', { width: 2048, height: 2048 })).toEqual({ aspectRatio: '1:1' });
-    expect(resolveSize('gptimage', '16:9', { width: 2048, height: 2048 })).toEqual({ preset: '1536x1024' });
+    expect(resolveSize('gptimage', '16:9', { width: 2048, height: 2048 })).toEqual({ aspectRatio: '3:2' });
     expect(resolveSize('recraft', '9:16')).toEqual({ preset: '1024x1820' });
   });
 

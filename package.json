@@ -16,7 +16,10 @@
     "test:e2e": "playwright test tests/critical-journeys.spec.ts",
     "test:e2e:ui": "playwright test tests/critical-journeys.spec.ts --ui",
     "test:e2e:all": "playwright test",
-    "test:e2e:install": "playwright install --with-deps chromium"
+    "test:e2e:install": "playwright install --with-deps chromium",
+    "dev:local": "node scripts/dev-local.mjs",
+    "test:local:proxy": "node --test scripts/aws-local-proxy.test.mjs",
+    "test:local": "vitest run src/components/aws/__tests__/AwsPlannerEditor.test.tsx src/lib/__tests__/awsPlannerMutations.test.ts src/lib/__tests__/awsPlannerRead.test.ts src/pages/__tests__/AwsPlannerPage.test.tsx src/lib/__tests__/awsDraftMutations.test.ts src/lib/__tests__/awsCalendarRead.test.ts src/lib/__tests__/awsValidationFetch.test.ts src/lib/__tests__/plannerHandoff.test.ts src/lib/__tests__/awsAcceptedBackendHandlers.test.ts src/lib/__tests__/awsMediaCallback.test.ts src/lib/__tests__/replicateCaption.test.ts src/lib/__tests__/replicateGptImage.test.ts src/config/__tests__/pictureModelCapabilities.test.ts src/config/__tests__/picturePromptBuilder.test.ts src/lib/__tests__/awsPrivateMedia.test.ts src/lib/__tests__/mediaReadContract.test.ts src/components/aws/__tests__/AwsMediaPreviewCheck.test.tsx src/lib/__tests__/stripeCreditFulfillment.test.ts src/lib/__tests__/billingCheckoutGuard.test.ts src/lib/__tests__/stripeSubscriptionFulfillment.test.ts src/lib/__tests__/stripeCreditWebhookOwnership.test.ts src/lib/__tests__/awsBilling.test.ts src/pages/__tests__/AwsBillingPage.test.tsx"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

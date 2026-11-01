@@ -1,3 +1,6 @@
+import {AWS_CREDIT_PURCHASE_CONTRACT} from '../_shared/stripeCreditWebhookOwnership.ts';
+import {validateBillingCheckout,founderCouponMatches} from '../_shared/billingCheckoutGuard.ts';
+import {CREDIT_PACKS,STRIPE_PRICE_IDS,type PurchaseRequest} from '../_shared/stripeCreditPacks.ts';
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import Stripe from "npm:stripe@18.5.0";
 import { createClient } from "npm:@supabase/supabase-js@2";
@@ -11,53 +14,12 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-qa-mock",
 };
 
-type PaymentCurrency = 'EUR' | 'USD' | 'GBP';
-
-interface PurchaseRequest {
-  packId: 'starter' | 'standard' | 'pro' | 'enterprise';
-  currency: PaymentCurrency;
-}
-
-// Credit packs — die Gutschrift hängt AUSSCHLIESSLICH am Paket, nie an der
-// Zahlungswährung oder am gezahlten Betrag. Ein Kauf in EUR, USD oder GBP
-// schreibt exakt dieselbe Credit-Menge gut.
-// (Mirror von src/config/aiVideoCredits.ts.)
-const CREDIT_PACKS = {
-  starter: { price: 10.00, credits: 9.00, bonus: 0, bonusPercent: 0 },
-  standard: { price: 50.00, credits: 50.00, bonus: 1.00, bonusPercent: 2 },
-  pro: { price: 100.00, credits: 100.00, bonus: 6.00, bonusPercent: 6 },
-  enterprise: { price: 250.00, credits: 250.00, bonus: 37.50, bonusPercent: 15 },
-} as const;
-
-// Stripe Price IDs — Konto „AdTool AI" (acct_1SLqO0DRu4kfSFxj)
-const STRIPE_PRICE_IDS: Record<PurchaseRequest['packId'], Record<PaymentCurrency, string>> = {
-  starter: {
-    EUR: 'price_1SWOEBDRu4kfSFxjUBaTMzcY', // 10,00 €
-    USD: 'price_1UDAYsDRu4kfSFxjEnz03Hef', // $10.00
-    GBP: 'price_1UDAYsDRu4kfSFxjkUZmMpGc', // £10.00
-  },
-  standard: {
-    EUR: 'price_1SWOFXDRu4kfSFxjX6amIvWL', // 50,00 €
-    USD: 'price_1UDAciDRu4kfSFxjZzvztB3n', // $50.00
-    GBP: 'price_1UDAciDRu4kfSFxjBlIx9eMA', // £50.00
-  },
-  pro: {
-    EUR: 'price_1SWOHkDRu4kfSFxjxURoJ2JP', // 100,00 €
-    USD: 'price_1UDAfdDRu4kfSFxjlkHaKdkI', // $100.00
-    GBP: 'price_1UDAfdDRu4kfSFxjw46PwUY4', // £100.00
-  },
-  enterprise: {
-    EUR: 'price_1SWOJGDRu4kfSFxj03qDB5Fj', // 250,00 €
-    USD: 'price_1UDAi8DRu4kfSFxj8rhhmDUK', // $250.00
-    GBP: 'price_1UDAi8DRu4kfSFxjULeSYc7c', // £250.00
-  },
-};
-
 serve((req: Request) => withLang(req, () => (async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
-  if (isQaMockRequest(req)) return qaMockJson(corsHeaders, { name: "ai-video-purchase-credits" });
+  const checkoutDenied=await validateBillingCheckout(req,'credits',Deno.env.get('APP_URL'));
+  if(checkoutDenied)return checkoutDenied;
 
 
   try {
@@ -76,8 +38,8 @@ serve((req: Request) => withLang(req, () => (async (req) => {
     const token = authHeader.replace("Bearer ", "");
     const { data: { user }, error: authError } = await supabaseClient.auth.getUser(token);
     
-    if (authError || !user) {
-      throw new Error("Unauthorized");
+    if (authError || !user || user.role!=="authenticated" || user.is_anonymous) {
+      return new Response(JSON.stringify({error:"UNAUTHORIZED"}),{status:401,headers:{...corsHeaders,"Content-Type":"application/json"}});
     }
 
     // Check user plan (Pro or Enterprise only)
@@ -135,6 +97,13 @@ serve((req: Request) => withLang(req, () => (async (req) => {
       apiVersion: "2025-08-27.basil",
     });
 
+    // Resolve the promised discount before creating a customer or checkout.
+    if(isFounder){
+      let couponReady=false;
+      try{couponReady=founderCouponMatches(await stripe.coupons.retrieve(FOUNDERS_CREDIT_COUPON));}catch{ /* Return a sanitized retry response. */ }
+      if(!couponReady)return new Response(JSON.stringify({error:'FOUNDERS_DISCOUNT_UNAVAILABLE'}),{status:503,headers:{...corsHeaders,'Content-Type':'application/json'}});
+    }
+
     // Get or create Stripe customer
     const customers = await stripe.customers.list({ email: user.email!, limit: 1 });
     let customerId: string;
@@ -186,6 +155,7 @@ serve((req: Request) => withLang(req, () => (async (req) => {
       success_url: `${req.headers.get("origin")}/ai-video-studio?payment=success&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${req.headers.get("origin")}/ai-video-studio?payment=canceled`,
       metadata: {
+        ...(Deno.env.get('AWS_BASIC_SUBSCRIPTION_CONTRACT')==='true'?{aws_billing_contract:AWS_CREDIT_PURCHASE_CONTRACT}:{}),
         user_id: user.id,
         pack_id: packId,
         currency: currency,

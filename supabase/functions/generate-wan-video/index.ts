@@ -65,6 +65,16 @@ serve(async (req) => {
     const user = await resolveRequestUser(req, supabaseClient);
     if (!user) throw new Error("Unauthorized");
 
+    // Fail before wallet, allowance or generation mutations when provider/callback setup is missing.
+    const REPLICATE_API_KEY = Deno.env.get('REPLICATE_API_KEY');
+    if (!REPLICATE_API_KEY) throw new Error('REPLICATE_API_KEY not configured');
+
+    const replicate = new Replicate({ auth: REPLICATE_API_KEY });
+
+    // Webhook URL
+    const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
+    const webhookUrl = appendWebhookToken(`${SUPABASE_URL}/functions/v1/replicate-webhook`);
+
     const supabaseAdmin = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
@@ -185,14 +195,7 @@ serve(async (req) => {
     console.log(`[generate-wan-video] Credits deducted. New balance: ${currencySymbol}${newBalance.toFixed(2)}`);
 
     // Initialize Replicate
-    const REPLICATE_API_KEY = Deno.env.get('REPLICATE_API_KEY');
-    if (!REPLICATE_API_KEY) throw new Error('REPLICATE_API_KEY not configured');
 
-    const replicate = new Replicate({ auth: REPLICATE_API_KEY });
-
-    // Webhook URL
-    const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
-    const webhookUrl = appendWebhookToken(`${SUPABASE_URL}/functions/v1/replicate-webhook`);
 
     // Provider contract = canonical route identity for the gate-resolved mode.
     // Never a second, independently inferred slug.

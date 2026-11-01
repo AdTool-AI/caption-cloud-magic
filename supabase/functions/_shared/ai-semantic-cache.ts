@@ -25,6 +25,8 @@ interface CacheOptions {
   language?: string;
   model?: string;
   ttlHours?: number;
+  /** false uses exact hashes only and makes no embedding-provider calls. */
+  semantic?: boolean;
 }
 
 function getServiceClient() {
@@ -138,7 +140,7 @@ export async function lookupAiCache<T = any>(
     }
 
     // 2. Semantic similarity match
-    const embedding = await generateEmbedding(opts.promptText);
+    const embedding = opts.semantic === false ? null : await generateEmbedding(opts.promptText);
     if (!embedding) {
       await recordStat(opts.endpoint, false, Date.now() - start);
       return { hit: false, data: null };
@@ -193,7 +195,7 @@ export async function storeAiCache(
   try {
     const supabase = getServiceClient();
     const promptHash = await hashPrompt(opts.promptText);
-    const embedding = await generateEmbedding(opts.promptText);
+    const embedding = opts.semantic === false ? null : await generateEmbedding(opts.promptText);
     const ttlHours = opts.ttlHours ?? DEFAULT_TTL_HOURS;
     const expiresAt = new Date(Date.now() + ttlHours * 3600 * 1000).toISOString();
 

@@ -1,6 +1,8 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import Replicate from "npm:replicate@0.25.2";
+import { requireMediaOrigin, privateMediaReference, signOwnedMediaPreview } from "../_shared/privateMedia.ts";
+import { buildReplicateGptImageInput, REPLICATE_GPT_IMAGE_MODEL } from "../_shared/replicateGptImage.ts";
 import { isQaMockRequest, qaMockResponse } from "../_shared/qaMock.ts"; // [qa-mock-injected]
 import {
   capabilityFor,
@@ -45,6 +47,7 @@ const IMAGE_PRICING: Record<string, Record<string, number>> = {
 
 const REPLICATE_MODELS: Record<string, `${string}/${string}` | `${string}/${string}:${string}`> = {
   fast: 'bytedance/seedream-4',
+  gptimage: REPLICATE_GPT_IMAGE_MODEL,
   pro: 'google/imagen-4-ultra',
   ultra: 'google/nano-banana',
   flux: 'black-forest-labs/flux-1.1-pro-ultra',
@@ -321,90 +324,23 @@ serve(async (req) => {
     // Provider-side field order: subject references first, style last.
     const imageInputs: string[] = [...subjectRefs, ...styleRefs];
 
-    // GPT-Image-2 (the model ChatGPT uses) runs on the Lovable AI Gateway,
-    // not on Replicate — fixed pixel sizes instead of ratio strings.
-    let gptImageDataUrl: string | null = null;
-    if (tier === 'gptimage') {
-      const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
-      if (!LOVABLE_API_KEY) {
-        return new Response(
-          JSON.stringify({ error: "LOVABLE_API_KEY not configured" }),
-          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-      const isEdit = imageInputs.length > 0;
-      let gptBody: BodyInit;
-      let gptHeaders: Record<string, string> = { Authorization: `Bearer ${LOVABLE_API_KEY}` };
-      if (isEdit) {
-        const form = new FormData();
-        form.append('model', 'openai/gpt-image-2');
-        form.append('prompt', enhancedPrompt);
-        form.append('size', resolvedSize.preset ?? '1024x1024');
-        form.append('quality', 'low');
-        if (built.transparentBackground) {
-          form.append('background', 'transparent');
-          form.append('output_format', 'png');
-        }
-        for (const [index, url] of imageInputs.entries()) {
-          const source = await fetch(url);
-          if (!source.ok) {
-            return new Response(JSON.stringify({ error: 'Referenzbild konnte nicht geladen werden.', code: 'REFERENCE_FETCH_FAILED' }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-          }
-          const blob = await source.blob();
-          form.append('image[]', blob, `reference-${index + 1}.${blob.type.includes('png') ? 'png' : 'jpg'}`);
-        }
-        gptBody = form;
-      } else {
-        gptHeaders = { ...gptHeaders, 'Content-Type': 'application/json' };
-        gptBody = JSON.stringify({
-          model: 'openai/gpt-image-2', prompt: enhancedPrompt,
-          size: resolvedSize.preset ?? '1024x1024', quality: 'low', n: 1,
-          ...(built.transparentBackground ? { background: 'transparent', output_format: 'png' } : {}),
-        });
-      }
-      const gptRes = await fetch(`https://ai.gateway.lovable.dev/v1/images/${isEdit ? 'edits' : 'generations'}`, {
-        method: 'POST',
-        headers: gptHeaders,
-        body: gptBody,
-      });
-      if (!gptRes.ok) {
-        const errBody = await gptRes.text();
-        console.error(`[generate-image-replicate] GPT-Image failed [${gptRes.status}]: ${errBody}`);
-        return new Response(
-          JSON.stringify({
-            error: `Bildgenerierung fehlgeschlagen: ${errBody}`,
-            provider_message: errBody,
-            code: 'GPT_IMAGE_ERROR',
-          }),
-          { status: gptRes.status, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-      const gptJson = await gptRes.json();
-      const b64 = gptJson?.data?.[0]?.b64_json;
-      if (!b64) {
-        console.error('[generate-image-replicate] GPT-Image returned no image:', JSON.stringify(gptJson).slice(0, 500));
-        return new Response(
-          JSON.stringify({ error: "No image returned from model", code: "NO_OUTPUT" }),
-          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-      gptImageDataUrl = `data:image/png;base64,${b64}`;
-    }
-
     // Replicate
     const REPLICATE_API_KEY = Deno.env.get('REPLICATE_API_KEY');
-    if (!REPLICATE_API_KEY && tier !== 'gptimage') {
+    if (!REPLICATE_API_KEY) {
       return new Response(
         JSON.stringify({ error: "REPLICATE_API_KEY not configured" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
+    const mediaOrigin = requireMediaOrigin(Deno.env.get("PUBLIC_API_URL"));
     const replicate = new Replicate({ auth: REPLICATE_API_KEY });
     const modelRef = REPLICATE_MODELS[tier];
 
     // Per-model input shape
-    const replicateInput: Record<string, any> = { prompt: enhancedPrompt };
+    const replicateInput: Record<string, any> = tier === 'gptimage'
+      ? buildReplicateGptImageInput(enhancedPrompt, safeAspect, imageInputs, built.transparentBackground)
+      : { prompt: enhancedPrompt };
 
     if (tier === 'fast') {
       // Seedream 4 — supports exact pixel sizes via size:"custom"
@@ -464,7 +400,7 @@ serve(async (req) => {
 
     let output: any;
     try {
-      output = gptImageDataUrl ?? await replicate.run(modelRef as any, { input: replicateInput });
+      output = await replicate.run(modelRef as any, { input: replicateInput });
     } catch (replicateError: any) {
       console.error('[generate-image-replicate] Replicate error:', replicateError);
       const detail = String(
@@ -532,11 +468,7 @@ serve(async (req) => {
       );
     }
 
-    const { data: publicUrlData } = supabaseAdmin.storage
-      .from('background-projects')
-      .getPublicUrl(storagePath);
-
-    const publicUrl = publicUrlData.publicUrl;
+    const assetReference = privateMediaReference(mediaOrigin, 'background-projects', storagePath, user.id);
 
     // Provider already ran and was paid for: retry the library row instead of
     // discarding a paid result.
@@ -544,7 +476,7 @@ serve(async (req) => {
       supabaseAdmin,
       {
         user_id: user.id,
-        image_url: publicUrl,
+        image_url: assetReference,
         workflow_type: 'generated',
         prompt: prompt.trim(),
         style,
@@ -552,6 +484,7 @@ serve(async (req) => {
         source: 'generated',
         metadata_json: {
           storagePath,
+          storageBucket: 'background-projects',
           requestedFormat: built.requestedFormat,
           resolvedFormat: built.resolvedFormat,
         },
@@ -566,7 +499,17 @@ serve(async (req) => {
     );
 
     if (deductError) {
-      console.error('[generate-image-replicate] Deduct error:', deductError);
+      console.error('[generate-image-replicate] Deduction requires review');
+      return new Response(JSON.stringify({error:'The image is stored, but its charge requires review. Do not regenerate it.',code:'ASSET_CHARGE_REVIEW_REQUIRED',assetId:persisted.id}),
+        {status:503,headers:{...corsHeaders,'Content-Type':'application/json'}});
+    }
+
+    let previewUrl: string;
+    try {
+      previewUrl = await signOwnedMediaPreview(supabaseAdmin, mediaOrigin, 'background-projects', storagePath, user.id);
+    } catch {
+      return new Response(JSON.stringify({error:'The image is stored. Refresh its preview rather than generating again.',code:'ASSET_PREVIEW_UNAVAILABLE',assetId:persisted.id}),
+        {status:503,headers:{...corsHeaders,'Content-Type':'application/json'}});
     }
 
     if (!persisted.ok) {
@@ -576,7 +519,7 @@ serve(async (req) => {
           error:
             'Your image is ready and safely stored, but it could not be added to your library yet. We are retrying — the result is not lost.',
           code: 'ASSET_PERSIST_FAILED',
-          providerUrl: publicUrl,
+          providerUrl: previewUrl,
           cost,
           currency,
         }),
@@ -589,9 +532,11 @@ serve(async (req) => {
         success: true,
         image: {
           id: persisted.id,
-          url: publicUrl,
-          previewUrl: publicUrl,
+          url: previewUrl,
+          previewUrl,
           workflowType: 'generated',
+          storageReference: assetReference,
+          previewExpiresIn: 900,
         },
         cost,
         currency,

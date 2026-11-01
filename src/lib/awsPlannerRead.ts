@@ -4,8 +4,8 @@ import { readAwsCalendarMemberships } from './awsCalendarRead';
 import { createCalendarReadQuery } from './calendarReadContract';
 import { createPlannerReadQuery,PLANNER_READ_PROJECTIONS,type PlannerReadKind } from './plannerReadContract';
 type Row=Record<string,unknown>;
-export interface PlannerPlan {id:string;workspace_id:string;name:string;start_date:string;weeks:number;timezone:string;status:string;updated_at:string|null}
-export interface PlannerBlock {id:string;workspace_id:string;weekplan_id:string;content_id:string|null;platform:string;start_at:string;end_at:string;title_override:string|null;caption_override:string|null;status:string;updated_at:string|null}
+export interface PlannerPlan {id:string;workspace_id:string;name:string;start_date:string;weeks:number;timezone:string;status:string;default_platforms:string[];updated_at:string|null}
+export interface PlannerBlock {id:string;workspace_id:string;weekplan_id:string;content_id:string|null;platform:string;start_at:string;end_at:string;title_override:string|null;caption_override:string|null;status:string;meta:Record<string,unknown>;updated_at:string|null}
 export interface PlannerContent {id:string;workspace_id:string;type:string;title:string;caption:string|null;media_id:string|null;duration_sec:number|null;updated_at:string|null}
 export interface PlannerPages {plans:number;blocks:number;content:number}
 export interface AwsPlannerResult {userId:string;workspaceId:string;workspaceName:string;pages:PlannerPages;plans:PlannerPlan[];plan:PlannerPlan|null;blocks:PlannerBlock[];content:PlannerContent[]}
@@ -29,10 +29,10 @@ export async function readAwsPlanner(client:SupabaseClient<Database>,session:Ses
   rows(client,session,'plans',workspaceId,pages.plans),rows(client,session,'content',workspaceId,pages.content),
  ]);
  if(workspace.error||!Array.isArray(workspace.data)||workspace.data.length!==1||workspace.data[0].id!==workspaceId||typeof workspace.data[0].name!=='string')fail();
- if(plans.some(r=>typeof r.name!=='string'||typeof r.status!=='string'||typeof r.timezone!=='string'||typeof r.start_date!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(r.start_date)||!Number.isInteger(r.weeks)||Number(r.weeks)<1||Number(r.weeks)>52||r.updated_at!==null&&!date(r.updated_at)))fail();
+ if(plans.some(r=>typeof r.name!=='string'||typeof r.status!=='string'||typeof r.timezone!=='string'||!Array.isArray(r.default_platforms)||r.default_platforms.some(p=>typeof p!=='string')||typeof r.start_date!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(r.start_date)||!Number.isInteger(r.weeks)||Number(r.weeks)<1||Number(r.weeks)>52||r.updated_at!==null&&!date(r.updated_at)))fail();
  if(content.some(r=>typeof r.title!=='string'||typeof r.type!=='string'||!text(r.caption)||r.media_id!==null&&!uuid(r.media_id)||r.duration_sec!==null&&(!Number.isFinite(r.duration_sec)||Number(r.duration_sec)<0)||r.updated_at!==null&&!date(r.updated_at)))fail();
  const plan=selectedPlanId?plans.find(r=>r.id===selectedPlanId):plans[0];if(selectedPlanId&&!plan)throw Error('PLANNER_PLAN_SCOPE_REVIEW');
  const blocks=plan?await rows(client,session,'plan_blocks',workspaceId,pages.blocks,plan.id as string):[];
- if(blocks.some(r=>r.weekplan_id!==plan?.id||r.content_id!==null&&!uuid(r.content_id)||typeof r.platform!=='string'||typeof r.status!=='string'||!text(r.title_override)||!text(r.caption_override)||!date(r.start_at)||!date(r.end_at)||Date.parse(r.end_at as string)<=Date.parse(r.start_at as string)||r.updated_at!==null&&!date(r.updated_at)))fail();
+ if(blocks.some(r=>r.weekplan_id!==plan?.id||!r.meta||typeof r.meta!=='object'||Array.isArray(r.meta)||r.content_id!==null&&!uuid(r.content_id)||typeof r.platform!=='string'||typeof r.status!=='string'||!text(r.title_override)||!text(r.caption_override)||!date(r.start_at)||!date(r.end_at)||Date.parse(r.end_at as string)<=Date.parse(r.start_at as string)||r.updated_at!==null&&!date(r.updated_at)))fail();
  return {userId:session.user.id,workspaceId,workspaceName:workspace.data[0].name,pages:{...pages},plans:plans as unknown as PlannerPlan[],plan:plan ? plan as unknown as PlannerPlan : null,blocks:blocks as unknown as PlannerBlock[],content:content as unknown as PlannerContent[]};
 }

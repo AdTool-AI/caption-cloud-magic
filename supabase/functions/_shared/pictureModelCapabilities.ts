@@ -25,6 +25,7 @@ export type PictureMode = 'create' | 'transform' | 'restyle' | 'mix';
 
 /** Request field the provider expects the reference image(s) in. */
 export type ReferenceField =
+  | 'input_images'           // GPT Image 2 via Replicate
   | 'image_input'            // Seedream 4, Nano Banana — array of images
   | 'image_prompt'           // FLUX 1.1 Pro Ultra — single image
   | 'image'                  // Qwen Image — single image
@@ -118,15 +119,12 @@ export const PICTURE_MODEL_CAPABILITIES: Record<PictureTier, PictureModelCapabil
   },
   gptimage: {
     model: 'GPT-Image-2',
-    provider: 'gateway',
+    provider: 'replicate',
     aspectRatios: ['1:1', '3:2', '2:3'],
-    references: { subject: 4, style: 0, field: 'image_input', total: 4 },
+    references: { subject: 4, style: 0, field: 'input_images', total: 4 },
     modes: ['create', 'transform', 'mix'],
-    sizing: {
-      kind: 'preset',
-      presets: { '1:1': '1024x1024', '3:2': '1536x1024', '2:3': '1024x1536' },
-    },
-    docs: 'https://developers.openai.com/api/reference/resources/images',
+    sizing: { kind: 'ratio' },
+    docs: 'https://replicate.com/openai/gpt-image-2',
   },
   flux: {
     model: 'FLUX 1.1 Pro Ultra',

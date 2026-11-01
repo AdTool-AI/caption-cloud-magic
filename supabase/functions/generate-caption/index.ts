@@ -1,3 +1,5 @@
+import Replicate from "npm:replicate@0.25.2";
+import { completeReplicateCaption, CaptionProviderError, CAPTION_MODEL } from "../_shared/replicateCaption.ts";
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { getSupabaseClient } from '../_shared/db-client.ts';
 import { createClient } from "npm:@supabase/supabase-js@2";
@@ -94,8 +96,7 @@ serve(withTelemetry('generate-caption', async (req) => {
     const maxLength = validation.data.maxLength || captionSettings?.value_json?.length || 250;
     const hashtagCount = validation.data.hashtagCount || hashtagSettings?.value_json?.count || 5;
 
-    // Generate caption using Lovable AI
-    const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
+    // Caption completions use the owned Replicate account.
     
     const languageNames: Record<string, string> = {
       en: 'English',
@@ -126,6 +127,7 @@ HASHTAGS: #tag1 #tag2 #tag3 #tag4 #tag5`;
       promptText: cacheKey,
       language,
       ttlHours: 24,
+      semantic: false, // Exact cache remains available; no external embedding provider is configured.
     });
 
     if (cached.hit && cached.data) {
@@ -152,46 +154,18 @@ HASHTAGS: #tag1 #tag2 #tag3 #tag4 #tag5`;
 
     const systemPrompt = systemPromptLanguage[language] || systemPromptLanguage.en;
 
-    const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: prompt }
-        ],
-      }),
-    });
-
-    if (!aiResponse.ok) {
-      const errorText = await aiResponse.text();
-      
-      if (aiResponse.status === 429) {
-        return ErrorResponses.rateLimit(
-          { aiStatus: aiResponse.status, errorText, requestId },
-          'generate-caption AI rate limit'
-        );
-      }
-      
-      if (aiResponse.status === 402) {
-        return ErrorResponses.paymentRequired(
-          { aiStatus: aiResponse.status, errorText, requestId },
-          'generate-caption AI credits exhausted'
-        );
-      }
-      
-      return ErrorResponses.serviceUnavailable(
-        { aiStatus: aiResponse.status, errorText, requestId },
-        'generate-caption AI error'
-      );
+    const token = Deno.env.get('REPLICATE_API_KEY');
+    if (!token) return ErrorResponses.serviceUnavailable({ requestId }, 'generate-caption provider configuration');
+    const replicate = new Replicate({ auth: token });
+    let generatedText: string;
+    try {
+      generatedText = await completeReplicateCaption((model, options) => replicate.run(model, options), prompt, systemPrompt);
+    } catch (error: unknown) {
+      const status = error instanceof CaptionProviderError ? error.status : 503;
+      if (status === 429) return ErrorResponses.rateLimit({ requestId }, 'generate-caption provider rate limit');
+      if (status === 402) return ErrorResponses.paymentRequired({ requestId }, 'generate-caption provider credits');
+      return ErrorResponses.serviceUnavailable({ requestId }, 'generate-caption provider unavailable');
     }
-
-    const aiData = await aiResponse.json();
-    const generatedText = aiData.choices[0].message.content;
 
     // Parse the response
     const captionMatch = generatedText.match(/CAPTION:\s*(.+?)(?=\nHASHTAGS:|$)/s);
@@ -226,7 +200,7 @@ HASHTAGS: #tag1 #tag2 #tag3 #tag4 #tag5`;
 
     // Phase 2: Store in AI semantic cache for future requests
     storeAiCache(
-      { endpoint: 'generate-caption', promptText: cacheKey, language, model: 'google/gemini-2.5-flash', ttlHours: 24 },
+      { endpoint: 'generate-caption', promptText: cacheKey, language, model: CAPTION_MODEL, ttlHours: 24, semantic: false },
       { caption, hashtags }
     ).catch((e) => console.warn('[generate-caption] Cache store failed:', e));
 

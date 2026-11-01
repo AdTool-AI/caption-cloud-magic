@@ -1,71 +1,20 @@
-import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
-import Stripe from "npm:stripe@18.5.0";
-import { createClient } from "npm:@supabase/supabase-js@2";
-import { isQaMockRequest, qaMockResponse, qaMockJson } from "../_shared/qaMock.ts";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, GET, OPTIONS, PUT, DELETE, PATCH",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-qa-mock",
-};
-
-serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
-  if (isQaMockRequest(req)) return qaMockJson(corsHeaders, { name: "ai-video-verify-purchase" });
-
-
-  try {
-    const { sessionId } = await req.json();
-    console.log('Processing Stripe session:', sessionId);
-
-    const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY") || "", {
-      apiVersion: "2025-08-27.basil",
-    });
-
-    // Retrieve session
-    const session = await stripe.checkout.sessions.retrieve(sessionId);
-    console.log('Session retrieved:', { sessionId, paymentStatus: session.payment_status });
-
-    if (session.payment_status !== 'paid') {
-      throw new Error("Payment not completed");
-    }
-
-    // Get metadata including currency
-    const { user_id, pack_id, currency, base_amount, bonus_amount, bonus_percent } = session.metadata!;
-    console.log('Adding credits for user:', { user_id, pack_id, currency, base_amount, bonus_amount });
-
-    // Use service role to add credits
-    const supabaseAdmin = createClient(
-      Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
-    );
-
-    // Call database function to add credits with currency
-    const { data, error } = await supabaseAdmin.rpc('add_ai_video_credits', {
-      p_user_id: user_id,
-      p_currency: currency,
-      p_base_amount: parseFloat(base_amount),
-      p_bonus_amount: parseFloat(bonus_amount),
-      p_pack_size: pack_id,
-      p_bonus_percent: parseInt(bonus_percent),
-      p_stripe_session_id: sessionId,
-    });
-
-    if (error) throw error;
-    console.log('Credits added successfully. New balance:', data);
-
-    return new Response(
-      JSON.stringify({ success: true, newBalance: data }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 }
-    );
-
-  } catch (error) {
-    console.error("Error verifying purchase:", error);
-    return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 500 }
-    );
-  }
-});
+import {requireAwsCreditSession} from '../_shared/stripeCreditWebhookOwnership.ts';
+import {serve} from 'https://deno.land/std@0.224.0/http/server.ts';
+import Stripe from 'npm:stripe@18.5.0';
+import {createClient} from 'npm:@supabase/supabase-js@2';
+import {createVerifyCreditPurchaseHandler,CreditPurchaseError,creditBalance} from '../_shared/stripeCreditFulfillment.ts';
+import {STRIPE_API_VERSION} from '../_shared/stripe-config.ts';
+serve(createVerifyCreditPurchaseHandler(async bearer=>{
+ const auth=createClient(Deno.env.get('SUPABASE_URL')??'',Deno.env.get('SUPABASE_ANON_KEY')??'',{auth:{persistSession:false,autoRefreshToken:false}});
+ const {data,error}=await auth.auth.getUser(bearer.slice(7));
+ return !error&&data.user?.role==='authenticated'&&!data.user.is_anonymous?data.user.id:null;
+},()=>{
+ const key=Deno.env.get('STRIPE_SECRET_KEY')??'';
+ if(!/^(sk|rk)_(live|test)_/.test(key))throw new CreditPurchaseError(503,'PAYMENT_CONFIGURATION_UNAVAILABLE');
+ const stripe=new Stripe(key,{apiVersion:STRIPE_API_VERSION});
+ const admin=createClient(Deno.env.get('SUPABASE_URL')??'',Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')??'',{auth:{persistSession:false,autoRefreshToken:false}});
+ return {expectedLiveMode:/^(sk|rk)_live_/.test(key),loadSession:async id=>{const session=await stripe.checkout.sessions.retrieve(id);return Deno.env.get('AWS_BASIC_SUBSCRIPTION_CONTRACT')==='true'?requireAwsCreditSession(session,id,/^(sk|rk)_live_/.test(key),'browser'):session;},loadLineItems:async id=>await stripe.checkout.sessions.listLineItems(id,{limit:2}),grantOnce:async grant=>{
+  const {data,error}=await admin.rpc('grant_verified_ai_credit_purchase',grant);
+  if(error)throw new CreditPurchaseError(503,'CREDIT_GRANT_REVIEW_REQUIRED');return creditBalance(data);
+ }};
+},{appUrl:Deno.env.get('APP_URL')??''}));
